@@ -1,4 +1,9 @@
 use anyhow::{bail, Context, Result};
+use process_wrap::std::CommandWrap;
+#[cfg(windows)]
+use process_wrap::std::JobObject;
+#[cfg(unix)]
+use process_wrap::std::ProcessGroup;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs;
@@ -1250,20 +1255,29 @@ fn run_command_with_timeout(
     timeout: Duration,
 ) -> Result<AgentCommandCapture> {
     let executable = resolve_program(program);
-    let mut child = Command::new(&executable)
+    let mut command = Command::new(&executable);
+    command
         .args(args.iter().map(OsStr::new))
         .current_dir(dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut command = CommandWrap::from(command);
+    #[cfg(unix)]
+    command.wrap(ProcessGroup::leader());
+    #[cfg(windows)]
+    command.wrap(JobObject);
+
+    let mut child = command
         .spawn()
         .map_err(|error| command_error(program, args, error))?;
 
     let stdout_handle = child
-        .stdout
+        .stdout()
         .take()
         .map(|stdout| thread::spawn(move || read_pipe(stdout)));
     let stderr_handle = child
-        .stderr
+        .stderr()
         .take()
         .map(|stderr| thread::spawn(move || read_pipe(stderr)));
 
@@ -1277,7 +1291,7 @@ fn run_command_with_timeout(
         }
 
         if start.elapsed() >= timeout {
-            let _ = child.kill();
+            let _ = child.start_kill();
             let status = child
                 .wait()
                 .with_context(|| format!("failed to stop {}", format_command(program, args)))?;
@@ -1939,6 +1953,49 @@ command = ["git", "status", "--short"]
     }
 
     #[test]
+    fn codex_timeout_kills_spawned_child_process() {
+        let temp = git_repo();
+        let fake_codex = fake_codex(temp.path(), FakeCodexMode::SpawnChild);
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+        fs::write(
+            temp.path().join(KEEL_DIR).join(CONFIG_FILE),
+            r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+agent_timeout_secs = 1
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+"#,
+        )
+        .unwrap();
+
+        let metadata = project
+            .run_with_adapter(
+                "spawn a child and time out",
+                &CodexAgent::with_program(fake_codex.to_string_lossy()),
+            )
+            .unwrap();
+
+        assert_eq!(metadata.status, RunStatus::NotReady);
+        assert_eq!(metadata.failure_reason, Some(FailureReason::Timeout));
+        let survivor_path = temp
+            .path()
+            .join(KEEL_DIR)
+            .join(WORKTREES_DIR)
+            .join(&metadata.run_id)
+            .join("process-tree-survivor.txt");
+        thread::sleep(Duration::from_secs(4));
+        assert!(
+            !survivor_path.exists(),
+            "timed-out agent child process survived and wrote {}",
+            survivor_path.display()
+        );
+    }
+
+    #[test]
     fn real_codex_smoke_is_opt_in() {
         if std::env::var("KEEL_REAL_CODEX_SMOKE").ok().as_deref() != Some("1") {
             return;
@@ -2020,6 +2077,7 @@ command = ["git", "status", "--short"]
         Success,
         Failure,
         Timeout,
+        SpawnChild,
     }
 
     fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
@@ -2038,12 +2096,18 @@ command = ["git", "status", "--short"]
             FakeCodexMode::Timeout if cfg!(windows) => {
                 "@echo off\r\necho fake codex starting timeout\r\nping -n 3 127.0.0.1 >nul\r\necho late output>codex-timeout-output.txt\r\nexit /B 0\r\n"
             }
+            FakeCodexMode::SpawnChild if cfg!(windows) => {
+                "@echo off\r\necho fake codex spawning child\r\nstart \"\" /B cmd /C \"ping -n 4 127.0.0.1 >nul & echo child survived>process-tree-survivor.txt\"\r\nping -n 6 127.0.0.1 >nul\r\nexit /B 0\r\n"
+            }
             FakeCodexMode::Success => {
                 "#!/bin/sh\necho fake codex stdout\necho fake codex stderr >&2\necho codex output > codex-output.txt\nexit 0\n"
             }
             FakeCodexMode::Failure => "#!/bin/sh\necho fake codex failure >&2\nexit 7\n",
             FakeCodexMode::Timeout => {
                 "#!/bin/sh\necho fake codex starting timeout\nsleep 2\necho late output > codex-timeout-output.txt\nexit 0\n"
+            }
+            FakeCodexMode::SpawnChild => {
+                "#!/bin/sh\necho fake codex spawning child\n(sh -c 'sleep 3; echo child survived > process-tree-survivor.txt') &\nsleep 5\nexit 0\n"
             }
         };
         fs::write(&script, content).unwrap();
