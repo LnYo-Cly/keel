@@ -1,0 +1,14 @@
+[package]
+name = "keel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "keel"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+keel-core = { path = "../keel-core" }

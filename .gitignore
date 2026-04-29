@@ -2,3 +2,10 @@
 /docs/
 /AGENTS.md
 /agents.md
+
+# Local Keel runtime state and development worktrees.
+/.keel/
+/.worktrees/
+
+# Rust build output.
+/target/
