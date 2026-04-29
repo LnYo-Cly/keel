@@ -436,6 +436,77 @@ impl RunSession {
         self.log.write_to(&self.run_dir.join(LOG_FILE))
     }
 
+    fn mark_running(&mut self, base_commit: String) -> Result<()> {
+        let started_at = unix_millis();
+        self.metadata.started_at = Some(started_at.to_string());
+        self.metadata.base_commit = base_commit;
+        self.metadata.status = RunStatus::Running;
+        self.metadata.readiness_reason = "run is in progress".to_string();
+        self.metadata.updated_at = started_at.to_string();
+        self.persist_metadata()
+    }
+
+    fn record_agent_plan(&mut self, command: Vec<String>) -> Result<()> {
+        self.metadata.agent_command = command;
+        self.persist_metadata()?;
+        self.log.push(format!(
+            "agent command: {}",
+            format_command_line(&self.metadata.agent_command)
+        ));
+        Ok(())
+    }
+
+    fn record_agent_execution(
+        &mut self,
+        execution: AgentExecution,
+        timeout_secs: u64,
+    ) -> (Option<i32>, bool) {
+        let command_line = execution.command_line();
+        let exit_code = execution.exit_code;
+        let timed_out = execution.timed_out;
+
+        self.log.push(format!("agent command: {command_line}"));
+        self.log
+            .push(format!("agent exit code: {}", exit_code_text(exit_code)));
+        if timed_out {
+            self.log
+                .push(format!("agent timed out after {timeout_secs} seconds"));
+        }
+        if !execution.stdout.trim().is_empty() {
+            self.log
+                .push(format!("agent stdout:\n{}", execution.stdout.trim_end()));
+        }
+        if !execution.stderr.trim().is_empty() {
+            self.log
+                .push(format!("agent stderr:\n{}", execution.stderr.trim_end()));
+        }
+
+        self.metadata.agent_command = execution.command;
+        self.metadata.exit_code = exit_code;
+        self.agent_stdout = execution.stdout;
+        self.agent_stderr = execution.stderr;
+
+        (exit_code, timed_out)
+    }
+
+    fn record_diff(&mut self, diff: String, requires_non_empty_diff: bool) -> Result<()> {
+        if requires_non_empty_diff && diff.trim().is_empty() {
+            self.metadata.failure_reason = Some(FailureReason::EmptyDiff);
+            self.metadata.readiness_reason = "required candidate diff was empty".to_string();
+            bail!("noop run produced an empty diff; refusing to mark candidate ready");
+        }
+        self.diff = Some(diff);
+        Ok(())
+    }
+
+    fn apply_outcome(&mut self, warnings: Vec<String>, classification: RunClassification) {
+        self.metadata.warnings = warnings;
+        self.metadata.status = classification.status;
+        self.metadata.failure_reason = classification.failure_reason;
+        self.metadata.readiness_reason = classification.readiness_reason;
+        self.metadata.updated_at = now_timestamp();
+    }
+
     fn mark_finished(&mut self) {
         let finished_at = unix_millis();
         self.metadata.finished_at = Some(finished_at.to_string());
@@ -569,14 +640,51 @@ impl KeelProject {
             "failed to resolve HEAD; `keel run` requires a git repository with at least one commit"
         })?;
         let config = self.read_config()?;
-        let started_at = unix_millis();
-        session.metadata.started_at = Some(started_at.to_string());
-        session.metadata.base_commit = base_commit.clone();
-        session.metadata.status = RunStatus::Running;
-        session.metadata.readiness_reason = "run is in progress".to_string();
-        session.metadata.updated_at = started_at.to_string();
-        session.persist_metadata()?;
+        session.mark_running(base_commit.clone())?;
 
+        let worktree = self.create_run_worktree(session, base_commit)?;
+
+        session
+            .log
+            .push(format!("running agent adapter `{}`", adapter.name()));
+        let run_id = session.run_id.clone();
+        let task = session.metadata.task.clone();
+        let context = AgentRunContext {
+            run_id: &run_id,
+            task: &task,
+            worktree: &worktree,
+            agent_timeout_secs: config.agent_timeout_secs,
+        };
+        session.record_agent_plan(adapter.command(&context))?;
+        let execution = adapter.run(&context)?;
+        let (exit_code, timed_out) =
+            session.record_agent_execution(execution, config.agent_timeout_secs);
+
+        prepare_untracked_for_diff(&worktree, &mut session.log)?;
+
+        let diff = self.capture_diff(&worktree, &mut session.log)?;
+        let requires_non_empty_diff = adapter.requires_non_empty_diff();
+        session.record_diff(diff, requires_non_empty_diff)?;
+        let changed_paths = changed_paths(&worktree)?;
+        session.checks = run_checks(&worktree, &config.checks, &mut session.log)?;
+
+        let warnings = collect_warnings(
+            session.diff.as_deref().unwrap_or(""),
+            requires_non_empty_diff,
+            &changed_paths,
+        );
+        session.apply_outcome(
+            warnings,
+            classify_run(exit_code, timed_out, &session.checks),
+        );
+        Ok(())
+    }
+
+    fn create_run_worktree(
+        &self,
+        session: &mut RunSession,
+        base_commit: String,
+    ) -> Result<PathBuf> {
         let worktree = self.worktree_dir(&session.run_id);
         ensure_safe_run_id(&session.run_id)?;
         ensure_safe_worktree_target(&self.root, &session.run_id, &worktree)?;
@@ -601,84 +709,7 @@ impl KeelProject {
             );
         }
 
-        session
-            .log
-            .push(format!("running agent adapter `{}`", adapter.name()));
-        let context = AgentRunContext {
-            run_id: &session.run_id,
-            task: &session.metadata.task,
-            worktree: &worktree,
-            agent_timeout_secs: config.agent_timeout_secs,
-        };
-        let planned_command = adapter.command(&context);
-        session.metadata.agent_command = planned_command.clone();
-        session.persist_metadata()?;
-        session.log.push(format!(
-            "agent command: {}",
-            format_command_line(&planned_command)
-        ));
-
-        let execution = adapter.run(&context)?;
-        session
-            .log
-            .push(format!("agent command: {}", execution.command_line()));
-        session.log.push(format!(
-            "agent exit code: {}",
-            exit_code_text(execution.exit_code)
-        ));
-        if execution.timed_out {
-            session.log.push(format!(
-                "agent timed out after {} seconds",
-                config.agent_timeout_secs
-            ));
-        }
-        if !execution.stdout.trim().is_empty() {
-            session
-                .log
-                .push(format!("agent stdout:\n{}", execution.stdout.trim_end()));
-        }
-        if !execution.stderr.trim().is_empty() {
-            session
-                .log
-                .push(format!("agent stderr:\n{}", execution.stderr.trim_end()));
-        }
-        let exit_code = execution.exit_code;
-        let timed_out = execution.timed_out;
-        session.metadata.agent_command = execution.command;
-        session.metadata.exit_code = exit_code;
-        session.agent_stdout = execution.stdout;
-        session.agent_stderr = execution.stderr;
-
-        prepare_untracked_for_diff(&worktree, &mut session.log)?;
-
-        let diff = self.capture_diff(&worktree, &mut session.log)?;
-        if adapter.requires_non_empty_diff() && diff.trim().is_empty() {
-            session.metadata.failure_reason = Some(FailureReason::EmptyDiff);
-            session.metadata.readiness_reason = "required candidate diff was empty".to_string();
-            bail!("noop run produced an empty diff; refusing to mark candidate ready");
-        }
-        session.diff = Some(diff);
-        let mut warnings = Vec::new();
-        if session
-            .diff
-            .as_deref()
-            .is_some_and(|diff| diff.trim().is_empty())
-            && !adapter.requires_non_empty_diff()
-        {
-            warnings.push("candidate diff is empty".to_string());
-        }
-
-        let changed_paths = changed_paths(&worktree)?;
-        session.checks = run_checks(&worktree, &config.checks, &mut session.log)?;
-
-        warnings.extend(warnings_for_paths(&changed_paths));
-        session.metadata.warnings = warnings;
-        let classification = classify_run(exit_code, timed_out, &session.checks);
-        session.metadata.status = classification.status;
-        session.metadata.failure_reason = classification.failure_reason;
-        session.metadata.readiness_reason = classification.readiness_reason;
-        session.metadata.updated_at = now_timestamp();
-        Ok(())
+        Ok(worktree)
     }
 
     pub fn list_runs(&self) -> Result<Vec<RunMetadata>> {
@@ -1107,6 +1138,19 @@ fn changed_paths(worktree: &Path) -> Result<Vec<String>> {
     Ok(paths)
 }
 
+fn collect_warnings(
+    diff: &str,
+    requires_non_empty_diff: bool,
+    changed_paths: &[String],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if diff.trim().is_empty() && !requires_non_empty_diff {
+        warnings.push("candidate diff is empty".to_string());
+    }
+    warnings.extend(warnings_for_paths(changed_paths));
+    warnings
+}
+
 fn warnings_for_paths(paths: &[String]) -> Vec<String> {
     let mut warnings = Vec::new();
     for path in paths {
@@ -1134,32 +1178,6 @@ fn render_report(
     agent_stdout: &str,
     agent_stderr: &str,
 ) -> String {
-    let warnings = if metadata.warnings.is_empty() {
-        "- none\n".to_string()
-    } else {
-        metadata
-            .warnings
-            .iter()
-            .map(|warning| format!("- {warning}\n"))
-            .collect()
-    };
-
-    let checks_table = checks
-        .iter()
-        .map(|check| {
-            format!(
-                "| {} | {} | {} | `{}` |\n",
-                check.name,
-                check.status,
-                exit_code_text(check.exit_code),
-                check.command
-            )
-        })
-        .collect::<String>();
-
-    let failure_section = failure.map_or_else(String::new, |message| {
-        format!("## Failure\n\n- {message}\n\n")
-    });
     let failure_reason = metadata
         .failure_reason
         .as_ref()
@@ -1167,11 +1185,7 @@ fn render_report(
     let duration = metadata
         .duration_ms
         .map_or_else(|| "n/a".to_string(), |duration| duration.to_string());
-    let agent_command = if metadata.agent_command.is_empty() {
-        "n/a".to_string()
-    } else {
-        format_command_line(&metadata.agent_command)
-    };
+    let agent_command = format_command_line(&metadata.agent_command);
     let agent_stdout = summarize_report_output(agent_stdout);
     let agent_stderr = summarize_report_output(agent_stderr);
 
@@ -1224,13 +1238,45 @@ fn render_report(
         failure_reason,
         duration,
         metadata.readiness_reason,
-        warnings,
-        failure_section,
+        render_warnings(&metadata.warnings),
+        render_failure_section(failure),
         agent_stdout,
         agent_stderr,
-        checks_table,
+        render_checks_table(checks),
         diff
     )
+}
+
+fn render_warnings(warnings: &[String]) -> String {
+    if warnings.is_empty() {
+        return "- none\n".to_string();
+    }
+
+    warnings
+        .iter()
+        .map(|warning| format!("- {warning}\n"))
+        .collect()
+}
+
+fn render_failure_section(failure: Option<&str>) -> String {
+    failure.map_or_else(String::new, |message| {
+        format!("## Failure\n\n- {message}\n\n")
+    })
+}
+
+fn render_checks_table(checks: &[CheckResult]) -> String {
+    checks
+        .iter()
+        .map(|check| {
+            format!(
+                "| {} | {} | {} | `{}` |\n",
+                check.name,
+                check.status,
+                exit_code_text(check.exit_code),
+                check.command
+            )
+        })
+        .collect()
 }
 
 fn run_command(dir: &Path, program: &str, args: &[String]) -> Result<CommandCapture> {
@@ -1586,34 +1632,16 @@ mod tests {
 
         assert_eq!(metadata.agent, "noop");
         assert_eq!(metadata.status, RunStatus::Ready);
-        assert!(temp
-            .path()
-            .join(KEEL_DIR)
-            .join(WORKTREES_DIR)
-            .join(&metadata.run_id)
-            .join(NOOP_OUTPUT_FILE)
-            .exists());
+        let worktree = worktree_dir(&temp, &metadata.run_id);
+        assert!(worktree.join(NOOP_OUTPUT_FILE).exists());
 
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&metadata.run_id);
-        assert!(run_dir.join(METADATA_FILE).exists());
-        assert!(run_dir.join(LOG_FILE).exists());
-        assert!(run_dir.join(DIFF_FILE).exists());
-        assert!(run_dir.join(CHECKS_FILE).exists());
-        assert!(run_dir.join(REPORT_FILE).exists());
+        let run_dir = run_dir(&temp, &metadata.run_id);
+        assert_required_artifacts(&run_dir);
 
         let discarded = project.discard(&metadata.run_id).unwrap();
 
         assert_eq!(discarded.status, RunStatus::Discarded);
-        assert!(!temp
-            .path()
-            .join(KEEL_DIR)
-            .join(WORKTREES_DIR)
-            .join(&metadata.run_id)
-            .exists());
+        assert!(!worktree.exists());
         assert!(run_dir.join(METADATA_FILE).exists());
         assert!(run_dir.join(REPORT_FILE).exists());
         assert!(run_dir.join(LOG_FILE).exists());
@@ -1632,14 +1660,7 @@ mod tests {
         let metadata = project.run("ignored noop output", "noop").unwrap();
 
         assert_eq!(metadata.status, RunStatus::Ready);
-        let diff = fs::read_to_string(
-            temp.path()
-                .join(KEEL_DIR)
-                .join(RUNS_DIR)
-                .join(&metadata.run_id)
-                .join(DIFF_FILE),
-        )
-        .unwrap();
+        let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
         assert!(!diff.trim().is_empty());
         assert!(diff.contains(NOOP_OUTPUT_FILE));
     }
@@ -1649,8 +1670,8 @@ mod tests {
         let temp = git_repo();
         let project = KeelProject::discover(temp.path()).unwrap();
         project.init().unwrap();
-        fs::write(
-            temp.path().join(KEEL_DIR).join(CONFIG_FILE),
+        write_config(
+            &temp,
             r#"version = 1
 runs_dir = "runs"
 worktrees_dir = "worktrees"
@@ -1659,20 +1680,11 @@ worktrees_dir = "worktrees"
 name = "custom status"
 command = ["git", "status", "--short"]
 "#,
-        )
-        .unwrap();
+        );
 
         let metadata = project.run("custom configured check", "noop").unwrap();
 
-        let checks: Vec<CheckResult> = read_json(
-            &temp
-                .path()
-                .join(KEEL_DIR)
-                .join(RUNS_DIR)
-                .join(&metadata.run_id)
-                .join(CHECKS_FILE),
-        )
-        .unwrap();
+        let checks = read_checks(&temp, &metadata.run_id);
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].name, "custom status");
     }
@@ -1682,8 +1694,8 @@ command = ["git", "status", "--short"]
         let temp = git_repo();
         let project = KeelProject::discover(temp.path()).unwrap();
         project.init().unwrap();
-        fs::write(
-            temp.path().join(KEEL_DIR).join(CONFIG_FILE),
+        write_config(
+            &temp,
             r#"version = 1
 runs_dir = "runs"
 worktrees_dir = "worktrees"
@@ -1692,23 +1704,14 @@ worktrees_dir = "worktrees"
 name = "failing check"
 command = ["git", "not-a-real-keel-test-command"]
 "#,
-        )
-        .unwrap();
+        );
 
         let metadata = project.run("failing configured check", "noop").unwrap();
 
         assert_eq!(metadata.status, RunStatus::NotReady);
         assert_eq!(metadata.failure_reason, Some(FailureReason::CheckFailed));
         assert!(metadata.readiness_reason.contains("failed checks"));
-        let checks: Vec<CheckResult> = read_json(
-            &temp
-                .path()
-                .join(KEEL_DIR)
-                .join(RUNS_DIR)
-                .join(&metadata.run_id)
-                .join(CHECKS_FILE),
-        )
-        .unwrap();
+        let checks = read_checks(&temp, &metadata.run_id);
         assert_eq!(checks[0].name, "failing check");
         assert_eq!(checks[0].status, CheckStatus::Failed);
     }
@@ -1747,16 +1750,8 @@ command = ["git", "not-a-real-keel-test-command"]
         assert_eq!(runs[0].failure_reason, Some(FailureReason::AdapterError));
         assert_eq!(runs[0].agent_command, vec!["failing".to_string()]);
 
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&runs[0].run_id);
-        assert!(run_dir.join(METADATA_FILE).exists());
-        assert!(run_dir.join(LOG_FILE).exists());
-        assert!(run_dir.join(DIFF_FILE).exists());
-        assert!(run_dir.join(CHECKS_FILE).exists());
-        assert!(run_dir.join(REPORT_FILE).exists());
+        let run_dir = run_dir(&temp, &runs[0].run_id);
+        assert_required_artifacts(&run_dir);
 
         let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
         assert!(report.contains("## Failure"));
@@ -1824,11 +1819,7 @@ command = ["git", "not-a-real-keel-test-command"]
 
         assert_eq!(metadata.agent, "codex");
         assert_eq!(metadata.status, RunStatus::Ready);
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&metadata.run_id);
+        let run_dir = run_dir(&temp, &metadata.run_id);
         assert_required_artifacts(&run_dir);
 
         let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
@@ -1863,11 +1854,7 @@ command = ["git", "not-a-real-keel-test-command"]
             .readiness_reason
             .contains("agent exited with nonzero status 7"));
         assert!(!metadata.agent_command.is_empty());
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&metadata.run_id);
+        let run_dir = run_dir(&temp, &metadata.run_id);
         assert_required_artifacts(&run_dir);
         let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
         assert!(log.contains("fake codex failure"));
@@ -1898,11 +1885,7 @@ command = ["git", "not-a-real-keel-test-command"]
         assert_eq!(runs[0].status, RunStatus::NotReady);
         assert_eq!(runs[0].failure_reason, Some(FailureReason::MissingCli));
         assert!(!runs[0].agent_command.is_empty());
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&runs[0].run_id);
+        let run_dir = run_dir(&temp, &runs[0].run_id);
         assert_required_artifacts(&run_dir);
         let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
         assert!(report.contains("## Failure"));
@@ -1916,8 +1899,8 @@ command = ["git", "not-a-real-keel-test-command"]
         let fake_codex = fake_codex(temp.path(), FakeCodexMode::Timeout);
         let project = KeelProject::discover(temp.path()).unwrap();
         project.init().unwrap();
-        fs::write(
-            temp.path().join(KEEL_DIR).join(CONFIG_FILE),
+        write_config(
+            &temp,
             r#"version = 1
 runs_dir = "runs"
 worktrees_dir = "worktrees"
@@ -1927,8 +1910,7 @@ agent_timeout_secs = 1
 name = "git status"
 command = ["git", "status", "--short"]
 "#,
-        )
-        .unwrap();
+        );
 
         let metadata = project
             .run_with_adapter(
@@ -1941,11 +1923,7 @@ command = ["git", "status", "--short"]
         assert_eq!(metadata.failure_reason, Some(FailureReason::Timeout));
         assert!(metadata.readiness_reason.contains("timed out"));
         assert!(metadata.duration_ms.is_some());
-        let run_dir = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(RUNS_DIR)
-            .join(&metadata.run_id);
+        let run_dir = run_dir(&temp, &metadata.run_id);
         assert_required_artifacts(&run_dir);
         let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
         assert!(report.contains("Failure Reason: `timeout`"));
@@ -1958,8 +1936,8 @@ command = ["git", "status", "--short"]
         let fake_codex = fake_codex(temp.path(), FakeCodexMode::SpawnChild);
         let project = KeelProject::discover(temp.path()).unwrap();
         project.init().unwrap();
-        fs::write(
-            temp.path().join(KEEL_DIR).join(CONFIG_FILE),
+        write_config(
+            &temp,
             r#"version = 1
 runs_dir = "runs"
 worktrees_dir = "worktrees"
@@ -1969,8 +1947,7 @@ agent_timeout_secs = 1
 name = "git status"
 command = ["git", "status", "--short"]
 "#,
-        )
-        .unwrap();
+        );
 
         let metadata = project
             .run_with_adapter(
@@ -1981,12 +1958,7 @@ command = ["git", "status", "--short"]
 
         assert_eq!(metadata.status, RunStatus::NotReady);
         assert_eq!(metadata.failure_reason, Some(FailureReason::Timeout));
-        let survivor_path = temp
-            .path()
-            .join(KEEL_DIR)
-            .join(WORKTREES_DIR)
-            .join(&metadata.run_id)
-            .join("process-tree-survivor.txt");
+        let survivor_path = worktree_dir(&temp, &metadata.run_id).join("process-tree-survivor.txt");
         thread::sleep(Duration::from_secs(4));
         assert!(
             !survivor_path.exists(),
@@ -2013,14 +1985,7 @@ command = ["git", "status", "--short"]
 
         assert_eq!(metadata.agent, "codex");
         assert_eq!(metadata.status, RunStatus::Ready);
-        let diff = fs::read_to_string(
-            temp.path()
-                .join(KEEL_DIR)
-                .join(RUNS_DIR)
-                .join(&metadata.run_id)
-                .join(DIFF_FILE),
-        )
-        .unwrap();
+        let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
         assert!(diff.contains("codex-real-smoke.txt"));
     }
 
@@ -2046,6 +2011,30 @@ command = ["git", "status", "--short"]
 
     fn git_repo() -> TempDir {
         git_repo_with_files(&[])
+    }
+
+    fn config_path(temp: &TempDir) -> PathBuf {
+        temp.path().join(KEEL_DIR).join(CONFIG_FILE)
+    }
+
+    fn run_dir(temp: &TempDir, run_id: &str) -> PathBuf {
+        temp.path().join(KEEL_DIR).join(RUNS_DIR).join(run_id)
+    }
+
+    fn worktree_dir(temp: &TempDir, run_id: &str) -> PathBuf {
+        temp.path().join(KEEL_DIR).join(WORKTREES_DIR).join(run_id)
+    }
+
+    fn write_config(temp: &TempDir, content: &str) {
+        fs::write(config_path(temp), content).unwrap();
+    }
+
+    fn read_checks(temp: &TempDir, run_id: &str) -> Vec<CheckResult> {
+        read_json(&run_dir(temp, run_id).join(CHECKS_FILE)).unwrap()
+    }
+
+    fn read_run_file(temp: &TempDir, run_id: &str, file: &str) -> String {
+        fs::read_to_string(run_dir(temp, run_id).join(file)).unwrap()
     }
 
     fn git_repo_with_files(files: &[(&str, &str)]) -> TempDir {
