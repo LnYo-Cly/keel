@@ -235,13 +235,13 @@ impl CodexAgent {
     fn command(&self, context: &AgentRunContext<'_>) -> Vec<String> {
         vec![
             self.program.clone(),
+            "--ask-for-approval".to_string(),
+            "on-request".to_string(),
             "exec".to_string(),
             "--cd".to_string(),
             context.worktree.to_string_lossy().to_string(),
             "--sandbox".to_string(),
             "workspace-write".to_string(),
-            "--ask-for-approval".to_string(),
-            "on-request".to_string(),
             context.task.to_string(),
         ]
     }
@@ -1033,18 +1033,11 @@ fn resolve_program(program: &str) -> PathBuf {
     {
         if let Some(path) = std::env::var_os("PATH") {
             let extensions = windows_path_extensions();
-            for dir in std::env::split_paths(&path) {
-                let candidate = dir.join(program);
-                if candidate.is_file() {
-                    return candidate;
-                }
-
-                for extension in &extensions {
-                    let candidate = dir.join(format!("{program}{extension}"));
-                    if candidate.is_file() {
-                        return candidate;
-                    }
-                }
+            let path_entries = std::env::split_paths(&path).collect::<Vec<_>>();
+            if let Some(resolved) =
+                resolve_windows_program_from_path(program, &path_entries, &extensions)
+            {
+                return resolved;
             }
         }
     }
@@ -1066,6 +1059,39 @@ fn windows_path_extensions() -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[cfg(windows)]
+fn resolve_windows_program_from_path(
+    program: &str,
+    path_entries: &[PathBuf],
+    extensions: &[String],
+) -> Option<PathBuf> {
+    let has_extension = Path::new(program).extension().is_some();
+
+    for dir in path_entries {
+        if has_extension {
+            let candidate = dir.join(program);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            continue;
+        }
+
+        for extension in extensions {
+            let candidate = dir.join(format!("{program}{extension}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 fn command_error(program: &str, args: &[String], error: io::Error) -> anyhow::Error {
@@ -1510,6 +1536,26 @@ command = ["git", "not-a-real-keel-test-command"]
         let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
         assert!(report.contains("## Failure"));
         assert!(report.contains("codex CLI not found"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_program_resolution_prefers_pathext_shim() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("codex"), "not a Windows executable").unwrap();
+        fs::write(temp.path().join("codex.cmd"), "@echo off\r\nexit /B 0\r\n").unwrap();
+
+        let resolved = resolve_windows_program_from_path(
+            "codex",
+            &[temp.path().to_path_buf()],
+            &[".EXE".to_string(), ".CMD".to_string()],
+        )
+        .unwrap();
+
+        assert!(resolved
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| name.eq_ignore_ascii_case("codex.cmd")));
     }
 
     fn git_repo() -> TempDir {
