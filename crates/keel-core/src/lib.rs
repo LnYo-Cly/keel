@@ -71,6 +71,8 @@ impl std::fmt::Display for RunStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunMetadata {
     pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_run_id: Option<String>,
     pub task: String,
     pub agent: String,
     pub status: RunStatus,
@@ -354,7 +356,12 @@ struct RunSession {
 }
 
 impl RunSession {
-    fn start(project: &KeelProject, task: &str, agent: &str) -> Result<Self> {
+    fn start(
+        project: &KeelProject,
+        task: &str,
+        agent: &str,
+        parent_run_id: Option<String>,
+    ) -> Result<Self> {
         let run_id = generate_run_id();
         let run_dir = project.run_dir(&run_id);
         fs::create_dir_all(&run_dir)
@@ -363,6 +370,7 @@ impl RunSession {
         let created_at = now_timestamp();
         let metadata = RunMetadata {
             run_id: run_id.clone(),
+            parent_run_id,
             task: task.to_string(),
             agent: agent.to_string(),
             status: RunStatus::Created,
@@ -609,16 +617,51 @@ impl KeelProject {
 
     pub fn run(&self, task: &str, agent: &str) -> Result<RunMetadata> {
         self.ensure_initialized()?;
+        self.run_supported_agent(task, agent, None)
+    }
+
+    pub fn rerun(&self, run_id: &str) -> Result<RunMetadata> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+
+        let source = self
+            .read_metadata(run_id)
+            .with_context(|| format!("failed to read source run `{run_id}`"))?;
+        let child =
+            self.run_supported_agent(&source.task, &source.agent, Some(run_id.to_string()))?;
+        self.append_rerun_to_report(run_id, &child.run_id)?;
+        Ok(child)
+    }
+
+    fn run_supported_agent(
+        &self,
+        task: &str,
+        agent: &str,
+        parent_run_id: Option<String>,
+    ) -> Result<RunMetadata> {
         match agent {
-            "noop" => self.run_with_adapter(task, &NoopAgent),
-            "codex" => self.run_with_adapter(task, &CodexAgent::new()),
+            "noop" => self.run_with_adapter_parent(task, &NoopAgent, parent_run_id),
+            "codex" => self.run_with_adapter_parent(task, &CodexAgent::new(), parent_run_id),
             other => bail!("unsupported agent `{other}`; supported agents: noop, codex"),
         }
     }
 
+    #[cfg(test)]
     fn run_with_adapter(&self, task: &str, adapter: &dyn AgentAdapter) -> Result<RunMetadata> {
-        let mut session = RunSession::start(self, task, adapter.name())?;
+        self.run_with_adapter_parent(task, adapter, None)
+    }
+
+    fn run_with_adapter_parent(
+        &self,
+        task: &str,
+        adapter: &dyn AgentAdapter,
+        parent_run_id: Option<String>,
+    ) -> Result<RunMetadata> {
+        let mut session = RunSession::start(self, task, adapter.name(), parent_run_id)?;
         session.log.push(format!("created run {}", session.run_id));
+        if let Some(parent_run_id) = &session.metadata.parent_run_id {
+            session.log.push(format!("parent run: {parent_run_id}"));
+        }
         session.log.push(format!("task: {task}"));
         session.log.push(format!("agent: {}", adapter.name()));
 
@@ -748,8 +791,9 @@ impl KeelProject {
 
         let metadata = self.read_metadata(run_id)?;
         let summary = format!(
-            "run_id={} task={:?} agent={} status={} created_at={} worktree={}",
+            "run_id={} parent={} task={:?} agent={} status={} created_at={} worktree={}",
             metadata.run_id,
+            metadata.parent_run_id.as_deref().unwrap_or("none"),
             metadata.task,
             metadata.agent,
             metadata.status,
@@ -760,6 +804,17 @@ impl KeelProject {
             path: report_path,
             summary,
         })
+    }
+
+    fn append_rerun_to_report(&self, source_run_id: &str, child_run_id: &str) -> Result<()> {
+        let report_path = self.run_dir(source_run_id).join(REPORT_FILE);
+        let existing_report = fs::read_to_string(&report_path)
+            .with_context(|| format!("failed to read {}", report_path.display()))?;
+        let rerun_section = format!(
+            "{existing_report}\n\n## Rerun\n\n- Created rerun: `{child_run_id}`\n- Source run preserved: `{source_run_id}`\n"
+        );
+        fs::write(&report_path, rerun_section)
+            .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
     pub fn discard(&self, run_id: &str) -> Result<RunMetadata> {
@@ -814,7 +869,7 @@ impl KeelProject {
         let report_path = run_dir.join(REPORT_FILE);
         let report = match fs::read_to_string(&report_path) {
             Ok(existing_report) => format!(
-                "{existing_report}\n\n## Discard\n\n- Status: `discarded`\n- Worktree removed: `{}`\n- Run history preserved at: `{}`\n",
+                "{existing_report}\n\n## Discard\n\n- Status: `discarded`\n- Worktree removed: `{}`\n- Run history preserved at: `{}`\n- Next action: use `keel rerun {run_id}` to create a fresh candidate from the same task.\n",
                 if worktree_removed { "yes" } else { "already absent" },
                 metadata.run_dir
             ),
@@ -1182,6 +1237,7 @@ fn render_report(
         .failure_reason
         .as_ref()
         .map_or_else(|| "none".to_string(), ToString::to_string);
+    let parent_run_id = metadata.parent_run_id.as_deref().unwrap_or("none");
     let duration = metadata
         .duration_ms
         .map_or_else(|| "n/a".to_string(), |duration| duration.to_string());
@@ -1192,10 +1248,11 @@ fn render_report(
     format!(
         "# Keel Run Report\n\n\
          ## Summary\n\n\
-         - Run ID: `{}`\n\
-         - Task: {}\n\
-         - Agent: `{}`\n\
-         - Status: `{}`\n\
+          - Run ID: `{}`\n\
+          - Parent Run ID: `{}`\n\
+          - Task: {}\n\
+          - Agent: `{}`\n\
+          - Status: `{}`\n\
          - Created At: `{}`\n\
          - Updated At: `{}`\n\
          - Worktree: `{}`\n\
@@ -1219,12 +1276,17 @@ fn render_report(
          ```\n\n\
          ## Checks\n\n\
          | Name | Status | Exit | Command |\n\
-         | --- | --- | --- | --- |\n\
-         {}\
-         ## Diff\n\n\
-         ```diff\n{}\
-         ```\n",
+          | --- | --- | --- | --- |\n\
+          {}\
+          ## Artifacts\n\n\
+          {}\
+          ## Suggested Next Actions\n\n\
+          {}\
+          ## Diff\n\n\
+          ```diff\n{}\
+          ```\n",
         metadata.run_id,
+        parent_run_id,
         metadata.task,
         metadata.agent,
         metadata.status,
@@ -1243,6 +1305,8 @@ fn render_report(
         agent_stdout,
         agent_stderr,
         render_checks_table(checks),
+        render_artifacts(),
+        render_suggested_next_actions(metadata),
         diff
     )
 }
@@ -1277,6 +1341,40 @@ fn render_checks_table(checks: &[CheckResult]) -> String {
             )
         })
         .collect()
+}
+
+fn render_artifacts() -> String {
+    [
+        ("Metadata", METADATA_FILE),
+        ("Log", LOG_FILE),
+        ("Diff", DIFF_FILE),
+        ("Checks", CHECKS_FILE),
+        ("Report", REPORT_FILE),
+    ]
+    .iter()
+    .map(|(label, file)| format!("- {label}: `{file}`\n"))
+    .collect()
+}
+
+fn render_suggested_next_actions(metadata: &RunMetadata) -> String {
+    match metadata.status {
+        RunStatus::Ready => format!(
+            "- Review `{}` and `{}` before making any merge decision.\n- Use `keel discard {}` to remove the candidate worktree and preserve history.\n- Use `keel rerun {}` to try the same task again in a fresh worktree.\n\n",
+            DIFF_FILE, REPORT_FILE, metadata.run_id, metadata.run_id
+        ),
+        RunStatus::NotReady => format!(
+            "- Inspect `{}` and `{}` to understand why the candidate is not ready.\n- Use `keel rerun {}` after fixing environment or task issues.\n- Use `keel discard {}` if the candidate worktree is no longer useful.\n\n",
+            LOG_FILE, CHECKS_FILE, metadata.run_id, metadata.run_id
+        ),
+        RunStatus::Discarded => format!(
+            "- Run history is preserved under `{}`.\n- Use `keel rerun {}` to create a fresh candidate from the same task.\n\n",
+            metadata.run_dir, metadata.run_id
+        ),
+        RunStatus::Created | RunStatus::Running => {
+            "- Wait for the run to finish, then check `keel status` and inspect this report again.\n\n"
+                .to_string()
+        }
+    }
 }
 
 fn run_command(dir: &Path, program: &str, args: &[String]) -> Result<CommandCapture> {
@@ -1647,7 +1745,10 @@ mod tests {
         assert!(run_dir.join(LOG_FILE).exists());
         let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
         assert!(report.contains("# Keel Run Report"));
+        assert!(report.contains("## Artifacts"));
+        assert!(report.contains("## Suggested Next Actions"));
         assert!(report.contains("## Discard"));
+        assert!(report.contains(&format!("keel rerun {}", metadata.run_id)));
         assert!(report.contains("keel-noop-output.txt"));
     }
 
@@ -1663,6 +1764,71 @@ mod tests {
         let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
         assert!(!diff.trim().is_empty());
         assert!(diff.contains(NOOP_OUTPUT_FILE));
+    }
+
+    #[test]
+    fn rerun_creates_fresh_child_and_appends_source_report() {
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let source = project.run("rerun this task", "noop").unwrap();
+        let child = project.rerun(&source.run_id).unwrap();
+
+        assert_ne!(source.run_id, child.run_id);
+        assert_eq!(child.task, source.task);
+        assert_eq!(child.agent, source.agent);
+        assert_eq!(child.parent_run_id, Some(source.run_id.clone()));
+        assert!(worktree_dir(&temp, &child.run_id).exists());
+
+        let child_metadata = read_metadata(&temp, &child.run_id);
+        assert_eq!(child_metadata.parent_run_id, Some(source.run_id.clone()));
+        let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+        assert!(source_report.contains("## Rerun"));
+        assert!(source_report.contains(&format!("Created rerun: `{}`", child.run_id)));
+
+        let child_report = read_run_file(&temp, &child.run_id, REPORT_FILE);
+        assert!(child_report.contains(&format!("Parent Run ID: `{}`", source.run_id)));
+        assert!(child_report.contains("## Artifacts"));
+        assert!(child_report.contains("## Suggested Next Actions"));
+        assert!(child_report.contains(&format!("keel rerun {}", child.run_id)));
+    }
+
+    #[test]
+    fn discarded_run_can_be_rerun_without_restoring_source_worktree() {
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let source = project.run("rerun discarded source", "noop").unwrap();
+        project.discard(&source.run_id).unwrap();
+
+        let child = project.rerun(&source.run_id).unwrap();
+
+        assert_eq!(child.parent_run_id, Some(source.run_id.clone()));
+        assert!(!worktree_dir(&temp, &source.run_id).exists());
+        assert!(worktree_dir(&temp, &child.run_id).exists());
+        let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+        assert!(source_report.contains("## Discard"));
+        assert!(source_report.contains("## Rerun"));
+    }
+
+    #[test]
+    fn rerun_rejects_unsupported_source_agent_without_appending_report() {
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let mut source = project.run("unsupported source agent", "noop").unwrap();
+        source.agent = "claude".to_string();
+        project.write_metadata(&source).unwrap();
+
+        let error = project.rerun(&source.run_id).unwrap_err().to_string();
+
+        assert!(error.contains("unsupported agent"));
+        assert_eq!(project.list_runs().unwrap().len(), 1);
+        let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+        assert!(!source_report.contains("## Rerun"));
     }
 
     #[test]
@@ -2031,6 +2197,10 @@ command = ["git", "status", "--short"]
 
     fn read_checks(temp: &TempDir, run_id: &str) -> Vec<CheckResult> {
         read_json(&run_dir(temp, run_id).join(CHECKS_FILE)).unwrap()
+    }
+
+    fn read_metadata(temp: &TempDir, run_id: &str) -> RunMetadata {
+        read_json(&run_dir(temp, run_id).join(METADATA_FILE)).unwrap()
     }
 
     fn read_run_file(temp: &TempDir, run_id: &str, file: &str) -> String {

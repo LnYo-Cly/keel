@@ -29,6 +29,11 @@ enum Commands {
         /// Run id.
         run_id: String,
     },
+    /// Rerun an existing task in a fresh candidate worktree.
+    Rerun {
+        /// Source run id.
+        run_id: String,
+    },
     /// Discard a candidate run by removing its worktree and preserving history.
     Discard {
         /// Run id.
@@ -49,10 +54,7 @@ fn main() -> Result<()> {
         }
         Commands::Run { task, agent } => {
             let metadata = project.run(&task, &agent)?;
-            println!("Run created: {}", metadata.run_id);
-            println!("Status: {}", metadata.status);
-            println!("Worktree: {}", metadata.worktree_path);
-            println!("Report: {}/report.md", metadata.run_dir);
+            print_run_created("Run created", &metadata);
         }
         Commands::Status => {
             let runs = project.list_runs()?;
@@ -63,6 +65,14 @@ fn main() -> Result<()> {
             println!("Report: {}", report.path.display());
             println!("{}", report.summary);
         }
+        Commands::Rerun { run_id } => {
+            let metadata = project.rerun(&run_id)?;
+            print_run_created("Rerun created", &metadata);
+            println!(
+                "Parent: {}",
+                metadata.parent_run_id.as_deref().unwrap_or("none")
+            );
+        }
         Commands::Discard { run_id } => {
             let metadata = project.discard(&run_id)?;
             println!("Discarded run: {}", metadata.run_id);
@@ -72,6 +82,13 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_run_created(label: &str, metadata: &RunMetadata) {
+    println!("{label}: {}", metadata.run_id);
+    println!("Status: {}", metadata.status);
+    println!("Worktree: {}", metadata.worktree_path);
+    println!("Report: {}/report.md", metadata.run_dir);
 }
 
 fn print_status(runs: &[RunMetadata]) {
