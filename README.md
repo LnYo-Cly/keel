@@ -41,3 +41,19 @@ run_if_path_exists = "Cargo.toml"
 
 Timed-out agent runs are marked `not_ready`; Keel still writes metadata, logs,
 diff, checks, and report artifacts.
+
+## Smoke tests
+
+Default regression does not require a real Codex installation:
+
+```bash
+cargo test --workspace
+```
+
+Real Codex smoke tests are opt-in because they depend on local Codex
+installation, authentication, network access, and external model behavior:
+
+```bash
+KEEL_REAL_CODEX_SMOKE=1 cargo test -p keel-core real_codex_rerun_smoke_is_opt_in -- --nocapture
+powershell -ExecutionPolicy Bypass -File scripts/real-codex-rerun-smoke.ps1
+```

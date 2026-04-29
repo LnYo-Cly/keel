@@ -2301,7 +2301,7 @@ command = ["git", "status", "--short"]
 
     #[test]
     fn real_codex_smoke_is_opt_in() {
-        if std::env::var("KEEL_REAL_CODEX_SMOKE").ok().as_deref() != Some("1") {
+        if !real_codex_smoke_enabled() {
             return;
         }
 
@@ -2319,6 +2319,55 @@ command = ["git", "status", "--short"]
         assert_eq!(metadata.status, RunStatus::Ready);
         let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
         assert!(diff.contains("codex-real-smoke.txt"));
+    }
+
+    #[test]
+    fn real_codex_rerun_smoke_is_opt_in() {
+        if !real_codex_smoke_enabled() {
+            return;
+        }
+
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let source = project
+            .run(
+                "Create a file named codex-real-rerun-smoke.txt containing exactly: Keel real Codex rerun smoke test",
+                "codex",
+            )
+            .unwrap();
+        let child = project.rerun(&source.run_id).unwrap();
+
+        assert_eq!(source.agent, "codex");
+        assert_eq!(child.agent, "codex");
+        assert_eq!(child.parent_run_id.as_deref(), Some(source.run_id.as_str()));
+        assert_ne!(source.run_id, child.run_id);
+        assert_ne!(source.worktree_path, child.worktree_path);
+
+        for run_id in [&source.run_id, &child.run_id] {
+            let metadata = read_metadata(&temp, run_id);
+            assert_eq!(metadata.status, RunStatus::Ready);
+            assert_eq!(metadata.failure_reason, None);
+            assert!(read_run_file(&temp, run_id, DIFF_FILE).contains("codex-real-rerun-smoke.txt"));
+            assert!(project
+                .report(run_id)
+                .unwrap()
+                .summary
+                .contains("agent=codex"));
+        }
+
+        assert!(read_run_file(&temp, &source.run_id, REPORT_FILE)
+            .contains(&format!("Created rerun: `{}`", child.run_id)));
+
+        let discarded_source = project.discard(&source.run_id).unwrap();
+        let discarded_child = project.discard(&child.run_id).unwrap();
+        assert_eq!(discarded_source.status, RunStatus::Discarded);
+        assert_eq!(discarded_child.status, RunStatus::Discarded);
+        assert!(!worktree_dir(&temp, &source.run_id).exists());
+        assert!(!worktree_dir(&temp, &child.run_id).exists());
+        assert!(run_dir(&temp, &source.run_id).join(REPORT_FILE).exists());
+        assert!(run_dir(&temp, &child.run_id).join(REPORT_FILE).exists());
     }
 
     #[cfg(windows)]
@@ -2367,6 +2416,10 @@ command = ["git", "status", "--short"]
 
     fn read_metadata(temp: &TempDir, run_id: &str) -> RunMetadata {
         read_json(&run_dir(temp, run_id).join(METADATA_FILE)).unwrap()
+    }
+
+    fn real_codex_smoke_enabled() -> bool {
+        std::env::var("KEEL_REAL_CODEX_SMOKE").ok().as_deref() == Some("1")
     }
 
     fn read_run_file(temp: &TempDir, run_id: &str, file: &str) -> String {
