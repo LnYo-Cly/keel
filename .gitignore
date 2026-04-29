@@ -1,0 +1,4 @@
+# Local coding-agent harness files. Do not push these to GitHub.
+/docs/
+/AGENTS.md
+/agents.md
