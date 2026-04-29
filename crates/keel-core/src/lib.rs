@@ -186,6 +186,33 @@ struct RunClassification {
     readiness_reason: String,
 }
 
+#[derive(Debug)]
+struct BranchCleanup {
+    branch: String,
+    result: BranchCleanupResult,
+    warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BranchCleanupResult {
+    Deleted,
+    AlreadyAbsent,
+    SkippedInvalidMetadata,
+    Failed,
+}
+
+impl std::fmt::Display for BranchCleanupResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Self::Deleted => "deleted",
+            Self::AlreadyAbsent => "already absent",
+            Self::SkippedInvalidMetadata => "skipped invalid metadata",
+            Self::Failed => "failed",
+        };
+        f.write_str(value)
+    }
+}
+
 #[derive(Debug, Default)]
 struct RunLog {
     lines: Vec<String>,
@@ -862,6 +889,11 @@ impl KeelProject {
             false
         };
 
+        let branch_cleanup = self.cleanup_candidate_branch(run_id, &metadata.branch, &mut log)?;
+        if let Some(warning) = &branch_cleanup.warning {
+            metadata.warnings.push(warning.clone());
+        }
+
         metadata.status = RunStatus::Discarded;
         metadata.updated_at = now_timestamp();
         self.write_metadata(&metadata)?;
@@ -869,8 +901,14 @@ impl KeelProject {
         let report_path = run_dir.join(REPORT_FILE);
         let report = match fs::read_to_string(&report_path) {
             Ok(existing_report) => format!(
-                "{existing_report}\n\n## Discard\n\n- Status: `discarded`\n- Worktree removed: `{}`\n- Run history preserved at: `{}`\n- Next action: use `keel rerun {run_id}` to create a fresh candidate from the same task.\n",
+                "{existing_report}\n\n## Discard\n\n- Status: `discarded`\n- Worktree removed: `{}`\n- Branch cleanup: `{}` (`{}`)\n{}- Run history preserved at: `{}`\n- Next action: use `keel rerun {run_id}` to create a fresh candidate from the same task.\n",
                 if worktree_removed { "yes" } else { "already absent" },
+                branch_cleanup.result,
+                branch_cleanup.branch,
+                branch_cleanup
+                    .warning
+                    .as_deref()
+                    .map_or_else(String::new, |warning| format!("- Warning: {warning}\n")),
                 metadata.run_dir
             ),
             Err(_) => render_report(
@@ -888,6 +926,74 @@ impl KeelProject {
         log.write_to(&log_path)?;
 
         Ok(metadata)
+    }
+
+    fn cleanup_candidate_branch(
+        &self,
+        run_id: &str,
+        branch: &str,
+        log: &mut RunLog,
+    ) -> Result<BranchCleanup> {
+        let expected_branch = expected_run_branch(run_id)?;
+        if branch != expected_branch {
+            let warning = format!(
+                "candidate branch cleanup skipped: metadata branch `{branch}` did not match expected `{expected_branch}`"
+            );
+            log.push(&warning);
+            return Ok(BranchCleanup {
+                branch: branch.to_string(),
+                result: BranchCleanupResult::SkippedInvalidMetadata,
+                warning: Some(warning),
+            });
+        }
+
+        let ref_name = format!("refs/heads/{branch}");
+        let exists_args = vec![
+            "show-ref".to_string(),
+            "--verify".to_string(),
+            "--quiet".to_string(),
+            ref_name,
+        ];
+        let exists_capture = run_command(&self.root, "git", &exists_args)?;
+        log.push_command(
+            &self.root,
+            &format_command("git", &exists_args),
+            &exists_capture,
+        );
+        if !exists_capture.status.success() {
+            log.push(format!("candidate branch {branch} already absent"));
+            return Ok(BranchCleanup {
+                branch: branch.to_string(),
+                result: BranchCleanupResult::AlreadyAbsent,
+                warning: None,
+            });
+        }
+
+        let delete_args = vec!["branch".to_string(), "-D".to_string(), branch.to_string()];
+        let delete_capture = run_command(&self.root, "git", &delete_args)?;
+        log.push_command(
+            &self.root,
+            &format_command("git", &delete_args),
+            &delete_capture,
+        );
+        if delete_capture.status.success() {
+            return Ok(BranchCleanup {
+                branch: branch.to_string(),
+                result: BranchCleanupResult::Deleted,
+                warning: None,
+            });
+        }
+
+        let warning = format!(
+            "candidate branch cleanup failed for `{branch}`: {}",
+            delete_capture.stderr.trim()
+        );
+        log.push(&warning);
+        Ok(BranchCleanup {
+            branch: branch.to_string(),
+            result: BranchCleanupResult::Failed,
+            warning: Some(warning),
+        })
     }
 
     fn ensure_git_repo(&self) -> Result<()> {
@@ -1627,6 +1733,11 @@ fn ensure_safe_run_id(run_id: &str) -> Result<()> {
     Ok(())
 }
 
+fn expected_run_branch(run_id: &str) -> Result<String> {
+    ensure_safe_run_id(run_id)?;
+    Ok(format!("keel/run/{run_id}"))
+}
+
 fn ensure_safe_worktree_target(root: &Path, run_id: &str, target: &Path) -> Result<()> {
     ensure_safe_run_id(run_id)?;
     let expected = root.join(KEEL_DIR).join(WORKTREES_DIR).join(run_id);
@@ -1740,6 +1851,7 @@ mod tests {
 
         assert_eq!(discarded.status, RunStatus::Discarded);
         assert!(!worktree.exists());
+        assert!(!branch_exists(&temp, &metadata.branch));
         assert!(run_dir.join(METADATA_FILE).exists());
         assert!(run_dir.join(REPORT_FILE).exists());
         assert!(run_dir.join(LOG_FILE).exists());
@@ -1748,8 +1860,62 @@ mod tests {
         assert!(report.contains("## Artifacts"));
         assert!(report.contains("## Suggested Next Actions"));
         assert!(report.contains("## Discard"));
+        assert!(report.contains("Branch cleanup: `deleted`"));
         assert!(report.contains(&format!("keel rerun {}", metadata.run_id)));
         assert!(report.contains("keel-noop-output.txt"));
+    }
+
+    #[test]
+    fn discard_succeeds_when_candidate_branch_is_already_absent() {
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let metadata = project.run("missing branch discard", "noop").unwrap();
+        git(
+            temp.path(),
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                worktree_dir(&temp, &metadata.run_id).to_str().unwrap(),
+            ],
+        );
+        git(temp.path(), &["branch", "-D", metadata.branch.as_str()]);
+
+        let discarded = project.discard(&metadata.run_id).unwrap();
+
+        assert_eq!(discarded.status, RunStatus::Discarded);
+        assert!(!branch_exists(&temp, &metadata.branch));
+        let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+        assert!(report.contains("Branch cleanup: `already absent`"));
+        assert!(discarded.warnings.is_empty());
+    }
+
+    #[test]
+    fn discard_skips_unexpected_metadata_branch_and_records_warning() {
+        let temp = git_repo();
+        let project = KeelProject::discover(temp.path()).unwrap();
+        project.init().unwrap();
+
+        let mut metadata = project.run("invalid branch metadata", "noop").unwrap();
+        metadata.branch = "main".to_string();
+        project.write_metadata(&metadata).unwrap();
+
+        let discarded = project.discard(&metadata.run_id).unwrap();
+
+        assert_eq!(discarded.status, RunStatus::Discarded);
+        assert!(branch_exists(
+            &temp,
+            &format!("keel/run/{}", metadata.run_id)
+        ));
+        assert!(discarded
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("metadata branch `main`")));
+        let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+        assert!(report.contains("Branch cleanup: `skipped invalid metadata`"));
+        assert!(report.contains("Warning: candidate branch cleanup skipped"));
     }
 
     #[test]
@@ -2222,6 +2388,16 @@ command = ["git", "status", "--short"]
         }
         git(temp.path(), &["commit", "-m", "init"]);
         temp
+    }
+
+    fn branch_exists(temp: &TempDir, branch: &str) -> bool {
+        Command::new("git")
+            .args(["show-ref", "--verify", "--quiet"])
+            .arg(format!("refs/heads/{branch}"))
+            .current_dir(temp.path())
+            .status()
+            .unwrap()
+            .success()
     }
 
     fn assert_required_artifacts(run_dir: &Path) {
