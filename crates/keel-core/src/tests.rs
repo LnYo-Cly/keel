@@ -141,6 +141,120 @@ fn noop_run_force_adds_ignored_output_file() {
 }
 
 #[test]
+fn list_runs_sorts_newest_first() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let first = project.run("first run", "noop").unwrap();
+    let second = project.run("second run", "noop").unwrap();
+
+    let runs = project.list_runs().unwrap();
+
+    assert_eq!(runs[0].run_id, second.run_id);
+    assert_eq!(runs[1].run_id, first.run_id);
+}
+
+#[test]
+fn report_includes_artifact_paths_and_next_actions() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("review this run", "noop").unwrap();
+
+    let report = project.report(&metadata.run_id).unwrap();
+
+    assert_eq!(
+        report.path,
+        run_dir(&temp, &metadata.run_id).join(REPORT_FILE)
+    );
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.label == "Metadata"
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(METADATA_FILE)
+            && artifact.exists
+    }));
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.label == "Log"
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(LOG_FILE)
+            && artifact.exists
+    }));
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.label == "Diff"
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(DIFF_FILE)
+            && artifact.exists
+    }));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel diff {}", metadata.run_id)));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel rerun {}", metadata.run_id)));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel discard {}", metadata.run_id)));
+}
+
+#[test]
+fn report_marks_missing_artifacts_without_failing() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("missing artifact report", "noop").unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(LOG_FILE)).unwrap();
+
+    let report = project.report(&metadata.run_id).unwrap();
+
+    assert!(report
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.label == "Log" && !artifact.exists));
+}
+
+#[test]
+fn diff_reads_saved_patch() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("read diff", "noop").unwrap();
+
+    let diff = project.diff(&metadata.run_id).unwrap();
+
+    assert_eq!(diff.path, run_dir(&temp, &metadata.run_id).join(DIFF_FILE));
+    assert!(!diff.is_empty);
+    assert!(diff.content.contains(NOOP_OUTPUT_FILE));
+}
+
+#[test]
+fn diff_reports_empty_patch() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("empty diff", "noop").unwrap();
+    fs::write(run_dir(&temp, &metadata.run_id).join(DIFF_FILE), "").unwrap();
+
+    let diff = project.diff(&metadata.run_id).unwrap();
+
+    assert!(diff.is_empty);
+    assert!(diff.content.is_empty());
+}
+
+#[test]
+fn diff_errors_when_run_or_patch_is_missing() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let missing_run = project.diff("run-does-not-exist").unwrap_err().to_string();
+    assert!(missing_run.contains("run `run-does-not-exist` does not exist"));
+
+    let metadata = project.run("missing diff", "noop").unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(DIFF_FILE)).unwrap();
+
+    let missing_diff = project.diff(&metadata.run_id).unwrap_err().to_string();
+    assert!(missing_diff.contains("diff for run"));
+}
+
+#[test]
 fn rerun_creates_fresh_child_and_appends_source_report() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();
@@ -185,6 +299,26 @@ fn discarded_run_can_be_rerun_without_restoring_source_worktree() {
     let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
     assert!(source_report.contains("## Discard"));
     assert!(source_report.contains("## Rerun"));
+}
+
+#[test]
+fn discarded_run_remains_reportable_and_diffable() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("review after discard", "noop").unwrap();
+
+    project.discard(&metadata.run_id).unwrap();
+
+    let report = project.report(&metadata.run_id).unwrap();
+    assert!(report.is_discarded);
+    assert!(!report
+        .next_actions
+        .contains(&format!("keel discard {}", metadata.run_id)));
+
+    let diff = project.diff(&metadata.run_id).unwrap();
+    assert!(!diff.is_empty);
+    assert!(diff.content.contains(NOOP_OUTPUT_FILE));
 }
 
 #[test]

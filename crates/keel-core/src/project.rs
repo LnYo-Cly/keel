@@ -5,14 +5,15 @@ use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    CONFIG_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
+    CHECKS_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR,
+    WORKTREES_DIR,
 };
 use crate::git::{
     changed_paths, collect_warnings, ensure_safe_run_id, ensure_safe_worktree_target,
     expected_run_branch, prepare_untracked_for_diff,
 };
 use crate::json::{read_json, write_json_pretty};
-use crate::model::{InitResult, ReportInfo, RunMetadata, RunStatus};
+use crate::model::{ArtifactInfo, DiffInfo, InitResult, ReportInfo, RunMetadata, RunStatus};
 use crate::report::render_report;
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
@@ -274,9 +275,10 @@ impl KeelProject {
             }
         }
         runs.sort_by(|left: &RunMetadata, right: &RunMetadata| {
-            left.created_at
-                .cmp(&right.created_at)
-                .then(left.run_id.cmp(&right.run_id))
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then(right.run_id.cmp(&left.run_id))
         });
         Ok(runs)
     }
@@ -284,15 +286,10 @@ impl KeelProject {
     pub fn report(&self, run_id: &str) -> Result<ReportInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
+        let metadata = self
+            .read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))?;
         let report_path = self.run_dir(run_id).join(REPORT_FILE);
-        if !report_path.exists() {
-            bail!(
-                "report for run `{run_id}` does not exist at {}",
-                report_path.display()
-            );
-        }
-
-        let metadata = self.read_metadata(run_id)?;
         let summary = format!(
             "run_id={} parent={} task={:?} agent={} status={} created_at={} worktree={}",
             metadata.run_id,
@@ -306,7 +303,54 @@ impl KeelProject {
         Ok(ReportInfo {
             path: report_path,
             summary,
+            artifacts: self.artifacts_for_run(run_id),
+            next_actions: next_actions_for_report(&metadata),
+            is_discarded: metadata.status == RunStatus::Discarded,
         })
+    }
+
+    pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+        self.read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))?;
+
+        let path = self.run_dir(run_id).join(DIFF_FILE);
+        if !path.exists() {
+            bail!(
+                "diff for run `{run_id}` does not exist at {}",
+                path.display()
+            );
+        }
+
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let is_empty = content.trim().is_empty();
+        Ok(DiffInfo {
+            path,
+            content,
+            is_empty,
+        })
+    }
+
+    fn artifacts_for_run(&self, run_id: &str) -> Vec<ArtifactInfo> {
+        [
+            ("Metadata", METADATA_FILE),
+            ("Log", LOG_FILE),
+            ("Diff", DIFF_FILE),
+            ("Checks", CHECKS_FILE),
+            ("Report", REPORT_FILE),
+        ]
+        .into_iter()
+        .map(|(label, file)| {
+            let path = self.run_dir(run_id).join(file);
+            ArtifactInfo {
+                label,
+                exists: path.exists(),
+                path,
+            }
+        })
+        .collect()
     }
 
     fn append_rerun_to_report(&self, source_run_id: &str, child_run_id: &str) -> Result<()> {
@@ -560,4 +604,16 @@ impl KeelProject {
         }
         Ok(config)
     }
+}
+
+fn next_actions_for_report(metadata: &RunMetadata) -> Vec<String> {
+    let run_id = &metadata.run_id;
+    let mut actions = vec![
+        format!("keel diff {run_id}"),
+        format!("keel rerun {run_id}"),
+    ];
+    if metadata.status != RunStatus::Discarded {
+        actions.push(format!("keel discard {run_id}"));
+    }
+    actions
 }

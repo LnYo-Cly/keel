@@ -13,6 +13,23 @@ pub struct InitResult {
 pub struct ReportInfo {
     pub path: PathBuf,
     pub summary: String,
+    pub artifacts: Vec<ArtifactInfo>,
+    pub next_actions: Vec<String>,
+    pub is_discarded: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtifactInfo {
+    pub label: &'static str,
+    pub path: PathBuf,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiffInfo {
+    pub path: PathBuf,
+    pub content: String,
+    pub is_empty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
