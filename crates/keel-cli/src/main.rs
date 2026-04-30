@@ -18,7 +18,7 @@ enum Commands {
     Run {
         /// Task prompt to pass to the agent.
         task: String,
-        /// Agent adapter to use. Supported: noop, codex, claude.
+        /// Agent adapter to use. Supported: noop, codex, claude, opencode.
         #[arg(long, default_value = "noop")]
         agent: String,
     },

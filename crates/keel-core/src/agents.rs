@@ -166,6 +166,55 @@ impl AgentAdapter for ClaudeAgent {
     }
 }
 
+pub(crate) struct OpenCodeAgent {
+    program: String,
+}
+
+impl OpenCodeAgent {
+    pub(crate) fn new() -> Self {
+        Self {
+            program: "opencode".to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_program(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+        }
+    }
+
+    fn build_command(&self, context: &AgentRunContext<'_>) -> Vec<String> {
+        vec![
+            self.program.clone(),
+            "run".to_string(),
+            "--dir".to_string(),
+            context.worktree.to_string_lossy().to_string(),
+            "--pure".to_string(),
+            context.task.to_string(),
+        ]
+    }
+}
+
+impl AgentAdapter for OpenCodeAgent {
+    fn name(&self) -> &'static str {
+        "opencode"
+    }
+
+    fn command(&self, context: &AgentRunContext<'_>) -> Vec<String> {
+        self.build_command(context)
+    }
+
+    fn run(&self, context: &AgentRunContext<'_>) -> Result<AgentExecution> {
+        let command = self.build_command(context);
+        run_external_agent(&self.program, command, context)
+    }
+
+    fn requires_non_empty_diff(&self) -> bool {
+        true
+    }
+}
+
 fn run_external_agent(
     program: &str,
     command: Vec<String>,

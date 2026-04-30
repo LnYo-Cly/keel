@@ -1,4 +1,6 @@
-use crate::agents::{AgentAdapter, AgentExecution, AgentRunContext, ClaudeAgent, CodexAgent};
+use crate::agents::{
+    AgentAdapter, AgentExecution, AgentRunContext, ClaudeAgent, CodexAgent, OpenCodeAgent,
+};
 use crate::command::resolve_windows_program_from_path;
 use crate::constants::{
     CHECKS_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE, KEEL_DIR, LOG_FILE,
@@ -192,7 +194,7 @@ fn rerun_rejects_unsupported_source_agent_without_appending_report() {
     project.init().unwrap();
 
     let mut source = project.run("unsupported source agent", "noop").unwrap();
-    source.agent = "opencode".to_string();
+    source.agent = "manual".to_string();
     project.write_metadata(&source).unwrap();
 
     let error = project.rerun(&source.run_id).unwrap_err().to_string();
@@ -302,7 +304,7 @@ fn unsupported_agent_is_rejected() {
     let project = KeelProject::discover(temp.path()).unwrap();
     project.init().unwrap();
 
-    let error = project.run("task", "opencode").unwrap_err().to_string();
+    let error = project.run("task", "unknown").unwrap_err().to_string();
 
     assert!(error.contains("unsupported agent"));
 }
@@ -545,6 +547,144 @@ fn missing_claude_cli_still_generates_failure_report() {
     let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("claude CLI not found"));
+    assert!(report.contains("Failure Reason: `missing_cli`"));
+}
+
+#[test]
+fn opencode_adapter_builds_safe_run_command() {
+    let temp = git_repo();
+    let worktree = temp.path();
+    let adapter = OpenCodeAgent::with_program("opencode");
+    let command = adapter.command(&AgentRunContext {
+        run_id: "run-test",
+        task: "do the task",
+        worktree,
+        agent_timeout_secs: DEFAULT_AGENT_TIMEOUT_SECS,
+    });
+
+    assert_eq!(command[0], "opencode");
+    assert!(command.windows(2).any(|pair| pair[0] == "run"));
+    assert!(command
+        .windows(2)
+        .any(|pair| pair[0] == "--dir" && pair[1] == worktree.to_string_lossy().as_ref()));
+    assert!(command.iter().any(|arg| arg == "--pure"));
+    assert!(!command
+        .iter()
+        .any(|arg| arg == "--dangerously-skip-permissions"));
+    assert_eq!(command.last().map(String::as_str), Some("do the task"));
+}
+
+#[test]
+fn opencode_adapter_captures_stdout_stderr_and_diff() {
+    let temp = git_repo();
+    let fake_opencode = fake_opencode(temp.path(), FakeOpenCodeMode::Success);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project
+        .run_with_adapter(
+            "make an opencode change",
+            &OpenCodeAgent::with_program(fake_opencode.to_string_lossy()),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.agent, "opencode");
+    assert_eq!(metadata.status, RunStatus::Ready);
+    let run_dir = run_dir(&temp, &metadata.run_id);
+    assert_required_artifacts(&run_dir);
+
+    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    assert!(log.contains("fake opencode stdout"));
+    assert!(log.contains("fake opencode stderr"));
+    assert!(log.contains("run --dir"));
+    assert!(!log.contains("--dangerously-skip-permissions"));
+
+    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    assert!(diff.contains("opencode-output.txt"));
+}
+
+#[test]
+fn opencode_nonzero_exit_still_generates_report() {
+    let temp = git_repo();
+    let fake_opencode = fake_opencode(temp.path(), FakeOpenCodeMode::Failure);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project
+        .run_with_adapter(
+            "fail the opencode run",
+            &OpenCodeAgent::with_program(fake_opencode.to_string_lossy()),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.status, RunStatus::NotReady);
+    assert_eq!(metadata.exit_code, Some(11));
+    assert_eq!(metadata.failure_reason, Some(FailureReason::NonzeroExit));
+    let run_dir = run_dir(&temp, &metadata.run_id);
+    assert_required_artifacts(&run_dir);
+    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    assert!(log.contains("fake opencode failure"));
+    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(report.contains("Agent Exit Code: `11`"));
+    assert!(report.contains("Failure Reason: `nonzero_exit`"));
+    assert!(report.contains("fake opencode failure"));
+}
+
+#[test]
+fn opencode_empty_diff_is_not_ready() {
+    let temp = git_repo();
+    let fake_opencode = fake_opencode(temp.path(), FakeOpenCodeMode::EmptyDiff);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let error = project
+        .run_with_adapter(
+            "opencode exits without changing files",
+            &OpenCodeAgent::with_program(fake_opencode.to_string_lossy()),
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("empty diff"));
+    let runs = project.list_runs().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, RunStatus::NotReady);
+    assert_eq!(runs[0].failure_reason, Some(FailureReason::EmptyDiff));
+    assert!(runs[0]
+        .readiness_reason
+        .contains("required candidate diff was empty"));
+    let run_dir = run_dir(&temp, &runs[0].run_id);
+    assert_required_artifacts(&run_dir);
+    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(report.contains("Failure Reason: `empty_diff`"));
+}
+
+#[test]
+fn missing_opencode_cli_still_generates_failure_report() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let missing = missing_opencode_path(temp.path());
+
+    let error = project
+        .run_with_adapter(
+            "missing opencode",
+            &OpenCodeAgent::with_program(missing.to_string_lossy()),
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("opencode CLI not found"));
+    let runs = project.list_runs().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, RunStatus::NotReady);
+    assert_eq!(runs[0].failure_reason, Some(FailureReason::MissingCli));
+    assert!(!runs[0].agent_command.is_empty());
+    let run_dir = run_dir(&temp, &runs[0].run_id);
+    assert_required_artifacts(&run_dir);
+    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(report.contains("## Failure"));
+    assert!(report.contains("opencode CLI not found"));
     assert!(report.contains("Failure Reason: `missing_cli`"));
 }
 
@@ -796,6 +936,12 @@ enum FakeClaudeMode {
     Failure,
 }
 
+enum FakeOpenCodeMode {
+    Success,
+    Failure,
+    EmptyDiff,
+}
+
 fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
     let script = repo.join(if cfg!(windows) {
         "fake-codex.cmd"
@@ -866,6 +1012,41 @@ fn fake_claude(repo: &Path, mode: FakeClaudeMode) -> PathBuf {
     script
 }
 
+fn fake_opencode(repo: &Path, mode: FakeOpenCodeMode) -> PathBuf {
+    let script = repo.join(if cfg!(windows) {
+        "fake-opencode.cmd"
+    } else {
+        "fake-opencode"
+    });
+    let content = match mode {
+        FakeOpenCodeMode::Success if cfg!(windows) => {
+            "@echo off\r\necho fake opencode stdout\r\necho fake opencode stderr 1>&2\r\necho opencode output>opencode-output.txt\r\nexit /B 0\r\n"
+        }
+        FakeOpenCodeMode::Failure if cfg!(windows) => {
+            "@echo off\r\necho fake opencode failure 1>&2\r\necho failed opencode output>opencode-failure-output.txt\r\nexit /B 11\r\n"
+        }
+        FakeOpenCodeMode::EmptyDiff if cfg!(windows) => {
+            "@echo off\r\necho fake opencode no changes\r\nexit /B 0\r\n"
+        }
+        FakeOpenCodeMode::Success => {
+            "#!/bin/sh\necho fake opencode stdout\necho fake opencode stderr >&2\necho opencode output > opencode-output.txt\nexit 0\n"
+        }
+        FakeOpenCodeMode::Failure => {
+            "#!/bin/sh\necho fake opencode failure >&2\necho failed opencode output > opencode-failure-output.txt\nexit 11\n"
+        }
+        FakeOpenCodeMode::EmptyDiff => "#!/bin/sh\necho fake opencode no changes\nexit 0\n",
+    };
+    fs::write(&script, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+    }
+    script
+}
+
 fn missing_codex_path(repo: &Path) -> PathBuf {
     repo.join(if cfg!(windows) { "codex.exe" } else { "codex" })
 }
@@ -875,6 +1056,14 @@ fn missing_claude_path(repo: &Path) -> PathBuf {
         "claude.exe"
     } else {
         "claude"
+    })
+}
+
+fn missing_opencode_path(repo: &Path) -> PathBuf {
+    repo.join(if cfg!(windows) {
+        "opencode.exe"
+    } else {
+        "opencode"
     })
 }
 

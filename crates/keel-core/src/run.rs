@@ -166,7 +166,7 @@ impl RunSession {
         if requires_non_empty_diff && diff.trim().is_empty() {
             self.metadata.failure_reason = Some(FailureReason::EmptyDiff);
             self.metadata.readiness_reason = "required candidate diff was empty".to_string();
-            bail!("noop run produced an empty diff; refusing to mark candidate ready");
+            bail!("agent run produced an empty diff; refusing to mark candidate ready");
         }
         self.diff = Some(diff);
         Ok(())
