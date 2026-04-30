@@ -1,4 +1,4 @@
-use crate::agents::{AgentAdapter, AgentRunContext, CodexAgent, NoopAgent};
+use crate::agents::{AgentAdapter, AgentRunContext, ClaudeAgent, CodexAgent, NoopAgent};
 use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
@@ -135,7 +135,8 @@ impl KeelProject {
         match agent {
             "noop" => self.run_with_adapter_parent(task, &NoopAgent, parent_run_id),
             "codex" => self.run_with_adapter_parent(task, &CodexAgent::new(), parent_run_id),
-            other => bail!("unsupported agent `{other}`; supported agents: noop, codex"),
+            "claude" => self.run_with_adapter_parent(task, &ClaudeAgent::new(), parent_run_id),
+            other => bail!("unsupported agent `{other}`; supported agents: noop, codex, claude"),
         }
     }
 

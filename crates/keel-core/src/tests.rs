@@ -1,4 +1,4 @@
-use crate::agents::{AgentAdapter, AgentExecution, AgentRunContext, CodexAgent};
+use crate::agents::{AgentAdapter, AgentExecution, AgentRunContext, ClaudeAgent, CodexAgent};
 use crate::command::resolve_windows_program_from_path;
 use crate::constants::{
     CHECKS_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE, KEEL_DIR, LOG_FILE,
@@ -192,7 +192,7 @@ fn rerun_rejects_unsupported_source_agent_without_appending_report() {
     project.init().unwrap();
 
     let mut source = project.run("unsupported source agent", "noop").unwrap();
-    source.agent = "claude".to_string();
+    source.agent = "opencode".to_string();
     project.write_metadata(&source).unwrap();
 
     let error = project.rerun(&source.run_id).unwrap_err().to_string();
@@ -302,7 +302,7 @@ fn unsupported_agent_is_rejected() {
     let project = KeelProject::discover(temp.path()).unwrap();
     project.init().unwrap();
 
-    let error = project.run("task", "claude").unwrap_err().to_string();
+    let error = project.run("task", "opencode").unwrap_err().to_string();
 
     assert!(error.contains("unsupported agent"));
 }
@@ -428,6 +428,123 @@ fn missing_codex_cli_still_generates_failure_report() {
     let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("codex CLI not found"));
+    assert!(report.contains("Failure Reason: `missing_cli`"));
+}
+
+#[test]
+fn claude_adapter_builds_safe_print_command() {
+    let temp = git_repo();
+    let worktree = temp.path();
+    let adapter = ClaudeAgent::with_program("claude");
+    let command = adapter.command(&AgentRunContext {
+        run_id: "run-test",
+        task: "do the task",
+        worktree,
+        agent_timeout_secs: DEFAULT_AGENT_TIMEOUT_SECS,
+    });
+
+    assert_eq!(command[0], "claude");
+    assert!(command.iter().any(|arg| arg == "--print"));
+    assert!(command
+        .windows(2)
+        .any(|pair| pair[0] == "--permission-mode" && pair[1] == "acceptEdits"));
+    assert!(command
+        .windows(2)
+        .any(|pair| pair[0] == "--allowedTools"
+            && pair[1] == "Read,Edit,MultiEdit,Write,LS,Grep,Glob"));
+    assert_eq!(command.last().map(String::as_str), Some("do the task"));
+    assert!(!command
+        .iter()
+        .any(|arg| arg == "--dangerously-skip-permissions"));
+    assert!(!command
+        .iter()
+        .any(|arg| arg == "--allow-dangerously-skip-permissions"));
+    assert!(!command.iter().any(|arg| arg == "bypassPermissions"));
+}
+
+#[test]
+fn claude_adapter_captures_stdout_stderr_and_diff() {
+    let temp = git_repo();
+    let fake_claude = fake_claude(temp.path(), FakeClaudeMode::Success);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project
+        .run_with_adapter(
+            "make a claude change",
+            &ClaudeAgent::with_program(fake_claude.to_string_lossy()),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.agent, "claude");
+    assert_eq!(metadata.status, RunStatus::Ready);
+    let run_dir = run_dir(&temp, &metadata.run_id);
+    assert_required_artifacts(&run_dir);
+
+    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    assert!(log.contains("fake claude stdout"));
+    assert!(log.contains("fake claude stderr"));
+    assert!(log.contains("--permission-mode acceptEdits"));
+    assert!(!log.contains("--dangerously-skip-permissions"));
+    assert!(!log.contains("bypassPermissions"));
+
+    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    assert!(diff.contains("claude-output.txt"));
+}
+
+#[test]
+fn claude_nonzero_exit_still_generates_report() {
+    let temp = git_repo();
+    let fake_claude = fake_claude(temp.path(), FakeClaudeMode::Failure);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project
+        .run_with_adapter(
+            "fail the claude run",
+            &ClaudeAgent::with_program(fake_claude.to_string_lossy()),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.status, RunStatus::NotReady);
+    assert_eq!(metadata.exit_code, Some(9));
+    assert_eq!(metadata.failure_reason, Some(FailureReason::NonzeroExit));
+    let run_dir = run_dir(&temp, &metadata.run_id);
+    assert_required_artifacts(&run_dir);
+    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    assert!(log.contains("fake claude failure"));
+    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(report.contains("Agent Exit Code: `9`"));
+    assert!(report.contains("Failure Reason: `nonzero_exit`"));
+    assert!(report.contains("fake claude failure"));
+}
+
+#[test]
+fn missing_claude_cli_still_generates_failure_report() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let missing = missing_claude_path(temp.path());
+
+    let error = project
+        .run_with_adapter(
+            "missing claude",
+            &ClaudeAgent::with_program(missing.to_string_lossy()),
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("claude CLI not found"));
+    let runs = project.list_runs().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, RunStatus::NotReady);
+    assert_eq!(runs[0].failure_reason, Some(FailureReason::MissingCli));
+    assert!(!runs[0].agent_command.is_empty());
+    let run_dir = run_dir(&temp, &runs[0].run_id);
+    assert_required_artifacts(&run_dir);
+    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(report.contains("## Failure"));
+    assert!(report.contains("claude CLI not found"));
     assert!(report.contains("Failure Reason: `missing_cli`"));
 }
 
@@ -674,6 +791,11 @@ enum FakeCodexMode {
     SpawnChild,
 }
 
+enum FakeClaudeMode {
+    Success,
+    Failure,
+}
+
 fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
     let script = repo.join(if cfg!(windows) {
         "fake-codex.cmd"
@@ -715,8 +837,45 @@ fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
     script
 }
 
+fn fake_claude(repo: &Path, mode: FakeClaudeMode) -> PathBuf {
+    let script = repo.join(if cfg!(windows) {
+        "fake-claude.cmd"
+    } else {
+        "fake-claude"
+    });
+    let content = match mode {
+        FakeClaudeMode::Success if cfg!(windows) => {
+            "@echo off\r\necho fake claude stdout\r\necho fake claude stderr 1>&2\r\necho claude output>claude-output.txt\r\nexit /B 0\r\n"
+        }
+        FakeClaudeMode::Failure if cfg!(windows) => {
+            "@echo off\r\necho fake claude failure 1>&2\r\nexit /B 9\r\n"
+        }
+        FakeClaudeMode::Success => {
+            "#!/bin/sh\necho fake claude stdout\necho fake claude stderr >&2\necho claude output > claude-output.txt\nexit 0\n"
+        }
+        FakeClaudeMode::Failure => "#!/bin/sh\necho fake claude failure >&2\nexit 9\n",
+    };
+    fs::write(&script, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+    }
+    script
+}
+
 fn missing_codex_path(repo: &Path) -> PathBuf {
     repo.join(if cfg!(windows) { "codex.exe" } else { "codex" })
+}
+
+fn missing_claude_path(repo: &Path) -> PathBuf {
+    repo.join(if cfg!(windows) {
+        "claude.exe"
+    } else {
+        "claude"
+    })
 }
 
 fn git(dir: &Path, args: &[&str]) {

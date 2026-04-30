@@ -117,7 +117,7 @@ pub(crate) fn run_command_with_timeout(
 
 pub(crate) fn failure_reason_from_error(error: &anyhow::Error) -> FailureReason {
     let message = error.to_string();
-    if message.contains("codex CLI not found") {
+    if message.contains("CLI not found") {
         FailureReason::MissingCli
     } else {
         FailureReason::AdapterError
@@ -237,21 +237,27 @@ pub(crate) fn resolve_windows_program_from_path(
 }
 
 fn command_error(program: &str, args: &[String], error: io::Error) -> anyhow::Error {
-    if error.kind() == io::ErrorKind::NotFound && program_name_is(program, "codex") {
-        anyhow::anyhow!("codex CLI not found; install Codex CLI or ensure `codex` is on PATH")
-    } else {
-        anyhow::anyhow!(
-            "failed to execute {}: {}",
-            format_command(program, args),
-            error
-        )
+    if error.kind() == io::ErrorKind::NotFound {
+        if let Some(message) = missing_cli_error(program) {
+            return anyhow::anyhow!(message);
+        }
     }
+    anyhow::anyhow!(
+        "failed to execute {}: {}",
+        format_command(program, args),
+        error
+    )
 }
 
-fn program_name_is(program: &str, expected: &str) -> bool {
-    Path::new(program)
-        .file_stem()
-        .and_then(OsStr::to_str)
-        .is_some_and(|name| name.eq_ignore_ascii_case(expected))
-        || program.eq_ignore_ascii_case(expected)
+fn missing_cli_error(program: &str) -> Option<String> {
+    let cli_name = Path::new(program).file_stem().and_then(OsStr::to_str)?;
+    let product_name = match cli_name.to_ascii_lowercase().as_str() {
+        "codex" => "Codex",
+        "claude" => "Claude Code",
+        _ => return None,
+    };
+
+    Some(format!(
+        "{cli_name} CLI not found; install {product_name} CLI or ensure `{cli_name}` is on PATH"
+    ))
 }

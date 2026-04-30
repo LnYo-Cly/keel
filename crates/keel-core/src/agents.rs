@@ -117,20 +117,74 @@ impl AgentAdapter for CodexAgent {
 
     fn run(&self, context: &AgentRunContext<'_>) -> Result<AgentExecution> {
         let command = self.build_command(context);
-        let capture = run_command_with_timeout(
-            context.worktree,
-            &self.program,
-            &command[1..],
-            Duration::from_secs(context.agent_timeout_secs),
-        )?;
-        Ok(AgentExecution {
-            command,
-            exit_code: capture.exit_code,
-            stdout: capture.stdout,
-            stderr: capture.stderr,
-            timed_out: capture.timed_out,
-        })
+        run_external_agent(&self.program, command, context)
     }
+}
+
+pub(crate) struct ClaudeAgent {
+    program: String,
+}
+
+impl ClaudeAgent {
+    pub(crate) fn new() -> Self {
+        Self {
+            program: "claude".to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_program(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+        }
+    }
+
+    fn build_command(&self, context: &AgentRunContext<'_>) -> Vec<String> {
+        vec![
+            self.program.clone(),
+            "--print".to_string(),
+            "--permission-mode".to_string(),
+            "acceptEdits".to_string(),
+            "--allowedTools".to_string(),
+            "Read,Edit,MultiEdit,Write,LS,Grep,Glob".to_string(),
+            context.task.to_string(),
+        ]
+    }
+}
+
+impl AgentAdapter for ClaudeAgent {
+    fn name(&self) -> &'static str {
+        "claude"
+    }
+
+    fn command(&self, context: &AgentRunContext<'_>) -> Vec<String> {
+        self.build_command(context)
+    }
+
+    fn run(&self, context: &AgentRunContext<'_>) -> Result<AgentExecution> {
+        let command = self.build_command(context);
+        run_external_agent(&self.program, command, context)
+    }
+}
+
+fn run_external_agent(
+    program: &str,
+    command: Vec<String>,
+    context: &AgentRunContext<'_>,
+) -> Result<AgentExecution> {
+    let capture = run_command_with_timeout(
+        context.worktree,
+        program,
+        &command[1..],
+        Duration::from_secs(context.agent_timeout_secs),
+    )?;
+    Ok(AgentExecution {
+        command,
+        exit_code: capture.exit_code,
+        stdout: capture.stdout,
+        stderr: capture.stderr,
+        timed_out: capture.timed_out,
+    })
 }
 
 pub(crate) fn default_agent_timeout_secs() -> u64 {
