@@ -449,9 +449,9 @@ fn claude_adapter_builds_safe_print_command() {
         .windows(2)
         .any(|pair| pair[0] == "--permission-mode" && pair[1] == "acceptEdits"));
     assert!(command
-        .windows(2)
-        .any(|pair| pair[0] == "--allowedTools"
-            && pair[1] == "Read,Edit,MultiEdit,Write,LS,Grep,Glob"));
+        .iter()
+        .any(|arg| arg == "--allowedTools=Read,Edit,MultiEdit,Write,LS,Grep,Glob"));
+    assert!(!command.iter().any(|arg| arg == "--allowedTools"));
     assert_eq!(command.last().map(String::as_str), Some("do the task"));
     assert!(!command
         .iter()

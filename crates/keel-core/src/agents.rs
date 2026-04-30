@@ -145,8 +145,7 @@ impl ClaudeAgent {
             "--print".to_string(),
             "--permission-mode".to_string(),
             "acceptEdits".to_string(),
-            "--allowedTools".to_string(),
-            "Read,Edit,MultiEdit,Write,LS,Grep,Glob".to_string(),
+            "--allowedTools=Read,Edit,MultiEdit,Write,LS,Grep,Glob".to_string(),
             context.task.to_string(),
         ]
     }
