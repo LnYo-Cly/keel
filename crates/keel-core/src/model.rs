@@ -1,3 +1,4 @@
+use crate::risk::RiskWarning;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -86,7 +87,10 @@ pub struct RunMetadata {
     pub failure_reason: Option<FailureReason>,
     #[serde(default)]
     pub readiness_reason: String,
+    #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub risk_warnings: Vec<RiskWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

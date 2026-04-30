@@ -9,14 +9,15 @@ use crate::constants::{
     WORKTREES_DIR,
 };
 use crate::git::{
-    changed_paths, collect_warnings, ensure_safe_run_id, ensure_safe_worktree_target,
-    expected_run_branch, prepare_untracked_for_diff,
+    ensure_safe_run_id, ensure_safe_worktree_target, expected_run_branch,
+    prepare_untracked_for_diff,
 };
 use crate::json::{read_json, write_json_pretty};
 use crate::model::{
     ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
 };
 use crate::report::render_report;
+use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
 use anyhow::{bail, Context, Result};
@@ -217,16 +218,19 @@ impl KeelProject {
         let diff = self.capture_diff(&worktree, &mut session.log)?;
         let requires_non_empty_diff = adapter.requires_non_empty_diff();
         session.record_diff(diff, requires_non_empty_diff)?;
-        let changed_paths = changed_paths(&worktree)?;
         session.checks = run_checks(&worktree, &config.checks, &mut session.log)?;
 
-        let warnings = collect_warnings(
-            session.diff.as_deref().unwrap_or(""),
-            requires_non_empty_diff,
-            &changed_paths,
-        );
+        let risk_warnings = analyze_diff_risk(session.diff.as_deref().unwrap_or(""), &config.risk);
+        let mut warnings = risk_warnings
+            .iter()
+            .map(format_risk_warning)
+            .collect::<Vec<_>>();
+        if session.diff.as_deref().unwrap_or("").trim().is_empty() && !requires_non_empty_diff {
+            warnings.push("candidate diff is empty".to_string());
+        }
         session.apply_outcome(
             warnings,
+            risk_warnings,
             classify_run(exit_code, timed_out, &session.checks),
         );
         Ok(())

@@ -10,6 +10,7 @@ use crate::json::write_json_pretty;
 use crate::model::{CheckResult, FailureReason, RunMetadata, RunStatus};
 use crate::project::KeelProject;
 use crate::report::render_report;
+use crate::risk::RiskWarning;
 use crate::time::{generate_run_id, now_timestamp, unix_millis};
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -89,6 +90,7 @@ impl RunSession {
             failure_reason: None,
             readiness_reason: "run has not started".to_string(),
             warnings: Vec::new(),
+            risk_warnings: Vec::new(),
         };
         let session = Self {
             run_id,
@@ -175,9 +177,11 @@ impl RunSession {
     pub(crate) fn apply_outcome(
         &mut self,
         warnings: Vec<String>,
+        risk_warnings: Vec<RiskWarning>,
         classification: RunClassification,
     ) {
         self.metadata.warnings = warnings;
+        self.metadata.risk_warnings = risk_warnings;
         self.metadata.status = classification.status;
         self.metadata.failure_reason = classification.failure_reason;
         self.metadata.readiness_reason = classification.readiness_reason;

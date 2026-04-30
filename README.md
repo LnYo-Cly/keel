@@ -3,9 +3,9 @@
 Keel is a local-first control layer for AI-generated code.
 
 Keel runs coding agents in isolated git worktrees, captures their logs, diffs,
-exit status, checks, and reports, then leaves the final decision to the human
-developer. Agent output is treated as a candidate change, not as something to
-merge automatically.
+exit status, checks, risk warnings, and reports, then leaves the final decision
+to the human developer. Agent output is treated as a candidate change, not as
+something to merge automatically.
 
 ## What Keel Is Not
 
@@ -47,7 +47,8 @@ keel report <run-id> --json
 CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 
 `keel config validate` checks `.keel/config.toml` for presence, parseability,
-and basic value sanity. It does not rewrite the file.
+and basic value sanity, including risk warning settings. It does not rewrite the
+file.
 
 ## Supported Agents
 
@@ -80,6 +81,25 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
 
+## Risk Warnings
+
+Keel analyzes each saved `diff.patch` and adds non-blocking warnings for changes
+that deserve closer human review:
+
+- Configured risk paths from `[risk].paths`
+- Dependency manifests such as `Cargo.toml`, `package.json`, `pyproject.toml`,
+  and `requirements.txt`
+- Lockfiles such as `Cargo.lock`, `package-lock.json`, `pnpm-lock.yaml`,
+  `yarn.lock`, and `uv.lock`
+- Deleted files
+- Large diffs whose changed file count exceeds
+  `risk.large_diff_file_threshold`
+
+Risk warnings are informational. They do not block `ready` when the agent exits
+successfully, the diff is non-empty when required, and checks pass. Keel still
+does not auto merge or auto push; warnings are there to help the human reviewer
+focus.
+
 ## Local Config
 
 `keel init` creates `.keel/config.toml`. The default config includes:
@@ -95,6 +115,10 @@ command = ["git", "status", "--short"]
 name = "cargo test"
 command = ["cargo", "test"]
 run_if_path_exists = "Cargo.toml"
+
+[risk]
+paths = []
+large_diff_file_threshold = 20
 ```
 
 Validation currently accepts this legacy layout and also understands the
@@ -119,6 +143,10 @@ timeout_seconds = 900
 [readiness]
 require_non_empty_diff = true
 require_checks_pass = true
+
+[risk]
+paths = ["src/auth/**", ".github/**"]
+large_diff_file_threshold = 20
 ```
 
 Timed-out or failed agent runs are marked `not_ready`; Keel still writes

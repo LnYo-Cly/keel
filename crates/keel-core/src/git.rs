@@ -38,41 +38,6 @@ pub(crate) fn prepare_untracked_for_diff(worktree: &Path, log: &mut RunLog) -> R
     Ok(())
 }
 
-pub(crate) fn changed_paths(worktree: &Path) -> Result<Vec<String>> {
-    let args = vec!["status".to_string(), "--short".to_string()];
-    let capture = run_command(worktree, "git", &args)?;
-    if !capture.status.success() {
-        bail!("failed to inspect changed paths\n{}", capture.stderr.trim());
-    }
-
-    let mut paths = Vec::new();
-    for line in capture.stdout.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-        let path = line[3..].trim();
-        if let Some((_, right)) = path.split_once(" -> ") {
-            paths.push(right.to_string());
-        } else {
-            paths.push(path.to_string());
-        }
-    }
-    Ok(paths)
-}
-
-pub(crate) fn collect_warnings(
-    diff: &str,
-    requires_non_empty_diff: bool,
-    changed_paths: &[String],
-) -> Vec<String> {
-    let mut warnings = Vec::new();
-    if diff.trim().is_empty() && !requires_non_empty_diff {
-        warnings.push("candidate diff is empty".to_string());
-    }
-    warnings.extend(warnings_for_paths(changed_paths));
-    warnings
-}
-
 pub(crate) fn ensure_safe_run_id(run_id: &str) -> Result<()> {
     if run_id.is_empty()
         || !run_id
@@ -118,25 +83,6 @@ fn intent_to_add(worktree: &Path, paths: &[String], force: bool, log: &mut RunLo
         bail!("{}", capture.stderr.trim());
     }
     Ok(())
-}
-
-fn warnings_for_paths(paths: &[String]) -> Vec<String> {
-    let mut warnings = Vec::new();
-    for path in paths {
-        let normalized = path.replace('\\', "/");
-        let is_high_risk = normalized == "AGENTS.md"
-            || normalized == "CLAUDE.md"
-            || normalized == "COPILOT.md"
-            || normalized.starts_with(".git")
-            || normalized.starts_with(".keel")
-            || normalized.starts_with(".github")
-            || normalized.contains("/.git")
-            || normalized.contains("/.keel");
-        if is_high_risk {
-            warnings.push(format!("high-risk path changed: {path}"));
-        }
-    }
-    warnings
 }
 
 fn absolutize(path: &Path) -> Result<PathBuf> {

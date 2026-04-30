@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
     run_doctor, validate_config, ArtifactInfo, ConfigValidationReport, ConfigValidationSeverity,
-    DoctorReport, DoctorStatus, KeelProject, ReportInfo, RunMetadata, RunStatus,
+    DoctorReport, DoctorStatus, KeelProject, ReportInfo, RiskWarning, RunMetadata, RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -297,6 +297,12 @@ fn print_status(runs: &[RunMetadata], agent: Option<&str>, status: Option<Status
 fn print_report(report: ReportInfo) {
     println!("Report: {}", report.path.display());
     println!("{}", report.summary);
+    if !report.metadata.warnings.is_empty() {
+        println!("Warnings:");
+        for warning in &report.metadata.warnings {
+            println!("- {warning}");
+        }
+    }
     println!("Artifacts:");
     for artifact in report.artifacts {
         let state = if artifact.exists {
@@ -433,6 +439,7 @@ fn report_json(report: &ReportInfo) -> ReportJson {
             .map(ToString::to_string),
         readiness_reason: report.metadata.readiness_reason.clone(),
         warnings: report.metadata.warnings.clone(),
+        risk_warnings: report.metadata.risk_warnings.clone(),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
     }
@@ -481,6 +488,7 @@ struct ReportJson {
     failure_reason: Option<String>,
     readiness_reason: String,
     warnings: Vec<String>,
+    risk_warnings: Vec<RiskWarning>,
     artifacts: ArtifactSetJson,
     next_actions: Vec<String>,
 }
@@ -631,6 +639,7 @@ mod tests {
             failure_reason: None,
             readiness_reason: String::new(),
             warnings: Vec::new(),
+            risk_warnings: Vec::new(),
         }
     }
 }

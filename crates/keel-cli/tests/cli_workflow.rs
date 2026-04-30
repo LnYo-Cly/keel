@@ -275,6 +275,47 @@ timeout_seconds = 0
 }
 
 #[test]
+fn config_validate_rejects_invalid_risk_config() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[risk]
+paths = ["", "["]
+large_diff_file_threshold = 0
+"#,
+    )
+    .unwrap();
+
+    run_keel(repo.path(), ["config", "validate"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "risk.paths contains an empty pattern",
+        ))
+        .stdout(predicate::str::contains(
+            "risk.paths contains an invalid glob pattern",
+        ))
+        .stdout(predicate::str::contains(
+            "risk.large_diff_file_threshold must be greater than 0",
+        ));
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["config", "validate", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert_eq!(check_issue_severity(&report, "risk.paths.empty"), "error");
+    assert_eq!(check_issue_severity(&report, "risk.paths.glob"), "error");
+    assert_eq!(
+        check_issue_severity(&report, "risk.large_diff_file_threshold"),
+        "error"
+    );
+}
+
+#[test]
 fn doctor_includes_config_validation_summary() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -511,6 +552,7 @@ fn report_json_is_parseable_and_includes_review_summary() {
     assert!(report.get("failure_reason").is_some());
     assert!(report.get("readiness_reason").is_some());
     assert!(report["warnings"].is_array());
+    assert!(report["risk_warnings"].is_array());
 
     for key in ["metadata", "log", "diff", "checks", "report"] {
         assert_eq!(report["artifacts"][key]["exists"], true);
@@ -538,6 +580,55 @@ fn report_json_is_parseable_and_includes_review_summary() {
     assert!(actions
         .iter()
         .any(|action| action == &format!("keel discard {}", run.run_id)));
+}
+
+#[test]
+fn report_outputs_risk_warnings_in_human_and_json_modes() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+
+[risk]
+paths = ["keel-noop-output.txt"]
+"#,
+    )
+    .unwrap();
+    let run = run_noop(&repo, "risk report task");
+
+    run_keel(repo.path(), ["report", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Warnings:"))
+        .stdout(predicate::str::contains(
+            "touched risk path: keel-noop-output.txt matched keel-noop-output.txt",
+        ));
+
+    let report = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert!(report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning
+            .as_str()
+            .unwrap()
+            .contains("touched risk path: keel-noop-output.txt")));
+    let risk_warnings = report["risk_warnings"].as_array().unwrap();
+    assert!(risk_warnings.iter().any(|warning| {
+        warning["kind"] == "risk_path"
+            && warning["path"] == "keel-noop-output.txt"
+            && warning["pattern"] == "keel-noop-output.txt"
+    }));
 }
 
 #[test]

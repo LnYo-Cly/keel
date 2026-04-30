@@ -1,5 +1,6 @@
 use crate::agents::default_agent_timeout_secs;
 use crate::constants::{CONFIG_FILE, KEEL_DIR};
+use globset::Glob;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -11,6 +12,8 @@ pub(crate) struct KeelConfig {
     pub(crate) agent_timeout_secs: u64,
     #[serde(default = "default_checks")]
     pub(crate) checks: Vec<ConfiguredCheck>,
+    #[serde(default)]
+    pub(crate) risk: RiskConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -29,6 +32,8 @@ pub struct Config {
     pub agents: AgentsConfig,
     #[serde(default)]
     pub readiness: ReadinessConfig,
+    #[serde(default)]
+    pub risk: RiskConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -61,6 +66,14 @@ pub struct ReadinessConfig {
     pub require_non_empty_diff: bool,
     #[serde(default = "default_require_checks_pass")]
     pub require_checks_pass: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RiskConfig {
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default = "default_large_diff_file_threshold")]
+    pub large_diff_file_threshold: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,6 +133,10 @@ command = ["git", "status", "--short"]
 name = "cargo test"
 command = ["cargo", "test"]
 run_if_path_exists = "Cargo.toml"
+
+[risk]
+paths = []
+large_diff_file_threshold = 20
 "#
 }
 
@@ -195,6 +212,7 @@ pub fn validate_config(project_root: &Path) -> ConfigValidationReport {
     validate_checks(&value, &mut issues);
     validate_agent_timeouts(&value, &mut issues);
     validate_readiness(&value, &mut issues);
+    validate_risk(&value, &mut issues);
 
     ConfigValidationReport::from_issues(config_path.display().to_string(), issues)
 }
@@ -528,6 +546,136 @@ fn validate_readiness(value: &toml::Value, issues: &mut Vec<ConfigValidationIssu
     }
 }
 
+fn validate_risk(value: &toml::Value, issues: &mut Vec<ConfigValidationIssue>) {
+    let Some(risk_value) = value.get("risk") else {
+        issues.push(ConfigValidationIssue::ok(
+            "risk.paths",
+            "risk paths are valid",
+            Some("0 pattern(s); default []".to_string()),
+        ));
+        issues.push(ConfigValidationIssue::ok(
+            "risk.large_diff_file_threshold",
+            format!(
+                "risk large_diff_file_threshold: {}",
+                default_large_diff_file_threshold()
+            ),
+            Some("default".to_string()),
+        ));
+        return;
+    };
+
+    let Some(risk) = risk_value.as_table() else {
+        issues.push(ConfigValidationIssue::error(
+            "risk.type",
+            "risk must be a table",
+            Some(risk_value.to_string()),
+        ));
+        return;
+    };
+
+    validate_risk_paths(risk.get("paths"), issues);
+    validate_large_diff_threshold(risk.get("large_diff_file_threshold"), issues);
+}
+
+fn validate_risk_paths(paths_value: Option<&toml::Value>, issues: &mut Vec<ConfigValidationIssue>) {
+    let Some(paths_value) = paths_value else {
+        issues.push(ConfigValidationIssue::ok(
+            "risk.paths",
+            "risk paths are valid",
+            Some("0 pattern(s); default []".to_string()),
+        ));
+        return;
+    };
+
+    let Some(paths) = paths_value.as_array() else {
+        issues.push(ConfigValidationIssue::error(
+            "risk.paths.type",
+            "risk.paths must be an array of glob strings",
+            Some(paths_value.to_string()),
+        ));
+        return;
+    };
+
+    let mut has_error = false;
+    for (index, pattern_value) in paths.iter().enumerate() {
+        let Some(pattern) = pattern_value.as_str() else {
+            has_error = true;
+            issues.push(ConfigValidationIssue::error(
+                "risk.paths.type",
+                "risk.paths entries must be strings",
+                Some(format!("index {index}")),
+            ));
+            continue;
+        };
+
+        if pattern.trim().is_empty() {
+            has_error = true;
+            issues.push(ConfigValidationIssue::error(
+                "risk.paths.empty",
+                "risk.paths contains an empty pattern",
+                Some(format!("index {index}")),
+            ));
+            continue;
+        }
+
+        if let Err(error) = Glob::new(pattern) {
+            has_error = true;
+            issues.push(ConfigValidationIssue::error(
+                "risk.paths.glob",
+                "risk.paths contains an invalid glob pattern",
+                Some(format!("{pattern}: {error}")),
+            ));
+        }
+    }
+
+    if !has_error {
+        issues.push(ConfigValidationIssue::ok(
+            "risk.paths",
+            "risk paths are valid",
+            Some(format!("{} pattern(s)", paths.len())),
+        ));
+    }
+}
+
+fn validate_large_diff_threshold(
+    threshold_value: Option<&toml::Value>,
+    issues: &mut Vec<ConfigValidationIssue>,
+) {
+    let Some(threshold_value) = threshold_value else {
+        issues.push(ConfigValidationIssue::ok(
+            "risk.large_diff_file_threshold",
+            format!(
+                "risk large_diff_file_threshold: {}",
+                default_large_diff_file_threshold()
+            ),
+            Some("default".to_string()),
+        ));
+        return;
+    };
+
+    let Some(threshold) = threshold_value.as_integer() else {
+        issues.push(ConfigValidationIssue::error(
+            "risk.large_diff_file_threshold",
+            "risk.large_diff_file_threshold must be a positive integer",
+            Some(threshold_value.to_string()),
+        ));
+        return;
+    };
+
+    match usize::try_from(threshold) {
+        Ok(threshold) if threshold > 0 => issues.push(ConfigValidationIssue::ok(
+            "risk.large_diff_file_threshold",
+            format!("risk large_diff_file_threshold: {threshold}"),
+            None,
+        )),
+        _ => issues.push(ConfigValidationIssue::error(
+            "risk.large_diff_file_threshold",
+            "risk.large_diff_file_threshold must be greater than 0",
+            Some(threshold.to_string()),
+        )),
+    }
+}
+
 fn readiness_bool(value: &toml::Value, key: &str, default: bool) -> BoolValue {
     let Some(readiness) = value.get("readiness").and_then(toml::Value::as_table) else {
         return BoolValue::Valid(default);
@@ -560,6 +708,15 @@ impl Default for ReadinessConfig {
     }
 }
 
+impl Default for RiskConfig {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            large_diff_file_threshold: default_large_diff_file_threshold(),
+        }
+    }
+}
+
 fn default_agent_config() -> AgentConfig {
     AgentConfig {
         enabled: default_agent_enabled(),
@@ -577,6 +734,10 @@ fn default_require_non_empty_diff() -> bool {
 
 fn default_require_checks_pass() -> bool {
     true
+}
+
+pub fn default_large_diff_file_threshold() -> usize {
+    20
 }
 
 impl ConfigValidationReport {

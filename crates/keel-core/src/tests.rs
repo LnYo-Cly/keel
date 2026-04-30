@@ -10,6 +10,7 @@ use crate::constants::{
 use crate::json::read_json;
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
 use crate::project::{compare_created_at_for_test, KeelProject};
+use crate::risk::RiskWarningKind;
 use anyhow::{bail, Result};
 use std::ffi::OsStr;
 use std::fs;
@@ -142,6 +143,65 @@ commands = []
     assert_eq!(
         issue_severity(&report, "checks.commands"),
         ConfigValidationSeverity::Warning
+    );
+}
+
+#[test]
+fn config_validation_accepts_default_risk_config() {
+    let temp = git_repo();
+    let config_dir = temp.path().join(KEEL_DIR);
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join(CONFIG_FILE),
+        r#"
+[checks]
+commands = []
+"#,
+    )
+    .unwrap();
+
+    let report = validate_config(temp.path());
+
+    assert!(report.ok);
+    assert_eq!(
+        issue_severity(&report, "risk.paths"),
+        ConfigValidationSeverity::Ok
+    );
+    assert_eq!(
+        issue_severity(&report, "risk.large_diff_file_threshold"),
+        ConfigValidationSeverity::Ok
+    );
+}
+
+#[test]
+fn config_validation_rejects_invalid_risk_config() {
+    let temp = git_repo();
+    let config_dir = temp.path().join(KEEL_DIR);
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join(CONFIG_FILE),
+        r#"
+[risk]
+paths = ["", "["]
+large_diff_file_threshold = 0
+"#,
+    )
+    .unwrap();
+
+    let report = validate_config(temp.path());
+
+    assert!(!report.ok);
+    assert_eq!(
+        issue_severity(&report, "risk.paths.empty"),
+        ConfigValidationSeverity::Error
+    );
+    assert_eq!(
+        issue_severity(&report, "risk.paths.glob"),
+        ConfigValidationSeverity::Error
+    );
+    assert_eq!(
+        issue_severity(&report, "risk.large_diff_file_threshold"),
+        ConfigValidationSeverity::Error
     );
 }
 
@@ -577,6 +637,98 @@ command = ["git", "not-a-real-keel-test-command"]
     let checks = read_checks(&temp, &metadata.run_id);
     assert_eq!(checks[0].name, "failing check");
     assert_eq!(checks[0].status, CheckStatus::Failed);
+}
+
+#[test]
+fn risk_path_warning_is_persisted_in_report_and_metadata() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    write_config(
+        &temp,
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+
+[risk]
+paths = ["src/auth/**"]
+"#,
+    );
+
+    let metadata = project
+        .run_with_adapter(
+            "touch auth session",
+            &FileChangeAgent::new(&[("src/auth/session.rs", "session\n")]),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.status, RunStatus::Ready);
+    assert!(has_risk_warning(&metadata, RiskWarningKind::RiskPath));
+    assert!(metadata
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("touched risk path: src/auth/session.rs")));
+    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    assert!(report.contains("## Warnings"));
+    assert!(report.contains("touched risk path: src/auth/session.rs matched src/auth/**"));
+}
+
+#[test]
+fn built_in_risk_warnings_cover_manifest_lockfile_deleted_and_large_diff() {
+    let temp = git_repo_with_files(&[
+        ("Cargo.toml", "[package]\nname = \"fixture\"\n"),
+        ("Cargo.lock", "# lock\n"),
+        ("old.txt", "old\n"),
+    ]);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    write_config(
+        &temp,
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+
+[risk]
+large_diff_file_threshold = 1
+"#,
+    );
+
+    let metadata = project
+        .run_with_adapter(
+            "touch risky builtins",
+            &FileChangeAgent::new(&[
+                ("Cargo.toml", "[package]\nname = \"changed\"\n"),
+                ("Cargo.lock", "# changed lock\n"),
+                ("new.txt", "new\n"),
+            ])
+            .delete("old.txt"),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.status, RunStatus::Ready);
+    for kind in [
+        RiskWarningKind::DependencyManifest,
+        RiskWarningKind::Lockfile,
+        RiskWarningKind::DeletedFile,
+        RiskWarningKind::LargeDiff,
+    ] {
+        assert!(
+            has_risk_warning(&metadata, kind.clone()),
+            "missing risk warning kind {kind:?}"
+        );
+    }
+    assert_eq!(metadata.failure_reason, None);
+    assert!(metadata
+        .readiness_reason
+        .contains("agent exited successfully"));
 }
 
 #[test]
@@ -1200,6 +1352,13 @@ fn read_checks(temp: &TempDir, run_id: &str) -> Vec<CheckResult> {
     read_json(&run_dir(temp, run_id).join(CHECKS_FILE)).unwrap()
 }
 
+fn has_risk_warning(metadata: &RunMetadata, kind: RiskWarningKind) -> bool {
+    metadata
+        .risk_warnings
+        .iter()
+        .any(|warning| warning.kind == kind)
+}
+
 fn read_metadata(temp: &TempDir, run_id: &str) -> RunMetadata {
     read_json(&run_dir(temp, run_id).join(METADATA_FILE)).unwrap()
 }
@@ -1263,6 +1422,59 @@ enum FakeOpenCodeMode {
     Success,
     Failure,
     EmptyDiff,
+}
+
+struct FileChangeAgent {
+    writes: Vec<(&'static str, &'static str)>,
+    deletes: Vec<&'static str>,
+}
+
+impl FileChangeAgent {
+    fn new(writes: &[(&'static str, &'static str)]) -> Self {
+        Self {
+            writes: writes.to_vec(),
+            deletes: Vec::new(),
+        }
+    }
+
+    fn delete(mut self, path: &'static str) -> Self {
+        self.deletes.push(path);
+        self
+    }
+}
+
+impl AgentAdapter for FileChangeAgent {
+    fn name(&self) -> &'static str {
+        "file-change"
+    }
+
+    fn command(&self, _context: &AgentRunContext<'_>) -> Vec<String> {
+        vec!["file-change".to_string()]
+    }
+
+    fn run(&self, context: &AgentRunContext<'_>) -> Result<AgentExecution> {
+        for (path, content) in &self.writes {
+            let path = context.worktree.join(path);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, content)?;
+        }
+        for path in &self.deletes {
+            fs::remove_file(context.worktree.join(path))?;
+        }
+        Ok(AgentExecution {
+            command: self.command(context),
+            exit_code: Some(0),
+            stdout: "file changes written\n".to_string(),
+            stderr: String::new(),
+            timed_out: false,
+        })
+    }
+
+    fn requires_non_empty_diff(&self) -> bool {
+        true
+    }
 }
 
 fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
