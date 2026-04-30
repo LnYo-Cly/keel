@@ -2,6 +2,8 @@
 
 Keel is a local-first control layer for AI-generated code.
 
+Keel is Git-native, not GitHub-native.
+
 Keel runs coding agents in isolated git worktrees, captures their logs, diffs,
 exit status, checks, risk warnings, and reports, then leaves the final decision
 to the human developer. Agent output is treated as a candidate change, not as
@@ -26,6 +28,8 @@ keel status
 keel report <run-id>
 keel diff <run-id>
 keel log <run-id>
+keel commit <run-id> --dry-run
+keel commit <run-id>
 keel rerun <run-id>
 keel discard <run-id>
 ```
@@ -41,6 +45,7 @@ keel status --status ready
 keel status --limit 5
 keel status --json
 keel report <run-id> --json
+keel commit <run-id> --json
 ```
 
 `keel doctor` checks git, Keel's local `.keel/` layout, and optional agent
@@ -63,6 +68,9 @@ on `PATH`.
 ## Safety Model
 
 - Every run executes in its own isolated git worktree under `.keel/worktrees/`.
+- `keel commit <run-id>` commits only inside the candidate worktree on the
+  candidate branch.
+- Local commit does not require a remote, GitHub, GitLab, or Gitee.
 - Keel does not auto merge.
 - Keel does not auto push.
 - Keel preserves run history under `.keel/runs/`.
@@ -77,9 +85,37 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 - `diff.patch`
 - `checks.json`
 - `report.md`
+- `commit.json` after `keel commit <run-id>` succeeds
 
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
+
+## Local Commit Workflow
+
+`keel commit <run-id>` turns a ready candidate change into a local Git commit on
+that run's candidate branch.
+
+```bash
+keel commit <run-id> --dry-run
+keel commit <run-id>
+keel commit <run-id> --message "keel: fix login validation"
+keel commit <run-id> --json
+```
+
+Commit behavior:
+
+- Requires the run status to be `ready`.
+- Requires the candidate worktree and non-empty saved diff to exist.
+- Runs `git add -A` and `git commit -m ...` only inside
+  `.keel/worktrees/<run-id>`.
+- Writes `.keel/runs/<run-id>/commit.json`.
+- Updates `metadata.json` and `report.md` with the commit summary.
+- Does not push.
+- Does not merge.
+- Does not require GitHub, GitLab, Gitee, or any remote.
+
+Risk warnings do not block local commit. They remain advisory review signals and
+are copied into `commit.json` and the report.
 
 ## Risk Warnings
 
@@ -155,7 +191,9 @@ metadata, logs, diff, checks, and report artifacts when possible.
 ## Roadmap
 
 - v0.4: doctor, config validation, and risk path warnings.
-- v0.5: draft GitHub PR creation.
+- v0.5: local commit, future publish, and future request workflows.
+  - `keel publish`: push a candidate branch to any Git remote.
+  - `keel request`: create a PR/MR on GitHub, GitLab, or Gitee.
 - v0.6: TUI for reviewing candidate runs.
 
 ## Development Smoke Tests

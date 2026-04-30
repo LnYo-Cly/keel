@@ -3,10 +3,11 @@ use crate::agents::{
 };
 use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
+use crate::commit::{commit_run, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    CHECKS_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR,
-    WORKTREES_DIR,
+    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE,
+    REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
 use crate::git::{
     ensure_safe_run_id, ensure_safe_worktree_target, expected_run_branch,
@@ -16,7 +17,7 @@ use crate::json::{read_json, write_json_pretty};
 use crate::model::{
     ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
 };
-use crate::report::render_report;
+use crate::report::{render_commit_section, render_report};
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
@@ -44,6 +45,7 @@ struct BranchCleanup {
 enum BranchCleanupResult {
     Deleted,
     AlreadyAbsent,
+    PreservedCommitted,
     SkippedInvalidMetadata,
     Failed,
 }
@@ -53,6 +55,7 @@ impl std::fmt::Display for BranchCleanupResult {
         let value = match self {
             Self::Deleted => "deleted",
             Self::AlreadyAbsent => "already absent",
+            Self::PreservedCommitted => "preserved committed branch",
             Self::SkippedInvalidMetadata => "skipped invalid metadata",
             Self::Failed => "failed",
         };
@@ -314,6 +317,25 @@ impl KeelProject {
         })
     }
 
+    pub fn commit(&self, run_id: &str, options: CommitOptions) -> Result<CommitResult> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+
+        let mut metadata = self
+            .read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let worktree = self.worktree_dir(run_id);
+        let run_dir = self.run_dir(run_id);
+        let result = commit_run(&self.root, &run_dir, &worktree, &mut metadata, options)?;
+
+        if result.committed && !result.already_committed && !result.dry_run {
+            self.write_metadata(&metadata)?;
+            self.append_commit_to_report(&metadata)?;
+        }
+
+        Ok(result)
+    }
+
     pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
@@ -369,6 +391,7 @@ impl KeelProject {
             ("Diff", DIFF_FILE),
             ("Checks", CHECKS_FILE),
             ("Report", REPORT_FILE),
+            ("Commit", COMMIT_FILE),
         ]
         .into_iter()
         .map(|(label, file)| {
@@ -391,6 +414,22 @@ impl KeelProject {
         );
         fs::write(&report_path, rerun_section)
             .with_context(|| format!("failed to update {}", report_path.display()))
+    }
+
+    fn append_commit_to_report(&self, metadata: &RunMetadata) -> Result<()> {
+        let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
+        let existing_report = fs::read_to_string(&report_path)
+            .with_context(|| format!("failed to read {}", report_path.display()))?;
+        if existing_report.contains("## Commit") {
+            return Ok(());
+        }
+
+        let commit_section = render_commit_section(metadata);
+        fs::write(
+            &report_path,
+            format!("{existing_report}\n\n{commit_section}"),
+        )
+        .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
     pub fn discard(&self, run_id: &str) -> Result<RunMetadata> {
@@ -438,7 +477,22 @@ impl KeelProject {
             false
         };
 
-        let branch_cleanup = self.cleanup_candidate_branch(run_id, &metadata.branch, &mut log)?;
+        let branch_cleanup = if metadata.committed
+            || metadata.commit_sha.is_some()
+            || run_dir.join(COMMIT_FILE).is_file()
+        {
+            log.push(format!(
+                "candidate branch {} preserved because run {run_id} is committed",
+                metadata.branch
+            ));
+            BranchCleanup {
+                branch: metadata.branch.clone(),
+                result: BranchCleanupResult::PreservedCommitted,
+                warning: None,
+            }
+        } else {
+            self.cleanup_candidate_branch(run_id, &metadata.branch, &mut log)?
+        };
         if let Some(warning) = &branch_cleanup.warning {
             metadata.warnings.push(warning.clone());
         }

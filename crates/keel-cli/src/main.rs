@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
-    run_doctor, validate_config, ArtifactInfo, ConfigValidationReport, ConfigValidationSeverity,
-    DoctorReport, DoctorStatus, KeelProject, ReportInfo, RiskWarning, RunMetadata, RunStatus,
+    run_doctor, validate_config, ArtifactInfo, CommitArtifact, CommitOptions, CommitResult,
+    ConfigValidationReport, ConfigValidationSeverity, DoctorReport, DoctorStatus, KeelProject,
+    ReportInfo, RiskWarning, RunMetadata, RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -61,6 +62,20 @@ enum Commands {
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
+    },
+    /// Commit a ready candidate run on its local worktree branch.
+    Commit {
+        /// Run id.
+        run_id: String,
+        /// Do all prechecks and print the plan without creating a commit.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+        /// Custom local commit message.
+        #[arg(long)]
+        message: Option<String>,
     },
     /// Print the saved diff for a run.
     Diff {
@@ -190,6 +205,19 @@ fn main() -> Result<ExitCode> {
                 print_report(report);
             }
         }
+        Commands::Commit {
+            run_id,
+            dry_run,
+            json,
+            message,
+        } => {
+            let result = project.commit(&run_id, CommitOptions { dry_run, message })?;
+            if json {
+                print_json(&result)?;
+            } else {
+                print_commit_result(&result);
+            }
+        }
         Commands::Diff { run_id } => {
             let diff = project.diff(&run_id)?;
             println!("Diff: {}", diff.path.display());
@@ -297,6 +325,27 @@ fn print_status(runs: &[RunMetadata], agent: Option<&str>, status: Option<Status
 fn print_report(report: ReportInfo) {
     println!("Report: {}", report.path.display());
     println!("{}", report.summary);
+    if let Some(commit) = &report.metadata.commit {
+        println!("Commit:");
+        println!("- SHA: {}", commit.commit_sha);
+        println!("- Branch: {}", commit.branch);
+        println!("- Message: {}", commit.commit_message);
+        println!("- Committed at: {}", commit.committed_at);
+    } else if report.metadata.committed {
+        println!("Commit:");
+        println!(
+            "- SHA: {}",
+            report.metadata.commit_sha.as_deref().unwrap_or("unknown")
+        );
+        println!(
+            "- Message: {}",
+            report
+                .metadata
+                .commit_message
+                .as_deref()
+                .unwrap_or("unknown")
+        );
+    }
     if !report.metadata.warnings.is_empty() {
         println!("Warnings:");
         for warning in &report.metadata.warnings {
@@ -323,6 +372,57 @@ fn print_report(report: ReportInfo) {
     }
     if report.is_discarded {
         println!("Run is already discarded.");
+    }
+}
+
+fn print_commit_result(result: &CommitResult) {
+    if result.already_committed {
+        println!(
+            "This run is already committed: {}",
+            result.commit_sha.as_deref().unwrap_or("unknown")
+        );
+        println!("Branch: {}", result.branch);
+        println!("Worktree: {}", result.worktree);
+        return;
+    }
+
+    if result.dry_run {
+        println!("Commit dry-run plan");
+        println!("Run: {}", result.run_id);
+        println!("Worktree: {}", result.worktree);
+        println!("Branch: {}", result.branch);
+        println!("Status: ready");
+        println!("Commit message: {}", result.commit_message);
+        println!("Would run: git add -A");
+        println!("Would run: git commit -m {:?}", result.commit_message);
+        print_warning_summary(&result.warnings);
+        return;
+    }
+
+    println!(
+        "Committed run {}: {}",
+        result.run_id,
+        result.commit_sha.as_deref().unwrap_or("unknown")
+    );
+    println!("Branch: {}", result.branch);
+    println!("Worktree: {}", result.worktree);
+    println!("Message: {}", result.commit_message);
+    if let Some(commit_path) = &result.commit_path {
+        println!("Commit artifact: {commit_path}");
+    }
+    println!("Keel did not push or merge anything.");
+    print_warning_summary(&result.warnings);
+}
+
+fn print_warning_summary(warnings: &[String]) {
+    if warnings.is_empty() {
+        println!("Warnings: none");
+        return;
+    }
+
+    println!("Warnings:");
+    for warning in warnings {
+        println!("- {warning}");
     }
 }
 
@@ -440,6 +540,7 @@ fn report_json(report: &ReportInfo) -> ReportJson {
         readiness_reason: report.metadata.readiness_reason.clone(),
         warnings: report.metadata.warnings.clone(),
         risk_warnings: report.metadata.risk_warnings.clone(),
+        commit: report_commit_json(&report.metadata),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
     }
@@ -489,6 +590,7 @@ struct ReportJson {
     readiness_reason: String,
     warnings: Vec<String>,
     risk_warnings: Vec<RiskWarning>,
+    commit: Option<CommitArtifact>,
     artifacts: ArtifactSetJson,
     next_actions: Vec<String>,
 }
@@ -500,6 +602,7 @@ struct ArtifactSetJson {
     diff: ArtifactJson,
     checks: ArtifactJson,
     report: ArtifactJson,
+    commit: ArtifactJson,
 }
 
 impl ArtifactSetJson {
@@ -510,8 +613,25 @@ impl ArtifactSetJson {
             diff: artifact_json(artifacts, "Diff"),
             checks: artifact_json(artifacts, "Checks"),
             report: artifact_json(artifacts, "Report"),
+            commit: artifact_json(artifacts, "Commit"),
         }
     }
+}
+
+fn report_commit_json(metadata: &RunMetadata) -> Option<CommitArtifact> {
+    metadata.commit.clone().or_else(|| {
+        Some(CommitArtifact {
+            run_id: metadata.run_id.clone(),
+            branch: metadata.branch.clone(),
+            worktree: metadata.worktree_path.clone(),
+            commit_sha: metadata.commit_sha.clone()?,
+            commit_message: metadata.commit_message.clone()?,
+            committed_at: metadata.committed_at.clone()?,
+            had_uncommitted_changes: false,
+            warnings: metadata.warnings.clone(),
+            dry_run: false,
+        })
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -640,6 +760,11 @@ mod tests {
             readiness_reason: String::new(),
             warnings: Vec::new(),
             risk_warnings: Vec::new(),
+            committed: false,
+            commit_sha: None,
+            commit_message: None,
+            committed_at: None,
+            commit: None,
         }
     }
 }

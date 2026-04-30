@@ -1,3 +1,4 @@
+use crate::commit::CommitArtifact;
 use crate::risk::RiskWarning;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -91,6 +92,16 @@ pub struct RunMetadata {
     pub warnings: Vec<String>,
     #[serde(default)]
     pub risk_warnings: Vec<RiskWarning>,
+    #[serde(default)]
+    pub committed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<CommitArtifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

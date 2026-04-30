@@ -666,6 +666,200 @@ fn report_json_handles_discarded_and_missing_artifacts() {
 }
 
 #[test]
+fn commit_rejects_missing_not_ready_and_discarded_runs() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel(repo.path(), ["commit", "run-does-not-exist"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "run `run-does-not-exist` does not exist",
+        ));
+
+    let run = run_noop(&repo, "not ready cli commit task");
+    let metadata_path = run_artifact_path(&repo, &run.run_id, "metadata.json");
+    let mut metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    metadata["status"] = Value::String("not_ready".to_string());
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only ready runs can be committed"));
+
+    metadata["status"] = Value::String("ready".to_string());
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
+    run_keel(repo.path(), ["discard", run.run_id.as_str()])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only ready runs can be committed"));
+}
+
+#[test]
+fn commit_dry_run_outputs_plan_and_does_not_write_artifacts() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli dry run commit task");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
+    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+
+    run_keel(repo.path(), ["commit", run.run_id.as_str(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Commit dry-run plan"))
+        .stdout(predicate::str::contains("Would run: git add -A"))
+        .stdout(predicate::str::contains("Would run: git commit"));
+
+    assert!(!run_artifact_path(&repo, &run.run_id, "commit.json").exists());
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        metadata_before
+    );
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "report.md"),
+        report_before
+    );
+}
+
+#[test]
+fn commit_dry_run_json_is_parseable() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli dry run json task");
+
+    let result = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["commit", run.run_id.as_str(), "--dry-run", "--json"],
+    ));
+
+    assert_eq!(result["run_id"], run.run_id);
+    assert_eq!(result["committed"], false);
+    assert_eq!(result["dry_run"], true);
+    assert_eq!(result["would_git_add"], true);
+    assert_eq!(result["would_git_commit"], true);
+    assert!(result["warnings"].is_array());
+}
+
+#[test]
+fn commit_success_is_idempotent_and_updates_report_surfaces() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli commit success task");
+
+    run_keel(
+        repo.path(),
+        [
+            "commit",
+            run.run_id.as_str(),
+            "--message",
+            "keel: cli local commit",
+        ],
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Committed run"))
+    .stdout(predicate::str::contains(
+        "Keel did not push or merge anything.",
+    ));
+
+    assert!(run_artifact_path(&repo, &run.run_id, "commit.json").is_file());
+    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert_eq!(metadata["committed"], true);
+    let commit_sha = metadata["commit_sha"].as_str().unwrap().to_string();
+    assert!(!commit_sha.is_empty());
+    assert_eq!(metadata["commit_message"], "keel: cli local commit");
+
+    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    assert!(report.contains("## Commit"));
+    assert!(report.contains("Keel did not push or merge anything."));
+    assert!(report.contains(&commit_sha));
+
+    let git_subject = git_output(
+        &worktree_dir(&repo, &run.run_id),
+        ["log", "-1", "--format=%s"],
+    );
+    assert_eq!(git_subject.trim(), "keel: cli local commit");
+
+    let second = run_keel_output(repo.path(), ["commit", run.run_id.as_str()]);
+    assert!(second.contains("This run is already committed"));
+    let after_second = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert_eq!(after_second["commit_sha"], commit_sha);
+
+    run_keel(repo.path(), ["report", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Commit:"))
+        .stdout(predicate::str::contains(&commit_sha))
+        .stdout(predicate::str::contains("commit.json"));
+
+    let report_json = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(report_json["commit"]["commit_sha"], commit_sha);
+    assert_eq!(report_json["artifacts"]["commit"]["exists"], true);
+
+    let already_json = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["commit", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(already_json["already_committed"], true);
+    assert_eq!(already_json["commit_sha"], commit_sha);
+
+    run_keel(repo.path(), ["discard", run.run_id.as_str()])
+        .assert()
+        .success();
+    assert!(!worktree_dir(&repo, &run.run_id).exists());
+    assert!(branch_exists(&repo, metadata["branch"].as_str().unwrap()));
+    let discarded_report = read_run_artifact(&repo, &run.run_id, "report.md");
+    assert!(discarded_report.contains("Branch cleanup: `preserved committed branch`"));
+}
+
+#[test]
+fn commit_with_warnings_succeeds_and_preserves_warning_summary() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+
+[risk]
+paths = ["keel-noop-output.txt"]
+"#,
+    )
+    .unwrap();
+    let run = run_noop(&repo, "cli warning commit task");
+
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Warnings:"))
+        .stdout(predicate::str::contains("touched risk path"));
+
+    let commit = read_run_artifact(&repo, &run.run_id, "commit.json");
+    assert!(commit.contains("touched risk path"));
+    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    assert!(report.contains("touched risk path"));
+}
+
+#[test]
 fn diff_outputs_saved_patch_and_clear_missing_errors() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -906,6 +1100,32 @@ fn git<const N: usize>(repo: &Path, args: [&str; N]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn git_output<const N: usize>(repo: &Path, args: [&str; N]) -> String {
+    let output = StdCommand::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git command failed: {}\nstdout:\n{}\nstderr:\n{}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn branch_exists(repo: &TempDir, branch: &str) -> bool {
+    StdCommand::new("git")
+        .args(["show-ref", "--verify", "--quiet"])
+        .arg(format!("refs/heads/{branch}"))
+        .current_dir(repo.path())
+        .status()
+        .unwrap()
+        .success()
 }
 
 fn path_with_git_only() -> String {

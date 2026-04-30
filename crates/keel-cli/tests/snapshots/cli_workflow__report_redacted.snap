@@ -10,6 +10,7 @@ Artifacts:
 - Diff: <repo>/.keel/runs/<run-id>/diff.patch (present)
 - Checks: <repo>/.keel/runs/<run-id>/checks.json (present)
 - Report: <repo>/.keel/runs/<run-id>/report.md (present)
+- Commit: <repo>/.keel/runs/<run-id>/commit.json (missing)
 Suggested next actions:
 - keel diff <run-id>
 - keel rerun <run-id>

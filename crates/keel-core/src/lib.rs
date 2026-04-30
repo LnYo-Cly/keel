@@ -1,6 +1,7 @@
 mod agents;
 mod checks;
 mod command;
+mod commit;
 mod config;
 mod constants;
 mod doctor;
@@ -13,6 +14,7 @@ mod risk;
 mod run;
 mod time;
 
+pub use commit::{CommitArtifact, CommitOptions, CommitResult};
 pub use config::{
     validate_config, AgentConfig, AgentsConfig, ChecksConfig, Config, ConfigValidationIssue,
     ConfigValidationReport, ConfigValidationSeverity, ConfigValidationSummary, ReadinessConfig,

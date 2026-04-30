@@ -91,6 +91,11 @@ impl RunSession {
             readiness_reason: "run has not started".to_string(),
             warnings: Vec::new(),
             risk_warnings: Vec::new(),
+            committed: false,
+            commit_sha: None,
+            commit_message: None,
+            committed_at: None,
+            commit: None,
         };
         let session = Self {
             run_id,

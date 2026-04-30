@@ -1,6 +1,6 @@
 use crate::command::{exit_code_text, format_command_line};
 use crate::constants::{
-    CHECKS_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, REPORT_FILE, REPORT_OUTPUT_LIMIT,
+    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, REPORT_FILE, REPORT_OUTPUT_LIMIT,
 };
 use crate::model::{CheckResult, RunMetadata, RunStatus};
 
@@ -46,6 +46,7 @@ pub(crate) fn render_report(
          ## Warnings\n\n\
          {}\
          {}\
+         {}\
          ## Agent Output\n\n\
          ### Stdout\n\n\
          ```text\n{}\
@@ -80,6 +81,7 @@ pub(crate) fn render_report(
         duration,
         metadata.readiness_reason,
         render_warnings(&metadata.warnings),
+        render_commit_section(metadata),
         render_failure_section(failure),
         agent_stdout,
         agent_stderr,
@@ -143,10 +145,44 @@ fn render_artifacts() -> String {
         ("Diff", DIFF_FILE),
         ("Checks", CHECKS_FILE),
         ("Report", REPORT_FILE),
+        ("Commit", COMMIT_FILE),
     ]
     .iter()
     .map(|(label, file)| format!("- {label}: `{file}`\n"))
     .collect()
+}
+
+pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
+    if !metadata.committed {
+        return String::new();
+    }
+
+    let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
+    let commit_message = metadata.commit_message.as_deref().unwrap_or("unknown");
+    let committed_at = metadata.committed_at.as_deref().unwrap_or("unknown");
+    let warnings = if metadata.warnings.is_empty() {
+        "- none\n".to_string()
+    } else {
+        metadata
+            .warnings
+            .iter()
+            .map(|warning| format!("- {warning}\n"))
+            .collect()
+    };
+
+    format!(
+        "## Commit\n\n\
+         - Commit: `{commit_sha}`\n\
+         - Branch: `{}`\n\
+         - Message: `{commit_message}`\n\
+         - Committed at: `{committed_at}`\n\n\
+         ### Warnings\n\n\
+         {}\
+         ### Next\n\n\
+         - You can publish this branch later with future `keel publish`.\n\
+         - Keel did not push or merge anything.\n\n",
+        metadata.branch, warnings
+    )
 }
 
 fn render_suggested_next_actions(metadata: &RunMetadata) -> String {
