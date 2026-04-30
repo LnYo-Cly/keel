@@ -8,7 +8,7 @@ use crate::constants::{
 };
 use crate::json::read_json;
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
-use crate::project::KeelProject;
+use crate::project::{compare_created_at_for_test, KeelProject};
 use anyhow::{bail, Result};
 use std::ffi::OsStr;
 use std::fs;
@@ -156,6 +156,37 @@ fn list_runs_sorts_newest_first() {
 }
 
 #[test]
+fn created_at_sort_prefers_parseable_values_with_string_fallback() {
+    assert!(compare_created_at_for_test("2026-04-30T10:01:00Z", "2026-04-30T10:00:00Z").is_lt());
+    assert!(
+        compare_created_at_for_test("2026-04-30T18:00:00+08:00", "2026-04-30T09:00:00Z").is_lt()
+    );
+    assert!(compare_created_at_for_test("200", "100").is_lt());
+    assert!(compare_created_at_for_test("z-legacy", "a-legacy").is_lt());
+}
+
+#[test]
+fn list_runs_sorts_legacy_metadata_by_created_at_compatibly() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let older = project.run("older legacy run", "noop").unwrap();
+    let newer = project.run("newer legacy run", "noop").unwrap();
+    let mut older_metadata = read_metadata(&temp, &older.run_id);
+    older_metadata.created_at = "2026-04-30T10:00:00Z".to_string();
+    project.write_metadata(&older_metadata).unwrap();
+    let mut newer_metadata = read_metadata(&temp, &newer.run_id);
+    newer_metadata.created_at = "2026-04-30T10:01:00Z".to_string();
+    project.write_metadata(&newer_metadata).unwrap();
+
+    let runs = project.list_runs().unwrap();
+
+    assert_eq!(runs[0].run_id, newer.run_id);
+    assert_eq!(runs[1].run_id, older.run_id);
+}
+
+#[test]
 fn report_includes_artifact_paths_and_next_actions() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();
@@ -164,6 +195,7 @@ fn report_includes_artifact_paths_and_next_actions() {
 
     let report = project.report(&metadata.run_id).unwrap();
 
+    assert_eq!(report.metadata.run_id, metadata.run_id);
     assert_eq!(
         report.path,
         run_dir(&temp, &metadata.run_id).join(REPORT_FILE)
@@ -208,6 +240,41 @@ fn report_marks_missing_artifacts_without_failing() {
         .artifacts
         .iter()
         .any(|artifact| artifact.label == "Log" && !artifact.exists));
+}
+
+#[test]
+fn log_reads_saved_log_and_empty_log() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("read log", "noop").unwrap();
+
+    let log = project.log(&metadata.run_id).unwrap();
+
+    assert_eq!(log.path, run_dir(&temp, &metadata.run_id).join(LOG_FILE));
+    assert!(!log.is_empty);
+    assert!(log.content.contains("created run"));
+
+    fs::write(run_dir(&temp, &metadata.run_id).join(LOG_FILE), "").unwrap();
+    let empty_log = project.log(&metadata.run_id).unwrap();
+    assert!(empty_log.is_empty);
+    assert!(empty_log.content.is_empty());
+}
+
+#[test]
+fn log_errors_when_run_or_file_is_missing() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let missing_run = project.log("run-does-not-exist").unwrap_err().to_string();
+    assert!(missing_run.contains("run `run-does-not-exist` does not exist"));
+
+    let metadata = project.run("missing log", "noop").unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(LOG_FILE)).unwrap();
+
+    let missing_log = project.log(&metadata.run_id).unwrap_err().to_string();
+    assert!(missing_log.contains("log for run"));
 }
 
 #[test]
@@ -319,6 +386,10 @@ fn discarded_run_remains_reportable_and_diffable() {
     let diff = project.diff(&metadata.run_id).unwrap();
     assert!(!diff.is_empty);
     assert!(diff.content.contains(NOOP_OUTPUT_FILE));
+
+    let log = project.log(&metadata.run_id).unwrap();
+    assert!(!log.is_empty);
+    assert!(log.content.contains("marked discarded"));
 }
 
 #[test]

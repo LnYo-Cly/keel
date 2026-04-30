@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use keel_core::{KeelProject, RunMetadata, RunStatus};
+use keel_core::{ArtifactInfo, KeelProject, ReportInfo, RunMetadata, RunStatus};
+use serde::Serialize;
+use std::path::Path;
 
 #[derive(Debug, Parser)]
 #[command(name = "keel")]
@@ -30,14 +32,28 @@ enum Commands {
         /// Filter by run status.
         #[arg(long)]
         status: Option<StatusFilter>,
+        /// Limit the number of runs after filtering.
+        #[arg(long, value_parser = parse_positive_usize)]
+        limit: Option<usize>,
+        /// Print machine-readable JSON instead of the human table.
+        #[arg(long)]
+        json: bool,
     },
     /// Show the report path and summary for a run.
     Report {
         /// Run id.
         run_id: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
     },
     /// Print the saved diff for a run.
     Diff {
+        /// Run id.
+        run_id: String,
+    },
+    /// Print the saved log for a run.
+    Log {
         /// Run id.
         run_id: String,
     },
@@ -104,34 +120,25 @@ fn main() -> Result<()> {
             let metadata = project.run(&task, &agent)?;
             print_run_created("Run created", &metadata);
         }
-        Commands::Status { agent, status } => {
-            let runs = filtered_runs(project.list_runs()?, agent.as_deref(), status);
-            print_status(&runs, agent.as_deref(), status);
+        Commands::Status {
+            agent,
+            status,
+            limit,
+            json,
+        } => {
+            let runs = filtered_runs(project.list_runs()?, agent.as_deref(), status, limit);
+            if json {
+                print_json(&status_json(&runs))?;
+            } else {
+                print_status(&runs, agent.as_deref(), status);
+            }
         }
-        Commands::Report { run_id } => {
+        Commands::Report { run_id, json } => {
             let report = project.report(&run_id)?;
-            println!("Report: {}", report.path.display());
-            println!("{}", report.summary);
-            println!("Artifacts:");
-            for artifact in report.artifacts {
-                let state = if artifact.exists {
-                    "present"
-                } else {
-                    "missing"
-                };
-                println!(
-                    "- {}: {} ({})",
-                    artifact.label,
-                    artifact.path.display(),
-                    state
-                );
-            }
-            println!("Suggested next actions:");
-            for action in report.next_actions {
-                println!("- {action}");
-            }
-            if report.is_discarded {
-                println!("Run is already discarded.");
+            if json {
+                print_json(&report_json(&report))?;
+            } else {
+                print_report(report);
             }
         }
         Commands::Diff { run_id } => {
@@ -142,6 +149,18 @@ fn main() -> Result<()> {
             } else {
                 print!("{}", diff.content);
                 if !diff.content.ends_with('\n') {
+                    println!();
+                }
+            }
+        }
+        Commands::Log { run_id } => {
+            let log = project.log(&run_id)?;
+            println!("Log: {}", log.path.display());
+            if log.is_empty {
+                println!("Log for run `{run_id}` is empty.");
+            } else {
+                print!("{}", log.content);
+                if !log.content.ends_with('\n') {
                     println!();
                 }
             }
@@ -169,11 +188,27 @@ fn filtered_runs(
     runs: Vec<RunMetadata>,
     agent: Option<&str>,
     status: Option<StatusFilter>,
+    limit: Option<usize>,
 ) -> Vec<RunMetadata> {
-    runs.into_iter()
+    let mut runs = runs
+        .into_iter()
         .filter(|run| agent.is_none_or(|agent| run.agent == agent))
         .filter(|run| status.is_none_or(|status| status.matches(&run.status)))
-        .collect()
+        .collect::<Vec<_>>();
+    if let Some(limit) = limit {
+        runs.truncate(limit);
+    }
+    runs
+}
+
+fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid positive integer `{value}`"))?;
+    if parsed == 0 {
+        return Err("limit must be greater than 0".to_string());
+    }
+    Ok(parsed)
 }
 
 fn print_run_created(label: &str, metadata: &RunMetadata) {
@@ -210,6 +245,163 @@ fn print_status(runs: &[RunMetadata], agent: Option<&str>, status: Option<Status
     }
 }
 
+fn print_report(report: ReportInfo) {
+    println!("Report: {}", report.path.display());
+    println!("{}", report.summary);
+    println!("Artifacts:");
+    for artifact in report.artifacts {
+        let state = if artifact.exists {
+            "present"
+        } else {
+            "missing"
+        };
+        println!(
+            "- {}: {} ({})",
+            artifact.label,
+            artifact.path.display(),
+            state
+        );
+    }
+    println!("Suggested next actions:");
+    for action in report.next_actions {
+        println!("- {action}");
+    }
+    if report.is_discarded {
+        println!("Run is already discarded.");
+    }
+}
+
+fn print_json<T: Serialize>(value: &T) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(value)?);
+    Ok(())
+}
+
+fn status_json(runs: &[RunMetadata]) -> Vec<RunSummaryJson> {
+    runs.iter().map(RunSummaryJson::from).collect()
+}
+
+fn report_json(report: &ReportInfo) -> ReportJson {
+    ReportJson {
+        run_id: report.metadata.run_id.clone(),
+        parent_run_id: report.metadata.parent_run_id.clone(),
+        task: report.metadata.task.clone(),
+        agent: report.metadata.agent.clone(),
+        status: report.metadata.status.to_string(),
+        created_at: report.metadata.created_at.clone(),
+        worktree: report.metadata.worktree_path.clone(),
+        branch: report.metadata.branch.clone(),
+        base_commit: report.metadata.base_commit.clone(),
+        failure_reason: report
+            .metadata
+            .failure_reason
+            .as_ref()
+            .map(ToString::to_string),
+        readiness_reason: report.metadata.readiness_reason.clone(),
+        warnings: report.metadata.warnings.clone(),
+        artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
+        next_actions: report.next_actions.clone(),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct RunSummaryJson {
+    run_id: String,
+    parent_run_id: Option<String>,
+    task: String,
+    agent: String,
+    status: String,
+    created_at: String,
+    worktree: String,
+    branch: String,
+    failure_reason: Option<String>,
+}
+
+impl From<&RunMetadata> for RunSummaryJson {
+    fn from(metadata: &RunMetadata) -> Self {
+        Self {
+            run_id: metadata.run_id.clone(),
+            parent_run_id: metadata.parent_run_id.clone(),
+            task: metadata.task.clone(),
+            agent: metadata.agent.clone(),
+            status: metadata.status.to_string(),
+            created_at: metadata.created_at.clone(),
+            worktree: metadata.worktree_path.clone(),
+            branch: metadata.branch.clone(),
+            failure_reason: metadata.failure_reason.as_ref().map(ToString::to_string),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ReportJson {
+    run_id: String,
+    parent_run_id: Option<String>,
+    task: String,
+    agent: String,
+    status: String,
+    created_at: String,
+    worktree: String,
+    branch: String,
+    base_commit: String,
+    failure_reason: Option<String>,
+    readiness_reason: String,
+    warnings: Vec<String>,
+    artifacts: ArtifactSetJson,
+    next_actions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ArtifactSetJson {
+    metadata: ArtifactJson,
+    log: ArtifactJson,
+    diff: ArtifactJson,
+    checks: ArtifactJson,
+    report: ArtifactJson,
+}
+
+impl ArtifactSetJson {
+    fn from_artifacts(artifacts: &[ArtifactInfo]) -> Self {
+        Self {
+            metadata: artifact_json(artifacts, "Metadata"),
+            log: artifact_json(artifacts, "Log"),
+            diff: artifact_json(artifacts, "Diff"),
+            checks: artifact_json(artifacts, "Checks"),
+            report: artifact_json(artifacts, "Report"),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ArtifactJson {
+    path: String,
+    exists: bool,
+    state: &'static str,
+}
+
+fn artifact_json(artifacts: &[ArtifactInfo], label: &str) -> ArtifactJson {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.label == label)
+        .map(|artifact| ArtifactJson {
+            path: path_string(&artifact.path),
+            exists: artifact.exists,
+            state: if artifact.exists {
+                "present"
+            } else {
+                "missing"
+            },
+        })
+        .unwrap_or_else(|| ArtifactJson {
+            path: String::new(),
+            exists: false,
+            state: "missing",
+        })
+}
+
+fn path_string(path: &Path) -> String {
+    path.display().to_string()
+}
+
 fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         return value.to_string();
@@ -230,7 +422,7 @@ mod tests {
     fn filtered_runs_filters_by_agent() {
         let runs = sample_runs();
 
-        let filtered = filtered_runs(runs, Some("codex"), None);
+        let filtered = filtered_runs(runs, Some("codex"), None, None);
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].agent, "codex");
@@ -240,7 +432,7 @@ mod tests {
     fn filtered_runs_filters_by_status() {
         let runs = sample_runs();
 
-        let filtered = filtered_runs(runs, None, Some(StatusFilter::NotReady));
+        let filtered = filtered_runs(runs, None, Some(StatusFilter::NotReady), None);
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].status, RunStatus::NotReady);
@@ -256,6 +448,23 @@ mod tests {
             }
             _ => panic!("expected status command"),
         }
+    }
+
+    #[test]
+    fn filtered_runs_applies_limit_after_filters() {
+        let runs = sample_runs();
+
+        let filtered = filtered_runs(runs, Some("noop"), None, Some(1));
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].run_id, "run-1");
+    }
+
+    #[test]
+    fn status_limit_rejects_zero() {
+        let result = Cli::try_parse_from(["keel", "status", "--limit", "0"]);
+
+        assert!(result.is_err());
     }
 
     fn sample_runs() -> Vec<RunMetadata> {

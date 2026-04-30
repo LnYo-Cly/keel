@@ -309,6 +309,8 @@ dependencies = [
  "insta",
  "keel-core",
  "predicates",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

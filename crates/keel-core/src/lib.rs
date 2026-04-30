@@ -12,8 +12,8 @@ mod run;
 mod time;
 
 pub use model::{
-    ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, ReportInfo,
-    RunMetadata, RunStatus,
+    ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
+    ReportInfo, RunMetadata, RunStatus,
 };
 pub use project::KeelProject;
 

@@ -2,27 +2,76 @@
 
 Keel is a local-first control layer for AI-generated code.
 
-## Commands
+Keel runs coding agents in isolated git worktrees, captures their logs, diffs,
+exit status, checks, and reports, then leaves the final decision to the human
+developer. Agent output is treated as a candidate change, not as something to
+merge automatically.
+
+## What Keel Is Not
+
+- Not a coding agent replacement.
+- Not a desktop app, Web UI, or TUI.
+- Not a cloud service.
+- Not an automatic merge or push tool.
+- Not tied to one specific agent or harness.
+
+## Quickstart
+
+Run Keel inside an existing git repository with at least one commit.
 
 ```bash
 keel init
-keel run "test noop run" --agent noop
-keel run "implement a small change" --agent codex
+keel run "fix login bug" --agent noop
 keel status
 keel report <run-id>
+keel diff <run-id>
+keel log <run-id>
 keel rerun <run-id>
 keel discard <run-id>
 ```
 
-Keel creates a candidate worktree, captures logs, diffs, checks, and a report,
-then leaves the merge decision to the human developer. The `noop` agent is a
-local smoke-test adapter; the `codex` adapter shells out to `codex exec` without
-automatic merge, push, or dangerous approval bypass flags.
+Useful review commands:
 
-`keel rerun <run-id>` creates a fresh candidate run with the same task and
-agent. It preserves the source run history and does not reuse the old worktree.
+```bash
+keel status --agent noop
+keel status --status ready
+keel status --limit 5
+keel status --json
+keel report <run-id> --json
+```
 
-## Local config
+## Supported Agents
+
+- `noop`: local smoke-test adapter that writes a sample candidate file.
+- `codex`: runs Codex CLI in a candidate worktree.
+- `claude`: runs Claude Code in non-interactive print mode.
+- `opencode`: runs OpenCode in a candidate worktree.
+
+Real agent runs depend on the corresponding CLI being installed and available
+on `PATH`.
+
+## Safety Model
+
+- Every run executes in its own isolated git worktree under `.keel/worktrees/`.
+- Keel does not auto merge.
+- Keel does not auto push.
+- Keel preserves run history under `.keel/runs/`.
+- A human developer is always the final merge decision maker.
+
+## Artifacts
+
+Each run stores review artifacts under `.keel/runs/<run-id>/`:
+
+- `metadata.json`
+- `log.txt`
+- `diff.patch`
+- `checks.json`
+- `report.md`
+
+Discarding a run removes only the candidate worktree and keeps these artifacts
+for later review.
+
+## Local Config
 
 `keel init` creates `.keel/config.toml`. The default config includes:
 
@@ -39,12 +88,18 @@ command = ["cargo", "test"]
 run_if_path_exists = "Cargo.toml"
 ```
 
-Timed-out agent runs are marked `not_ready`; Keel still writes metadata, logs,
-diff, checks, and report artifacts.
+Timed-out or failed agent runs are marked `not_ready`; Keel still writes
+metadata, logs, diff, checks, and report artifacts when possible.
 
-## Smoke tests
+## Roadmap
 
-Default regression does not require a real Codex installation:
+- v0.4: doctor, config validation, and risk path warnings.
+- v0.5: draft GitHub PR creation.
+- v0.6: TUI for reviewing candidate runs.
+
+## Development Smoke Tests
+
+Default regression does not require real agent CLIs:
 
 ```bash
 cargo test --workspace

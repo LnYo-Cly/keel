@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -70,6 +71,78 @@ fn status_lists_runs_newest_first_and_filters_review_output() {
 }
 
 #[test]
+fn status_limit_filters_before_truncating() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let first = run_noop(&repo, "first limit task");
+    let second = run_noop(&repo, "second limit task");
+
+    let limited = run_keel_output(repo.path(), ["status", "--limit", "1"]);
+    assert!(limited.contains(&second.run_id));
+    assert!(!limited.contains(&first.run_id));
+
+    let agent_limited = run_keel_output(repo.path(), ["status", "--agent", "noop", "--limit", "1"]);
+    assert!(agent_limited.contains(&second.run_id));
+    assert!(!agent_limited.contains(&first.run_id));
+
+    let status_limited =
+        run_keel_output(repo.path(), ["status", "--status", "ready", "--limit", "1"]);
+    assert!(status_limited.contains(&second.run_id));
+    assert!(!status_limited.contains(&first.run_id));
+
+    run_keel(repo.path(), ["status", "--limit", "0"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid value"));
+}
+
+#[test]
+fn status_json_is_parseable_and_respects_filters_and_limit() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let first = run_noop(&repo, "first json task");
+    let second = run_noop(&repo, "second json task");
+
+    let runs = parse_json_array(&run_keel_output(repo.path(), ["status", "--json"]));
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0]["run_id"], second.run_id);
+    assert_eq!(runs[0]["agent"], "noop");
+    assert_eq!(runs[0]["status"], "ready");
+    assert!(runs[0].get("parent_run_id").is_some());
+    assert!(runs[0].get("task").is_some());
+    assert!(runs[0].get("created_at").is_some());
+    assert!(runs[0].get("worktree").is_some());
+    assert!(runs[0].get("branch").is_some());
+    assert!(runs[0].get("failure_reason").is_some());
+
+    let agent_runs = parse_json_array(&run_keel_output(
+        repo.path(),
+        ["status", "--json", "--agent", "noop"],
+    ));
+    assert_eq!(agent_runs.len(), 2);
+
+    let ready_runs = parse_json_array(&run_keel_output(
+        repo.path(),
+        ["status", "--json", "--status", "ready"],
+    ));
+    assert_eq!(ready_runs.len(), 2);
+
+    let limited_runs = parse_json_array(&run_keel_output(
+        repo.path(),
+        ["status", "--json", "--limit", "1"],
+    ));
+    assert_eq!(limited_runs.len(), 1);
+    assert_eq!(limited_runs[0]["run_id"], second.run_id);
+
+    let no_match = parse_json_array(&run_keel_output(
+        repo.path(),
+        ["status", "--json", "--agent", "codex"],
+    ));
+    assert!(no_match.is_empty());
+    assert_ne!(runs[0]["run_id"], first.run_id);
+}
+
+#[test]
 fn report_outputs_artifacts_and_suggested_next_actions() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -102,6 +175,90 @@ fn report_outputs_artifacts_and_suggested_next_actions() {
 }
 
 #[test]
+fn report_json_is_parseable_and_includes_review_summary() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "report json task");
+
+    let output = run_keel_output(repo.path(), ["report", run.run_id.as_str(), "--json"]);
+    let report: Value = serde_json::from_str(&output).unwrap();
+
+    assert_eq!(report["run_id"], run.run_id);
+    assert_eq!(report["task"], "report json task");
+    assert_eq!(report["agent"], "noop");
+    assert_eq!(report["status"], "ready");
+    assert!(report.get("parent_run_id").is_some());
+    assert!(report.get("created_at").is_some());
+    assert!(report.get("worktree").is_some());
+    assert!(report.get("branch").is_some());
+    assert!(report.get("base_commit").is_some());
+    assert!(report.get("failure_reason").is_some());
+    assert!(report.get("readiness_reason").is_some());
+    assert!(report["warnings"].is_array());
+
+    for key in ["metadata", "log", "diff", "checks", "report"] {
+        assert_eq!(report["artifacts"][key]["exists"], true);
+        assert_eq!(report["artifacts"][key]["state"], "present");
+        assert!(report["artifacts"][key]["path"]
+            .as_str()
+            .unwrap()
+            .contains(match key {
+                "metadata" => "metadata.json",
+                "log" => "log.txt",
+                "diff" => "diff.patch",
+                "checks" => "checks.json",
+                "report" => "report.md",
+                _ => unreachable!(),
+            }));
+    }
+
+    let actions = report["next_actions"].as_array().unwrap();
+    assert!(actions
+        .iter()
+        .any(|action| action == &format!("keel diff {}", run.run_id)));
+    assert!(actions
+        .iter()
+        .any(|action| action == &format!("keel rerun {}", run.run_id)));
+    assert!(actions
+        .iter()
+        .any(|action| action == &format!("keel discard {}", run.run_id)));
+}
+
+#[test]
+fn report_json_handles_discarded_and_missing_artifacts() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "discarded report json task");
+    fs::remove_file(run_artifact_path(&repo, &run.run_id, "checks.json")).unwrap();
+
+    let missing_artifact = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(missing_artifact["artifacts"]["checks"]["exists"], false);
+    assert_eq!(missing_artifact["artifacts"]["checks"]["state"], "missing");
+
+    run_keel(repo.path(), ["discard", run.run_id.as_str()])
+        .assert()
+        .success();
+    let discarded = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    let actions = discarded["next_actions"].as_array().unwrap();
+    assert!(!actions
+        .iter()
+        .any(|action| action == &format!("keel discard {}", run.run_id)));
+
+    run_keel(repo.path(), ["report", "run-does-not-exist", "--json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "run `run-does-not-exist` does not exist",
+        ));
+}
+
+#[test]
 fn diff_outputs_saved_patch_and_clear_missing_errors() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -124,6 +281,34 @@ fn diff_outputs_saved_patch_and_clear_missing_errors() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("diff for run"));
+}
+
+#[test]
+fn log_outputs_saved_log_and_clear_missing_or_empty_messages() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "log workflow task");
+
+    run_keel(repo.path(), ["log", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("created run"));
+
+    fs::write(run_artifact_path(&repo, &run.run_id, "log.txt"), "").unwrap();
+    run_keel(repo.path(), ["log", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "Log for run `{}` is empty.",
+            run.run_id
+        )));
+
+    run_keel(repo.path(), ["log", "run-does-not-exist"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "run `run-does-not-exist` does not exist",
+        ));
 }
 
 #[test]
@@ -161,6 +346,10 @@ fn discard_preserves_history_and_keeps_report_and_diff_available() {
         .assert()
         .success()
         .stdout(predicate::str::contains(NOOP_OUTPUT_FILE));
+    run_keel(repo.path(), ["log", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("marked discarded"));
 }
 
 struct NoopRun {
@@ -224,6 +413,14 @@ fn newest_run_id_from_runs_dir(repo: &Path) -> String {
 
 fn read_run_artifact(repo: &TempDir, run_id: &str, artifact: &str) -> String {
     fs::read_to_string(run_artifact_path(repo, run_id, artifact)).unwrap()
+}
+
+fn parse_json_array(output: &str) -> Vec<Value> {
+    serde_json::from_str(output).unwrap()
+}
+
+fn parse_json_object(output: &str) -> Value {
+    serde_json::from_str(output).unwrap()
 }
 
 fn run_artifact_path(repo: &TempDir, run_id: &str, artifact: &str) -> PathBuf {

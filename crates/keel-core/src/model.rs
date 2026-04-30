@@ -11,6 +11,7 @@ pub struct InitResult {
 
 #[derive(Debug, Clone)]
 pub struct ReportInfo {
+    pub metadata: RunMetadata,
     pub path: PathBuf,
     pub summary: String,
     pub artifacts: Vec<ArtifactInfo>,
@@ -27,6 +28,13 @@ pub struct ArtifactInfo {
 
 #[derive(Debug, Clone)]
 pub struct DiffInfo {
+    pub path: PathBuf,
+    pub content: String,
+    pub is_empty: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogInfo {
     pub path: PathBuf,
     pub content: String,
     pub is_empty: bool,
