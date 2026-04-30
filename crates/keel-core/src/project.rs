@@ -24,6 +24,8 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct KeelProject {
@@ -664,116 +666,8 @@ fn parse_created_at_millis(value: &str) -> Option<i128> {
 }
 
 fn parse_rfc3339_millis(value: &str) -> Option<i128> {
-    let bytes = value.as_bytes();
-    if bytes.len() < 20
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || !matches!(bytes.get(10), Some(b'T') | Some(b't'))
-        || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
-    {
-        return None;
-    }
-
-    let year = parse_i32_digits(value, 0, 4)?;
-    let month = parse_u32_digits(value, 5, 7)?;
-    let day = parse_u32_digits(value, 8, 10)?;
-    let hour = parse_u32_digits(value, 11, 13)?;
-    let minute = parse_u32_digits(value, 14, 16)?;
-    let second = parse_u32_digits(value, 17, 19)?;
-    if !(1..=12).contains(&month)
-        || day == 0
-        || day > days_in_month(year, month)
-        || hour > 23
-        || minute > 59
-        || second > 59
-    {
-        return None;
-    }
-
-    let mut index = 19;
-    let mut millis = 0_i128;
-    if bytes.get(index) == Some(&b'.') {
-        index += 1;
-        let fraction_start = index;
-        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
-            index += 1;
-        }
-        if fraction_start == index {
-            return None;
-        }
-        let fraction = &value[fraction_start..index];
-        let mut padded = fraction.chars().take(3).collect::<String>();
-        while padded.len() < 3 {
-            padded.push('0');
-        }
-        millis = padded.parse::<i128>().ok()?;
-    }
-
-    let offset_seconds = match bytes.get(index) {
-        Some(b'Z') | Some(b'z') if index + 1 == bytes.len() => 0_i128,
-        Some(sign @ (b'+' | b'-')) => {
-            if index + 6 != bytes.len() || bytes.get(index + 3) != Some(&b':') {
-                return None;
-            }
-            let offset_hour = parse_u32_digits(value, index + 1, index + 3)?;
-            let offset_minute = parse_u32_digits(value, index + 4, index + 6)?;
-            if offset_hour > 23 || offset_minute > 59 {
-                return None;
-            }
-            let seconds = (offset_hour as i128 * 60 + offset_minute as i128) * 60;
-            if *sign == b'+' {
-                seconds
-            } else {
-                -seconds
-            }
-        }
-        _ => return None,
-    };
-
-    let days = days_from_civil(year, month, day) as i128;
-    let local_seconds = days * 86_400 + hour as i128 * 3_600 + minute as i128 * 60 + second as i128;
-    Some((local_seconds - offset_seconds) * 1_000 + millis)
-}
-
-fn parse_i32_digits(value: &str, start: usize, end: usize) -> Option<i32> {
-    let slice = value.get(start..end)?;
-    if !slice.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    slice.parse::<i32>().ok()
-}
-
-fn parse_u32_digits(value: &str, start: usize, end: usize) -> Option<u32> {
-    let slice = value.get(start..end)?;
-    if !slice.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    slice.parse::<u32>().ok()
-}
-
-fn days_in_month(year: i32, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
-    }
-}
-
-fn is_leap_year(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}
-
-fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
-    let year = year as i64 - i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month = month as i64;
-    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i64 - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
+    let parsed = OffsetDateTime::parse(value, &Rfc3339).ok()?;
+    Some(parsed.unix_timestamp_nanos() / 1_000_000)
 }
 
 #[cfg(test)]
