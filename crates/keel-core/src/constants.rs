@@ -1,0 +1,12 @@
+pub(crate) const KEEL_DIR: &str = ".keel";
+pub(crate) const RUNS_DIR: &str = "runs";
+pub(crate) const WORKTREES_DIR: &str = "worktrees";
+pub(crate) const CONFIG_FILE: &str = "config.toml";
+pub(crate) const METADATA_FILE: &str = "metadata.json";
+pub(crate) const LOG_FILE: &str = "log.txt";
+pub(crate) const DIFF_FILE: &str = "diff.patch";
+pub(crate) const CHECKS_FILE: &str = "checks.json";
+pub(crate) const REPORT_FILE: &str = "report.md";
+pub(crate) const NOOP_OUTPUT_FILE: &str = "keel-noop-output.txt";
+pub(crate) const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 900;
+pub(crate) const REPORT_OUTPUT_LIMIT: usize = 4000;
