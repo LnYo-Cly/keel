@@ -9,7 +9,7 @@ mod git;
 mod json;
 mod model;
 mod project;
-mod publish;
+mod push;
 mod report;
 mod risk;
 mod run;
@@ -27,7 +27,7 @@ pub use model::{
     ReportInfo, RunMetadata, RunStatus,
 };
 pub use project::KeelProject;
-pub use publish::{PublishArtifact, PublishOptions, PublishResult};
+pub use push::{PushArtifact, PushOptions, PushResult};
 pub use risk::{RiskWarning, RiskWarningKind};
 
 #[cfg(test)]

@@ -364,12 +364,12 @@ mod tests {
             commit_message: None,
             committed_at: None,
             commit: None,
-            published: false,
-            published_at: None,
-            publish_remote: None,
-            publish_remote_url: None,
-            published_branch: None,
-            publish: None,
+            pushed: false,
+            pushed_at: None,
+            push_remote: None,
+            push_remote_url: None,
+            pushed_branch: None,
+            push: None,
         }
     }
 }

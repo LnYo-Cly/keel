@@ -1,5 +1,5 @@
 use crate::commit::CommitArtifact;
-use crate::publish::PublishArtifact;
+use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -103,18 +103,34 @@ pub struct RunMetadata {
     pub committed_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<CommitArtifact>,
-    #[serde(default)]
-    pub published: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub publish_remote: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub publish_remote_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub publish: Option<PublishArtifact>,
+    #[serde(default, alias = "published")]
+    pub pushed: bool,
+    #[serde(
+        default,
+        alias = "published_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pushed_at: Option<String>,
+    #[serde(
+        default,
+        alias = "publish_remote",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub push_remote: Option<String>,
+    #[serde(
+        default,
+        alias = "publish_remote_url",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub push_remote_url: Option<String>,
+    #[serde(
+        default,
+        alias = "published_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pushed_branch: Option<String>,
+    #[serde(default, alias = "publish", skip_serializing_if = "Option::is_none")]
+    pub push: Option<PushArtifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

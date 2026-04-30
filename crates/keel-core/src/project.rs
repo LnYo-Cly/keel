@@ -6,8 +6,8 @@ use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE,
-    PUBLISH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
+    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PUSH_FILE,
+    REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
 use crate::git::{
     ensure_safe_run_id, ensure_safe_worktree_target, expected_run_branch,
@@ -17,8 +17,8 @@ use crate::json::{read_json, write_json_pretty};
 use crate::model::{
     ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
 };
-use crate::publish::{publish_run, PublishOptions, PublishResult};
-use crate::report::{render_commit_section, render_publish_section, render_report};
+use crate::push::{push_run, PushOptions, PushResult};
+use crate::report::{render_commit_section, render_push_section, render_report};
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
@@ -29,6 +29,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+
+const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 #[derive(Debug, Clone)]
 pub struct KeelProject {
@@ -337,7 +339,7 @@ impl KeelProject {
         Ok(result)
     }
 
-    pub fn publish(&self, run_id: &str, options: PublishOptions) -> Result<PublishResult> {
+    pub fn push(&self, run_id: &str, options: PushOptions) -> Result<PushResult> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
@@ -345,11 +347,11 @@ impl KeelProject {
             .read_metadata(run_id)
             .with_context(|| format!("run `{run_id}` does not exist"))?;
         let run_dir = self.run_dir(run_id);
-        let result = publish_run(&self.root, &run_dir, &mut metadata, options)?;
+        let result = push_run(&self.root, &run_dir, &mut metadata, options)?;
 
-        if result.pushed && !result.already_published && !result.dry_run {
+        if result.pushed && !result.already_pushed && !result.dry_run {
             self.write_metadata(&metadata)?;
-            self.append_publish_to_report(&metadata)?;
+            self.append_push_to_report(&metadata)?;
         }
 
         Ok(result)
@@ -404,14 +406,14 @@ impl KeelProject {
     }
 
     fn artifacts_for_run(&self, run_id: &str) -> Vec<ArtifactInfo> {
-        [
+        let mut artifacts = [
             ("Metadata", METADATA_FILE),
             ("Log", LOG_FILE),
             ("Diff", DIFF_FILE),
             ("Checks", CHECKS_FILE),
             ("Report", REPORT_FILE),
             ("Commit", COMMIT_FILE),
-            ("Publish", PUBLISH_FILE),
+            ("Push", PUSH_FILE),
         ]
         .into_iter()
         .map(|(label, file)| {
@@ -422,7 +424,20 @@ impl KeelProject {
                 path,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+        if let Some(push_artifact) = artifacts
+            .iter_mut()
+            .find(|artifact| artifact.label == "Push")
+        {
+            let legacy_path = self.run_dir(run_id).join(LEGACY_PUBLISH_FILE);
+            if !push_artifact.exists && legacy_path.is_file() {
+                push_artifact.exists = true;
+                push_artifact.path = legacy_path;
+            }
+        }
+
+        artifacts
     }
 
     fn append_rerun_to_report(&self, source_run_id: &str, child_run_id: &str) -> Result<()> {
@@ -452,20 +467,17 @@ impl KeelProject {
         .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
-    fn append_publish_to_report(&self, metadata: &RunMetadata) -> Result<()> {
+    fn append_push_to_report(&self, metadata: &RunMetadata) -> Result<()> {
         let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
         let existing_report = fs::read_to_string(&report_path)
             .with_context(|| format!("failed to read {}", report_path.display()))?;
-        if existing_report.contains("## Publish") {
+        if existing_report.contains("## Push") {
             return Ok(());
         }
 
-        let publish_section = render_publish_section(metadata);
-        fs::write(
-            &report_path,
-            format!("{existing_report}\n\n{publish_section}"),
-        )
-        .with_context(|| format!("failed to update {}", report_path.display()))
+        let push_section = render_push_section(metadata);
+        fs::write(&report_path, format!("{existing_report}\n\n{push_section}"))
+            .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
     pub fn discard(&self, run_id: &str) -> Result<RunMetadata> {

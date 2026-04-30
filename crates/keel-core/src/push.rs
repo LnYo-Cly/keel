@@ -1,33 +1,37 @@
 use crate::command::{format_command, run_command};
-use crate::constants::{COMMIT_FILE, PUBLISH_FILE};
+use crate::constants::{COMMIT_FILE, PUSH_FILE};
 use crate::git::{ensure_safe_run_id, expected_run_branch};
 use crate::json::{read_json, write_json_pretty};
 use crate::model::{RunMetadata, RunStatus};
 use crate::time::now_timestamp;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 #[derive(Debug, Clone)]
-pub struct PublishOptions {
+pub struct PushOptions {
     pub remote: String,
     pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishArtifact {
+pub struct PushArtifact {
     pub run_id: String,
     pub remote: String,
     pub remote_url: String,
     pub branch: String,
     pub commit_sha: String,
+    #[serde(alias = "published")]
     pub pushed: bool,
-    pub published_at: String,
+    #[serde(alias = "published_at")]
+    pub pushed_at: String,
     pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PublishResult {
+pub struct PushResult {
     pub run_id: String,
     pub remote: String,
     pub remote_url: String,
@@ -35,39 +39,39 @@ pub struct PublishResult {
     pub commit_sha: String,
     pub pushed: bool,
     pub dry_run: bool,
-    pub already_published: bool,
+    pub already_pushed: bool,
     pub would_push: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub publish_path: Option<String>,
+    pub push_path: Option<String>,
 }
 
-pub(crate) fn publish_run(
+pub(crate) fn push_run(
     root: &Path,
     run_dir: &Path,
     metadata: &mut RunMetadata,
-    options: PublishOptions,
-) -> Result<PublishResult> {
-    let publish_path = run_dir.join(PUBLISH_FILE);
+    options: PushOptions,
+) -> Result<PushResult> {
+    let push_path = run_dir.join(PUSH_FILE);
     ensure_safe_run_id(&metadata.run_id)?;
     validate_remote_name(&options.remote)?;
-    validate_publish_identity(metadata)?;
+    validate_push_identity(metadata)?;
 
-    if let Some(existing) = existing_publish(metadata, &publish_path)? {
-        return Ok(already_published_result(
+    if let Some(existing) = existing_push(metadata, run_dir, &push_path)? {
+        return Ok(already_pushed_result(
             metadata,
-            existing,
+            &existing.artifact,
             options.dry_run,
-            &publish_path,
+            &existing.path,
         ));
     }
 
-    validate_publish_preconditions(root, run_dir, metadata)?;
+    validate_push_preconditions(root, run_dir, metadata)?;
     let commit_sha = committed_sha(metadata, &run_dir.join(COMMIT_FILE))?;
     let remote_url = remote_url(root, &options.remote)?;
     validate_branch_head(root, &metadata.branch, &commit_sha)?;
 
     if options.dry_run {
-        return Ok(PublishResult {
+        return Ok(PushResult {
             run_id: metadata.run_id.clone(),
             remote: options.remote,
             remote_url,
@@ -75,34 +79,34 @@ pub(crate) fn publish_run(
             commit_sha,
             pushed: false,
             dry_run: true,
-            already_published: false,
+            already_pushed: false,
             would_push: true,
-            publish_path: None,
+            push_path: None,
         });
     }
 
     git_push(root, &options.remote, &metadata.branch)?;
-    let published_at = now_timestamp();
-    let artifact = PublishArtifact {
+    let pushed_at = now_timestamp();
+    let artifact = PushArtifact {
         run_id: metadata.run_id.clone(),
         remote: options.remote.clone(),
         remote_url: remote_url.clone(),
         branch: metadata.branch.clone(),
         commit_sha: commit_sha.clone(),
         pushed: true,
-        published_at: published_at.clone(),
+        pushed_at: pushed_at.clone(),
         dry_run: false,
     };
 
-    write_json_pretty(&publish_path, &artifact)?;
-    metadata.published = true;
-    metadata.published_at = Some(published_at);
-    metadata.publish_remote = Some(options.remote.clone());
-    metadata.publish_remote_url = Some(remote_url.clone());
-    metadata.published_branch = Some(metadata.branch.clone());
-    metadata.publish = Some(artifact);
+    write_json_pretty(&push_path, &artifact)?;
+    metadata.pushed = true;
+    metadata.pushed_at = Some(pushed_at);
+    metadata.push_remote = Some(options.remote.clone());
+    metadata.push_remote_url = Some(remote_url.clone());
+    metadata.pushed_branch = Some(metadata.branch.clone());
+    metadata.push = Some(artifact);
 
-    Ok(PublishResult {
+    Ok(PushResult {
         run_id: metadata.run_id.clone(),
         remote: options.remote,
         remote_url,
@@ -110,18 +114,14 @@ pub(crate) fn publish_run(
         commit_sha,
         pushed: true,
         dry_run: false,
-        already_published: false,
+        already_pushed: false,
         would_push: false,
-        publish_path: Some(publish_path.display().to_string()),
+        push_path: Some(push_path.display().to_string()),
     })
 }
 
-fn validate_publish_preconditions(
-    root: &Path,
-    run_dir: &Path,
-    metadata: &RunMetadata,
-) -> Result<()> {
-    validate_publish_identity(metadata)?;
+fn validate_push_preconditions(root: &Path, run_dir: &Path, metadata: &RunMetadata) -> Result<()> {
+    validate_push_identity(metadata)?;
 
     let _commit_sha = committed_sha(metadata, &run_dir.join(COMMIT_FILE)).with_context(|| {
         format!(
@@ -143,7 +143,7 @@ fn validate_publish_preconditions(
     )?;
     if !capture.status.success() {
         bail!(
-            "candidate branch `{}` does not exist; cannot publish run `{}`",
+            "candidate branch `{}` does not exist; cannot push run `{}`",
             metadata.branch,
             metadata.run_id
         );
@@ -152,10 +152,10 @@ fn validate_publish_preconditions(
     Ok(())
 }
 
-fn validate_publish_identity(metadata: &RunMetadata) -> Result<()> {
+fn validate_push_identity(metadata: &RunMetadata) -> Result<()> {
     if metadata.status != RunStatus::Ready {
         bail!(
-            "run `{}` has status `{}`; only ready runs can be published",
+            "run `{}` has status `{}`; only ready runs can be pushed",
             metadata.run_id,
             metadata.status
         );
@@ -163,7 +163,7 @@ fn validate_publish_identity(metadata: &RunMetadata) -> Result<()> {
 
     if metadata.branch != expected_run_branch(&metadata.run_id)? {
         bail!(
-            "refusing to publish unexpected branch `{}` for run `{}`",
+            "refusing to push unexpected branch `{}` for run `{}`",
             metadata.branch,
             metadata.run_id
         );
@@ -247,7 +247,7 @@ fn git_push(root: &Path, remote: &str, branch: &str) -> Result<()> {
     let capture = run_command(root, "git", &args)?;
     if !capture.status.success() {
         bail!(
-            "failed to publish candidate branch with `{}`\nstdout:\n{}\nstderr:\n{}",
+            "failed to push candidate branch with `{}`\nstdout:\n{}\nstderr:\n{}",
             format_command("git", &args),
             capture.stdout.trim(),
             capture.stderr.trim()
@@ -256,65 +256,96 @@ fn git_push(root: &Path, remote: &str, branch: &str) -> Result<()> {
     Ok(())
 }
 
-fn existing_publish(
+#[derive(Debug)]
+struct ExistingPush {
+    artifact: PushArtifact,
+    path: PathBuf,
+}
+
+fn existing_push(
     metadata: &RunMetadata,
-    publish_path: &Path,
-) -> Result<Option<PublishArtifact>> {
-    if let Some(publish) = &metadata.publish {
-        return Ok(Some(publish.clone()));
+    run_dir: &Path,
+    push_path: &Path,
+) -> Result<Option<ExistingPush>> {
+    if let Some(push) = &metadata.push {
+        return Ok(Some(ExistingPush {
+            artifact: push.clone(),
+            path: existing_push_artifact_path(run_dir, push_path),
+        }));
     }
 
-    if metadata.published {
-        if let (
-            Some(published_at),
-            Some(remote),
-            Some(remote_url),
-            Some(branch),
-            Some(commit_sha),
-        ) = (
-            metadata.published_at.clone(),
-            metadata.publish_remote.clone(),
-            metadata.publish_remote_url.clone(),
-            metadata.published_branch.clone(),
+    if metadata.pushed {
+        if let (Some(pushed_at), Some(remote), Some(remote_url), Some(branch), Some(commit_sha)) = (
+            metadata.pushed_at.clone(),
+            metadata.push_remote.clone(),
+            metadata.push_remote_url.clone(),
+            metadata.pushed_branch.clone(),
             metadata.commit_sha.clone(),
         ) {
-            return Ok(Some(PublishArtifact {
-                run_id: metadata.run_id.clone(),
-                remote,
-                remote_url,
-                branch,
-                commit_sha,
-                pushed: true,
-                published_at,
-                dry_run: false,
+            return Ok(Some(ExistingPush {
+                artifact: PushArtifact {
+                    run_id: metadata.run_id.clone(),
+                    remote,
+                    remote_url,
+                    branch,
+                    commit_sha,
+                    pushed: true,
+                    pushed_at,
+                    dry_run: false,
+                },
+                path: existing_push_artifact_path(run_dir, push_path),
             }));
         }
     }
 
-    if publish_path.is_file() {
-        return Ok(Some(read_json(publish_path)?));
+    if push_path.is_file() {
+        return Ok(Some(ExistingPush {
+            artifact: read_json(push_path)?,
+            path: push_path.to_path_buf(),
+        }));
+    }
+
+    let legacy_path = run_dir.join(LEGACY_PUBLISH_FILE);
+    if legacy_path.is_file() {
+        return Ok(Some(ExistingPush {
+            artifact: read_json(&legacy_path)?,
+            path: legacy_path,
+        }));
     }
 
     Ok(None)
 }
 
-fn already_published_result(
+fn existing_push_artifact_path(run_dir: &Path, push_path: &Path) -> PathBuf {
+    if push_path.is_file() {
+        return push_path.to_path_buf();
+    }
+
+    let legacy_path = run_dir.join(LEGACY_PUBLISH_FILE);
+    if legacy_path.is_file() {
+        return legacy_path;
+    }
+
+    push_path.to_path_buf()
+}
+
+fn already_pushed_result(
     metadata: &RunMetadata,
-    artifact: PublishArtifact,
+    artifact: &PushArtifact,
     dry_run: bool,
-    publish_path: &Path,
-) -> PublishResult {
-    PublishResult {
+    push_path: &Path,
+) -> PushResult {
+    PushResult {
         run_id: metadata.run_id.clone(),
-        remote: artifact.remote,
-        remote_url: artifact.remote_url,
-        branch: artifact.branch,
-        commit_sha: artifact.commit_sha,
+        remote: artifact.remote.clone(),
+        remote_url: artifact.remote_url.clone(),
+        branch: artifact.branch.clone(),
+        commit_sha: artifact.commit_sha.clone(),
         pushed: true,
         dry_run,
-        already_published: true,
+        already_pushed: true,
         would_push: false,
-        publish_path: Some(publish_path.display().to_string()),
+        push_path: Some(push_path.display().to_string()),
     }
 }
 

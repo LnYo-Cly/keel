@@ -1,6 +1,6 @@
 use crate::command::{exit_code_text, format_command_line};
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PUBLISH_FILE, REPORT_FILE,
+    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PUSH_FILE, REPORT_FILE,
     REPORT_OUTPUT_LIMIT,
 };
 use crate::model::{CheckResult, RunMetadata, RunStatus};
@@ -84,7 +84,7 @@ pub(crate) fn render_report(
         metadata.readiness_reason,
         render_warnings(&metadata.warnings),
         render_commit_section(metadata),
-        render_publish_section(metadata),
+        render_push_section(metadata),
         render_failure_section(failure),
         agent_stdout,
         agent_stderr,
@@ -149,7 +149,7 @@ fn render_artifacts() -> String {
         ("Checks", CHECKS_FILE),
         ("Report", REPORT_FILE),
         ("Commit", COMMIT_FILE),
-        ("Publish", PUBLISH_FILE),
+        ("Push", PUSH_FILE),
     ]
     .iter()
     .map(|(label, file)| format!("- {label}: `{file}`\n"))
@@ -183,35 +183,35 @@ pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
          ### Warnings\n\n\
          {}\
          ### Next\n\n\
-         - You can publish this branch later with future `keel publish`.\n\
+         - You can push this branch later with future `keel push`.\n\
          - Keel did not push or merge anything.\n\n",
         metadata.branch, warnings
     )
 }
 
-pub(crate) fn render_publish_section(metadata: &RunMetadata) -> String {
-    if !metadata.published {
+pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
+    if !metadata.pushed {
         return String::new();
     }
 
-    let remote = metadata.publish_remote.as_deref().unwrap_or("unknown");
-    let remote_url = metadata.publish_remote_url.as_deref().unwrap_or("unknown");
+    let remote = metadata.push_remote.as_deref().unwrap_or("unknown");
+    let remote_url = metadata.push_remote_url.as_deref().unwrap_or("unknown");
     let branch = metadata
-        .published_branch
+        .pushed_branch
         .as_deref()
         .unwrap_or(&metadata.branch);
     let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
-    let published_at = metadata.published_at.as_deref().unwrap_or("unknown");
+    let pushed_at = metadata.pushed_at.as_deref().unwrap_or("unknown");
 
     format!(
-        "## Publish\n\n\
+        "## Push\n\n\
          - Remote: `{remote}`\n\
          - Remote URL: `{remote_url}`\n\
          - Branch: `{branch}`\n\
          - Commit: `{commit_sha}`\n\
-         - Published at: `{published_at}`\n\n\
+         - Pushed at: `{pushed_at}`\n\n\
          ### Next\n\n\
-         - Open a pull/merge request on your Git hosting provider.\n\
+         - Open a Pull Request or Merge Request on your Git hosting provider.\n\
          - Keel did not create a PR/MR.\n\
          - Keel did not merge anything.\n\n"
     )

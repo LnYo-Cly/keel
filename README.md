@@ -30,8 +30,8 @@ keel diff <run-id>
 keel log <run-id>
 keel commit <run-id> --dry-run
 keel commit <run-id>
-keel publish <run-id> --dry-run
-keel publish <run-id>
+keel push <run-id> --dry-run
+keel push <run-id>
 keel rerun <run-id>
 keel discard <run-id>
 ```
@@ -48,7 +48,7 @@ keel status --limit 5
 keel status --json
 keel report <run-id> --json
 keel commit <run-id> --json
-keel publish <run-id> --json
+keel push <run-id> --json
 ```
 
 `keel doctor` checks git, Keel's local `.keel/` layout, and optional agent
@@ -74,9 +74,9 @@ on `PATH`.
 - `keel commit <run-id>` commits only inside the candidate worktree on the
   candidate branch.
 - Local commit does not require a remote, GitHub, GitLab, or Gitee.
-- `keel publish <run-id>` pushes only the candidate branch to the selected Git
+- `keel push <run-id>` pushes only the candidate branch to the selected Git
   remote.
-- Publish is generic Git push, not provider-specific PR/MR creation.
+- Push is generic Git push, not provider-specific PR/MR creation.
 - Keel does not auto merge.
 - Keel does not auto push.
 - Keel preserves run history under `.keel/runs/`.
@@ -92,7 +92,7 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 - `checks.json`
 - `report.md`
 - `commit.json` after `keel commit <run-id>` succeeds
-- `publish.json` after `keel publish <run-id>` succeeds
+- `push.json` after `keel push <run-id>` succeeds
 
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
@@ -124,26 +124,26 @@ Commit behavior:
 Risk warnings do not block local commit. They remain advisory review signals and
 are copied into `commit.json` and the report.
 
-## Generic Git Publish Workflow
+## Generic Git Push Workflow
 
-`keel publish <run-id>` pushes an already committed ready candidate branch to a
+`keel push <run-id>` pushes an already committed ready candidate branch to a
 Git remote.
 
 ```bash
-keel publish <run-id> --dry-run
-keel publish <run-id>
-keel publish <run-id> --remote origin
-keel publish <run-id> --json
+keel push <run-id> --dry-run
+keel push <run-id>
+keel push <run-id> --remote origin
+keel push <run-id> --json
 ```
 
-Publish behavior:
+Push behavior:
 
 - Requires the run status to be `ready`.
 - Requires the run to have a local commit from `keel commit <run-id>`.
 - Defaults to `origin`; use `--remote <remote>` for another Git remote.
 - Runs `git push -u <remote> <candidate-branch>`.
-- Writes `.keel/runs/<run-id>/publish.json`.
-- Updates `metadata.json` and `report.md` with the publish summary.
+- Writes `.keel/runs/<run-id>/push.json`.
+- Updates `metadata.json` and `report.md` with the push summary.
 - Does not create a PR or MR.
 - Does not merge.
 - Does not push `main`, `master`, tags, or all branches.
@@ -151,7 +151,28 @@ Publish behavior:
 
 The remote can be GitHub, GitLab, Gitee, Gitea, a self-hosted Git service, or a
 bare Git repository. If a repository has no remote, Keel can still complete the
-local commit workflow; publish is optional.
+local commit workflow; push is optional.
+
+## Future PR/MR Workflow
+
+`keel pr` is not implemented yet. Keel uses `pr` as the future generic command
+name for creating a code review / merge request. On GitHub, Gitee, and Gitea it
+will create a Pull Request; on GitLab it will create a Merge Request.
+
+Future command shape:
+
+```bash
+keel pr <run-id>
+keel pr <run-id> --provider github
+keel pr <run-id> --provider gitlab
+keel pr <run-id> --provider gitee
+keel pr <run-id> --manual
+keel pr <run-id> --dry-run
+keel pr <run-id> --json
+```
+
+The future `keel pr` workflow will require the run to be pushed first. It will
+not auto merge.
 
 ## Risk Warnings
 
@@ -227,9 +248,10 @@ metadata, logs, diff, checks, and report artifacts when possible.
 ## Roadmap
 
 - v0.4: doctor, config validation, and risk path warnings.
-- v0.5: local commit, future publish, and future request workflows.
-  - `keel publish`: push a candidate branch to any Git remote.
-  - `keel request`: create a PR/MR on GitHub, GitLab, or Gitee.
+- v0.5: local commit, generic Git push, and future PR/MR workflow.
+  - `keel push`: push a candidate branch to any Git remote.
+  - Future `keel pr`: create a code review / merge request on GitHub, GitLab,
+    Gitee, or Gitea.
 - v0.6: TUI for reviewing candidate runs.
 
 ## Development Smoke Tests

@@ -860,19 +860,24 @@ paths = ["keel-noop-output.txt"]
 }
 
 #[test]
-fn publish_rejects_missing_uncommitted_missing_remote_and_discarded_runs() {
+fn push_rejects_missing_uncommitted_missing_remote_and_discarded_runs() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
 
     run_keel(repo.path(), ["publish", "run-does-not-exist"])
         .assert()
         .failure()
+        .stderr(predicate::str::contains("publish"));
+
+    run_keel(repo.path(), ["push", "run-does-not-exist"])
+        .assert()
+        .failure()
         .stderr(predicate::str::contains(
             "run `run-does-not-exist` does not exist",
         ));
 
-    let run = run_noop(&repo, "cli publish rejection task");
-    run_keel(repo.path(), ["publish", run.run_id.as_str()])
+    let run = run_noop(&repo, "cli push rejection task");
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("is not committed"))
@@ -881,7 +886,7 @@ fn publish_rejects_missing_uncommitted_missing_remote_and_discarded_runs() {
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
-    run_keel(repo.path(), ["publish", run.run_id.as_str()])
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -891,14 +896,14 @@ fn publish_rejects_missing_uncommitted_missing_remote_and_discarded_runs() {
     run_keel(repo.path(), ["discard", run.run_id.as_str()])
         .assert()
         .success();
-    run_keel(repo.path(), ["publish", run.run_id.as_str()])
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only ready runs can be published"));
+        .stderr(predicate::str::contains("only ready runs can be pushed"));
 }
 
 #[test]
-fn publish_dry_run_outputs_plan_and_does_not_write_artifacts() {
+fn push_dry_run_outputs_plan_and_does_not_write_artifacts() {
     let repo = create_temp_git_repo();
     let remote = create_bare_git_repo();
     git(
@@ -906,21 +911,21 @@ fn publish_dry_run_outputs_plan_and_does_not_write_artifacts() {
         ["remote", "add", "origin", remote.path().to_str().unwrap()],
     );
     run_keel(repo.path(), ["init"]).assert().success();
-    let run = run_noop(&repo, "cli publish dry run task");
+    let run = run_noop(&repo, "cli push dry run task");
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
     let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
     let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
 
-    run_keel(repo.path(), ["publish", run.run_id.as_str(), "--dry-run"])
+    run_keel(repo.path(), ["push", run.run_id.as_str(), "--dry-run"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Publish dry-run plan"))
+        .stdout(predicate::str::contains("Push dry-run plan"))
         .stdout(predicate::str::contains("Would run: git push -u origin"))
         .stdout(predicate::str::contains("Remote URL:"));
 
-    assert!(!run_artifact_path(&repo, &run.run_id, "publish.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, "push.json").exists());
     assert_eq!(
         read_run_artifact(&repo, &run.run_id, "metadata.json"),
         metadata_before
@@ -932,7 +937,7 @@ fn publish_dry_run_outputs_plan_and_does_not_write_artifacts() {
 }
 
 #[test]
-fn publish_dry_run_json_is_parseable() {
+fn push_dry_run_json_is_parseable() {
     let repo = create_temp_git_repo();
     let remote = create_bare_git_repo();
     git(
@@ -940,14 +945,14 @@ fn publish_dry_run_json_is_parseable() {
         ["remote", "add", "origin", remote.path().to_str().unwrap()],
     );
     run_keel(repo.path(), ["init"]).assert().success();
-    let run = run_noop(&repo, "cli publish dry run json task");
+    let run = run_noop(&repo, "cli push dry run json task");
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
 
     let result = parse_json_object(&run_keel_output(
         repo.path(),
-        ["publish", run.run_id.as_str(), "--dry-run", "--json"],
+        ["push", run.run_id.as_str(), "--dry-run", "--json"],
     ));
 
     assert_eq!(result["run_id"], run.run_id);
@@ -962,7 +967,7 @@ fn publish_dry_run_json_is_parseable() {
 }
 
 #[test]
-fn publish_success_is_idempotent_and_updates_report_surfaces() {
+fn push_success_is_idempotent_and_updates_report_surfaces() {
     let repo = create_temp_git_repo();
     let remote = create_bare_git_repo();
     git(
@@ -970,67 +975,72 @@ fn publish_success_is_idempotent_and_updates_report_surfaces() {
         ["remote", "add", "origin", remote.path().to_str().unwrap()],
     );
     run_keel(repo.path(), ["init"]).assert().success();
-    let run = run_noop(&repo, "cli publish success task");
+    let run = run_noop(&repo, "cli push success task");
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
-    let metadata_before_publish =
+    let metadata_before_push =
         parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
-    let branch = metadata_before_publish["branch"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let commit_sha = metadata_before_publish["commit_sha"]
+    let branch = metadata_before_push["branch"].as_str().unwrap().to_string();
+    let commit_sha = metadata_before_push["commit_sha"]
         .as_str()
         .unwrap()
         .to_string();
 
-    run_keel(repo.path(), ["publish", run.run_id.as_str()])
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Published run"))
+        .stdout(predicate::str::contains("Pushed run"))
         .stdout(predicate::str::contains("Keel did not create a PR/MR."))
         .stdout(predicate::str::contains("Keel did not merge anything."));
 
-    assert!(run_artifact_path(&repo, &run.run_id, "publish.json").is_file());
+    assert!(run_artifact_path(&repo, &run.run_id, "push.json").is_file());
+    assert!(!run_artifact_path(&repo, &run.run_id, "publish.json").exists());
     assert_eq!(
         git_output(remote.path(), ["rev-parse", branch.as_str()]).trim(),
         commit_sha
     );
     let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
-    assert_eq!(metadata["published"], true);
-    assert_eq!(metadata["publish_remote"], "origin");
-    assert_eq!(metadata["published_branch"], branch);
+    assert_eq!(metadata["pushed"], true);
+    assert_eq!(metadata["push_remote"], "origin");
+    assert_eq!(metadata["pushed_branch"], branch);
+    assert!(metadata.get("published").is_none());
+    assert!(metadata.get("publish_remote").is_none());
+    assert!(metadata.get("publish").is_none());
 
     let report = read_run_artifact(&repo, &run.run_id, "report.md");
-    assert!(report.contains("## Publish"));
+    assert!(report.contains("## Push"));
     assert!(report.contains("Keel did not create a PR/MR."));
     assert!(report.contains("Keel did not merge anything."));
 
-    let second = run_keel_output(repo.path(), ["publish", run.run_id.as_str()]);
-    assert!(second.contains("This run is already published"));
+    let second = run_keel_output(repo.path(), ["push", run.run_id.as_str()]);
+    assert!(second.contains("This run is already pushed"));
     let after_second = read_run_artifact(&repo, &run.run_id, "report.md");
     assert_eq!(after_second, report);
 
     run_keel(repo.path(), ["report", run.run_id.as_str()])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Publish:"))
-        .stdout(predicate::str::contains("publish.json"));
+        .stdout(predicate::str::contains("Push:"))
+        .stdout(predicate::str::contains("push.json"));
 
     let report_json = parse_json_object(&run_keel_output(
         repo.path(),
         ["report", run.run_id.as_str(), "--json"],
     ));
-    assert_eq!(report_json["publish"]["commit_sha"], commit_sha);
-    assert_eq!(report_json["artifacts"]["publish"]["exists"], true);
+    assert_eq!(report_json["push"]["commit_sha"], commit_sha);
+    assert_eq!(report_json["artifacts"]["push"]["exists"], true);
+    assert!(report_json.get("publish").is_none());
+    assert!(report_json["artifacts"].get("publish").is_none());
 
     let already_json = parse_json_object(&run_keel_output(
         repo.path(),
-        ["publish", run.run_id.as_str(), "--json"],
+        ["push", run.run_id.as_str(), "--json"],
     ));
-    assert_eq!(already_json["already_published"], true);
+    assert_eq!(already_json["already_pushed"], true);
     assert_eq!(already_json["commit_sha"], commit_sha);
+    assert!(already_json.get("already_published").is_none());
+    assert!(already_json.get("publish_path").is_none());
 }
 
 #[test]
