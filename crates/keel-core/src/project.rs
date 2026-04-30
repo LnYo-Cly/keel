@@ -133,9 +133,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
-        let source = self
-            .read_metadata(run_id)
-            .with_context(|| format!("failed to read source run `{run_id}`"))?;
+        let source = self.read_existing_run_metadata(run_id)?;
         let child =
             self.run_supported_agent(&source.task, &source.agent, Some(run_id.to_string()))?;
         self.append_rerun_to_report(run_id, &child.run_id)?;
@@ -297,9 +295,7 @@ impl KeelProject {
     pub fn report(&self, run_id: &str) -> Result<ReportInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
-        let metadata = self
-            .read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let metadata = self.read_existing_run_metadata(run_id)?;
         let report_path = self.run_dir(run_id).join(REPORT_FILE);
         let summary = format!(
             "run_id={} parent={} task={:?} agent={} status={} created_at={} worktree={}",
@@ -325,9 +321,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
-        let mut metadata = self
-            .read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let mut metadata = self.read_existing_run_metadata(run_id)?;
         let worktree = self.worktree_dir(run_id);
         let run_dir = self.run_dir(run_id);
         let result = commit_run(&self.root, &run_dir, &worktree, &mut metadata, options)?;
@@ -344,9 +338,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
-        let mut metadata = self
-            .read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let mut metadata = self.read_existing_run_metadata(run_id)?;
         let run_dir = self.run_dir(run_id);
         let result = push_run(&self.root, &run_dir, &mut metadata, options)?;
 
@@ -362,9 +354,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
-        let metadata = self
-            .read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let metadata = self.read_existing_run_metadata(run_id)?;
         plan_pr(&self.root, &metadata, options)
     }
 
@@ -372,9 +362,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
 
-        let mut metadata = self
-            .read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let mut metadata = self.read_existing_run_metadata(run_id)?;
         let run_dir = self.run_dir(run_id);
         let result = create_pr(&self.root, &run_dir, &mut metadata, options)?;
 
@@ -389,19 +377,9 @@ impl KeelProject {
     pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
-        self.read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        self.read_existing_run_metadata(run_id)?;
 
-        let path = self.run_dir(run_id).join(DIFF_FILE);
-        if !path.exists() {
-            bail!(
-                "diff for run `{run_id}` does not exist at {}",
-                path.display()
-            );
-        }
-
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let (path, content) = self.read_run_text_artifact(run_id, DIFF_FILE, "diff")?;
         let is_empty = content.trim().is_empty();
         Ok(DiffInfo {
             path,
@@ -413,19 +391,9 @@ impl KeelProject {
     pub fn log(&self, run_id: &str) -> Result<LogInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
-        self.read_metadata(run_id)
-            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        self.read_existing_run_metadata(run_id)?;
 
-        let path = self.run_dir(run_id).join(LOG_FILE);
-        if !path.exists() {
-            bail!(
-                "log for run `{run_id}` does not exist at {}",
-                path.display()
-            );
-        }
-
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let (path, content) = self.read_run_text_artifact(run_id, LOG_FILE, "log")?;
         let is_empty = content.trim().is_empty();
         Ok(LogInfo {
             path,
@@ -471,56 +439,34 @@ impl KeelProject {
     }
 
     fn append_rerun_to_report(&self, source_run_id: &str, child_run_id: &str) -> Result<()> {
-        let report_path = self.run_dir(source_run_id).join(REPORT_FILE);
-        let existing_report = fs::read_to_string(&report_path)
-            .with_context(|| format!("failed to read {}", report_path.display()))?;
         let rerun_section = format!(
-            "{existing_report}\n\n## Rerun\n\n- Created rerun: `{child_run_id}`\n- Source run preserved: `{source_run_id}`\n"
+            "## Rerun\n\n- Created rerun: `{child_run_id}`\n- Source run preserved: `{source_run_id}`\n"
         );
-        fs::write(&report_path, rerun_section)
-            .with_context(|| format!("failed to update {}", report_path.display()))
+        self.append_report_section(source_run_id, None, &rerun_section)
     }
 
     fn append_commit_to_report(&self, metadata: &RunMetadata) -> Result<()> {
-        let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
-        let existing_report = fs::read_to_string(&report_path)
-            .with_context(|| format!("failed to read {}", report_path.display()))?;
-        if existing_report.contains("## Commit") {
-            return Ok(());
-        }
-
-        let commit_section = render_commit_section(metadata);
-        fs::write(
-            &report_path,
-            format!("{existing_report}\n\n{commit_section}"),
+        self.append_report_section(
+            &metadata.run_id,
+            Some("## Commit"),
+            &render_commit_section(metadata),
         )
-        .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
     fn append_push_to_report(&self, metadata: &RunMetadata) -> Result<()> {
-        let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
-        let existing_report = fs::read_to_string(&report_path)
-            .with_context(|| format!("failed to read {}", report_path.display()))?;
-        if existing_report.contains("## Push") {
-            return Ok(());
-        }
-
-        let push_section = render_push_section(metadata);
-        fs::write(&report_path, format!("{existing_report}\n\n{push_section}"))
-            .with_context(|| format!("failed to update {}", report_path.display()))
+        self.append_report_section(
+            &metadata.run_id,
+            Some("## Push"),
+            &render_push_section(metadata),
+        )
     }
 
     fn append_pr_to_report(&self, metadata: &RunMetadata) -> Result<()> {
-        let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
-        let existing_report = fs::read_to_string(&report_path)
-            .with_context(|| format!("failed to read {}", report_path.display()))?;
-        if existing_report.contains("## PR/MR") {
-            return Ok(());
-        }
-
-        let pr_section = render_pr_section(metadata);
-        fs::write(&report_path, format!("{existing_report}\n\n{pr_section}"))
-            .with_context(|| format!("failed to update {}", report_path.display()))
+        self.append_report_section(
+            &metadata.run_id,
+            Some("## PR/MR"),
+            &render_pr_section(metadata),
+        )
     }
 
     pub fn discard(&self, run_id: &str) -> Result<RunMetadata> {
@@ -760,11 +706,55 @@ impl KeelProject {
         read_json(&self.run_dir(run_id).join(METADATA_FILE))
     }
 
+    fn read_existing_run_metadata(&self, run_id: &str) -> Result<RunMetadata> {
+        self.read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))
+    }
+
     pub(crate) fn write_metadata(&self, metadata: &RunMetadata) -> Result<()> {
         write_json_pretty(
             &self.run_dir(&metadata.run_id).join(METADATA_FILE),
             metadata,
         )
+    }
+
+    fn read_run_text_artifact(
+        &self,
+        run_id: &str,
+        file_name: &str,
+        artifact_name: &str,
+    ) -> Result<(PathBuf, String)> {
+        let path = self.run_dir(run_id).join(file_name);
+        if !path.exists() {
+            bail!(
+                "{artifact_name} for run `{run_id}` does not exist at {}",
+                path.display()
+            );
+        }
+
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        Ok((path, content))
+    }
+
+    fn append_report_section(
+        &self,
+        run_id: &str,
+        existing_marker: Option<&str>,
+        section: &str,
+    ) -> Result<()> {
+        let report_path = self.run_dir(run_id).join(REPORT_FILE);
+        let existing_report = fs::read_to_string(&report_path)
+            .with_context(|| format!("failed to read {}", report_path.display()))?;
+        if existing_marker.is_some_and(|marker| existing_report.contains(marker)) {
+            return Ok(());
+        }
+
+        fs::write(
+            &report_path,
+            format!("{}\n\n{}", existing_report, section.trim_end()),
+        )
+        .with_context(|| format!("failed to update {}", report_path.display()))
     }
 
     fn read_config(&self) -> Result<KeelConfig> {
