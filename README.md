@@ -33,12 +33,16 @@ keel discard <run-id>
 Useful review commands:
 
 ```bash
+keel doctor
 keel status --agent noop
 keel status --status ready
 keel status --limit 5
 keel status --json
 keel report <run-id> --json
 ```
+
+`keel doctor` checks git, Keel's local `.keel/` layout, and optional agent
+CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 
 ## Supported Agents
 

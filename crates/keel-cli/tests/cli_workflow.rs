@@ -11,6 +11,165 @@ const NO_MATCHES_MESSAGE: &str = "No runs matched the provided filters.";
 const NOOP_OUTPUT_FILE: &str = "keel-noop-output.txt";
 
 #[test]
+fn doctor_reports_errors_outside_git_repo() {
+    let temp = tempfile::tempdir().unwrap();
+
+    run_keel_with_path(temp.path(), ["doctor"], &path_with_git_only())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Keel doctor"))
+        .stdout(predicate::str::contains(
+            "current directory is not inside a git repository",
+        ));
+
+    let json = run_keel_output_with_path(
+        temp.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        false,
+    );
+    let report = parse_json_object(&json);
+    assert_eq!(report["ok"], false);
+    assert!(report["summary"]["errors"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn doctor_reports_missing_keel_layout_before_init() {
+    let repo = create_temp_git_repo();
+
+    run_keel_with_path(repo.path(), ["doctor"], &path_with_git_only())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(".keel directory is missing"))
+        .stdout(predicate::str::contains(".keel/config.toml is missing"))
+        .stdout(predicate::str::contains(".keel/runs directory is missing"))
+        .stdout(predicate::str::contains(
+            ".keel/worktrees directory is missing",
+        ));
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert!(report["summary"]["errors"].as_u64().unwrap() >= 4);
+}
+
+#[test]
+fn doctor_after_init_prints_grouped_human_output() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel_with_path(repo.path(), ["doctor"], &path_with_git_only())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Repository"))
+        .stdout(predicate::str::contains("Keel"))
+        .stdout(predicate::str::contains("Agents"))
+        .stdout(predicate::str::contains("Summary"))
+        .stdout(predicate::str::contains(".keel/config.toml found"))
+        .stdout(predicate::str::contains(".keel/runs directory found"))
+        .stdout(predicate::str::contains(".keel/worktrees directory found"))
+        .stdout(predicate::str::contains("codex not found in PATH"))
+        .stdout(predicate::str::contains("claude not found in PATH"))
+        .stdout(predicate::str::contains("opencode not found in PATH"));
+}
+
+#[test]
+fn doctor_json_after_init_is_parseable_and_structured() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        true,
+    ));
+
+    assert_eq!(report["ok"], true);
+    assert!(report["summary"]["warnings"].as_u64().unwrap() >= 3);
+    let checks = report["checks"].as_array().unwrap();
+    for id in [
+        "repository.git_command",
+        "repository.git_repo",
+        "repository.git_worktree",
+        "repository.working_tree_clean",
+        "keel.directory",
+        "keel.config",
+        "keel.runs",
+        "keel.worktrees",
+        "agents.codex",
+        "agents.claude",
+        "agents.opencode",
+    ] {
+        assert!(
+            checks.iter().any(|check| check["id"] == id),
+            "missing doctor check {id}"
+        );
+    }
+    assert!(!report.to_string().contains("Keel doctor"));
+}
+
+#[test]
+fn doctor_dirty_working_tree_is_warning_not_failure() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(repo.path().join("dirty.txt"), "dirty\n").unwrap();
+
+    run_keel_with_path(repo.path(), ["doctor"], &path_with_git_only())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "working tree has uncommitted changes",
+        ));
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        true,
+    ));
+    assert_eq!(
+        check_status(&report, "repository.working_tree_clean"),
+        "warning"
+    );
+    assert_eq!(report["ok"], true);
+}
+
+#[test]
+fn doctor_missing_agents_are_warnings_and_fake_agents_are_ok() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    let missing = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        true,
+    ));
+    assert_eq!(check_status(&missing, "agents.codex"), "warning");
+    assert_eq!(check_status(&missing, "agents.claude"), "warning");
+    assert_eq!(check_status(&missing, "agents.opencode"), "warning");
+
+    let bin = tempfile::tempdir().unwrap();
+    create_fake_executable(bin.path(), "codex");
+    create_fake_executable(bin.path(), "claude");
+    create_fake_executable(bin.path(), "opencode");
+    let found = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_and(bin.path()),
+        true,
+    ));
+    assert_eq!(check_status(&found, "agents.codex"), "ok");
+    assert_eq!(check_status(&found, "agents.claude"), "ok");
+    assert_eq!(check_status(&found, "agents.opencode"), "ok");
+    assert!(check_details(&found, "agents.codex").contains("codex"));
+}
+
+#[test]
 fn init_and_noop_run_create_run_artifacts() {
     let repo = create_temp_git_repo();
 
@@ -382,9 +541,30 @@ fn run_keel<const N: usize>(repo: &Path, args: [&str; N]) -> Command {
     command
 }
 
+fn run_keel_with_path<const N: usize>(repo: &Path, args: [&str; N], path: &str) -> Command {
+    let mut command = run_keel(repo, args);
+    command.env("PATH", path_for_test(path));
+    command
+}
+
 fn run_keel_output<const N: usize>(repo: &Path, args: [&str; N]) -> String {
     let output = run_keel(repo, args).assert().success().get_output().clone();
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn run_keel_output_with_path<const N: usize>(
+    repo: &Path,
+    args: [&str; N],
+    path: &str,
+    expect_success: bool,
+) -> String {
+    let mut assert = run_keel_with_path(repo, args, path).assert();
+    assert = if expect_success {
+        assert.success()
+    } else {
+        assert.failure()
+    };
+    String::from_utf8(assert.get_output().stdout.clone()).unwrap()
 }
 
 fn extract_run_id_from_status_or_runs_dir(repo: &Path, output: &str) -> String {
@@ -423,6 +603,26 @@ fn parse_json_object(output: &str) -> Value {
     serde_json::from_str(output).unwrap()
 }
 
+fn check_status<'a>(report: &'a Value, id: &str) -> &'a str {
+    report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == id)
+        .and_then(|check| check["status"].as_str())
+        .unwrap()
+}
+
+fn check_details<'a>(report: &'a Value, id: &str) -> &'a str {
+    report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["id"] == id)
+        .and_then(|check| check["details"].as_str())
+        .unwrap()
+}
+
 fn run_artifact_path(repo: &TempDir, run_id: &str, artifact: &str) -> PathBuf {
     run_dir(repo, run_id).join(artifact)
 }
@@ -448,6 +648,67 @@ fn git<const N: usize>(repo: &Path, args: [&str; N]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn path_with_git_only() -> String {
+    git_executable()
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+}
+
+fn path_with_git_and(extra_dir: &Path) -> String {
+    std::env::join_paths([git_executable().parent().unwrap(), extra_dir])
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+}
+
+fn path_for_test(path: &str) -> String {
+    path.to_string()
+}
+
+fn git_executable() -> PathBuf {
+    let output = StdCommand::new("where")
+        .arg("git")
+        .output()
+        .or_else(|_| StdCommand::new("which").arg("git").output())
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to locate git executable\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let first = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+    PathBuf::from(first)
+}
+
+fn create_fake_executable(dir: &Path, name: &str) {
+    let path = dir.join(if cfg!(windows) {
+        format!("{name}.cmd")
+    } else {
+        name.to_string()
+    });
+    let content = if cfg!(windows) {
+        "@echo off\r\nexit /B 0\r\n"
+    } else {
+        "#!/bin/sh\nexit 0\n"
+    };
+    fs::write(&path, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+    }
 }
 
 fn assert_contains_in_order(output: &str, first: &str, second: &str) {

@@ -1,8 +1,12 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use keel_core::{ArtifactInfo, KeelProject, ReportInfo, RunMetadata, RunStatus};
+use keel_core::{
+    run_doctor, ArtifactInfo, DoctorReport, DoctorStatus, KeelProject, ReportInfo, RunMetadata,
+    RunStatus,
+};
 use serde::Serialize;
 use std::path::Path;
+use std::process::ExitCode;
 
 #[derive(Debug, Parser)]
 #[command(name = "keel")]
@@ -14,6 +18,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Diagnose whether the current repository is ready to run Keel.
+    Doctor {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Initialize local Keel state in the current git repository.
     Init,
     /// Run a coding task with an agent.
@@ -105,11 +115,24 @@ impl StatusFilter {
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
+
+    if let Commands::Doctor { json } = cli.command {
+        let cwd = std::env::current_dir()?;
+        let report = run_doctor(&cwd);
+        if json {
+            print_json(&report)?;
+        } else {
+            print_doctor(&report);
+        }
+        return Ok(exit_code_for_report(&report));
+    }
+
     let project = KeelProject::discover_from_current_dir()?;
 
     match cli.command {
+        Commands::Doctor { .. } => unreachable!("doctor is handled before project discovery"),
         Commands::Init => {
             let result = project.init()?;
             println!("Initialized Keel at {}", result.keel_dir.display());
@@ -181,7 +204,7 @@ fn main() -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn filtered_runs(
@@ -274,6 +297,50 @@ fn print_report(report: ReportInfo) {
 fn print_json<T: Serialize>(value: &T) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
+}
+
+fn print_doctor(report: &DoctorReport) {
+    println!("Keel doctor");
+    for group in ["Repository", "Keel", "Agents"] {
+        println!();
+        println!("{group}");
+        for check in report.checks.iter().filter(|check| check.group == group) {
+            let details = check
+                .details
+                .as_deref()
+                .map(|details| format!(": {details}"))
+                .unwrap_or_default();
+            println!(
+                "  {} {}{}",
+                doctor_status_marker(check.status),
+                check.message,
+                details
+            );
+        }
+    }
+
+    println!();
+    println!("Summary");
+    println!(
+        "  {} ok, {} warnings, {} errors",
+        report.summary.ok, report.summary.warnings, report.summary.errors
+    );
+}
+
+fn doctor_status_marker(status: DoctorStatus) -> &'static str {
+    match status {
+        DoctorStatus::Ok => "✅",
+        DoctorStatus::Warning => "⚠️",
+        DoctorStatus::Error => "❌",
+    }
+}
+
+fn exit_code_for_report(report: &DoctorReport) -> ExitCode {
+    if report.ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn status_json(runs: &[RunMetadata]) -> Vec<RunSummaryJson> {
