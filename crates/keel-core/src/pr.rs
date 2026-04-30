@@ -83,12 +83,14 @@ pub struct PrPlan {
     pub remote_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_url: Option<String>,
     pub source_branch: String,
     pub target_branch: String,
     pub commit_sha: String,
     pub title: String,
     pub body: String,
-    pub instructions: Vec<String>,
+    pub manual_steps: Vec<String>,
     pub would_create_request: bool,
     pub would_write_artifact: bool,
     pub would_push: bool,
@@ -120,10 +122,18 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         .title
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| default_commit_message(metadata));
-    let repository_url = repository_web_url(&push.remote_url);
     let body = default_body(metadata, &push, &target_branch);
-    let instructions =
-        manual_instructions(provider, &push, &target_branch, repository_url.as_deref());
+    let repository_url = repository_web_url(&push.remote_url);
+    let web_url = repository_url
+        .as_deref()
+        .map(|url| provider_pr_web_url(provider, url, &push.branch, &target_branch, &title, &body));
+    let manual_steps = manual_steps(
+        provider,
+        &push,
+        &target_branch,
+        repository_url.as_deref(),
+        web_url.as_deref(),
+    );
 
     Ok(PrPlan {
         run_id: metadata.run_id.clone(),
@@ -135,12 +145,13 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         remote: push.remote,
         remote_url: push.remote_url,
         repository_url,
+        web_url,
         source_branch: push.branch,
         target_branch,
         commit_sha,
         title,
         body,
-        instructions,
+        manual_steps,
         would_create_request: false,
         would_write_artifact: false,
         would_push: false,
@@ -336,6 +347,66 @@ fn repository_web_url(remote_url: &str) -> Option<String> {
     }
 }
 
+fn provider_pr_web_url(
+    provider: PrProvider,
+    repository_url: &str,
+    source_branch: &str,
+    target_branch: &str,
+    title: &str,
+    body: &str,
+) -> String {
+    match provider {
+        PrProvider::Github | PrProvider::Gitee | PrProvider::Gitea => {
+            compare_url(repository_url, source_branch, target_branch, title, body)
+        }
+        PrProvider::Gitlab => {
+            merge_request_url(repository_url, source_branch, target_branch, title, body)
+        }
+    }
+}
+
+fn compare_url(
+    repository_url: &str,
+    source_branch: &str,
+    target_branch: &str,
+    title: &str,
+    body: &str,
+) -> String {
+    format!(
+        "{}/compare/{}...{}?title={}&body={}",
+        repository_url.trim_end_matches('/'),
+        encode_path_segment(target_branch),
+        encode_path_segment(source_branch),
+        encode_query_value(title),
+        encode_query_value(body)
+    )
+}
+
+fn merge_request_url(
+    repository_url: &str,
+    source_branch: &str,
+    target_branch: &str,
+    title: &str,
+    body: &str,
+) -> String {
+    format!(
+        "{}/-/merge_requests/new?merge_request[source_branch]={}&merge_request[target_branch]={}&merge_request[title]={}&merge_request[description]={}",
+        repository_url.trim_end_matches('/'),
+        encode_query_value(source_branch),
+        encode_query_value(target_branch),
+        encode_query_value(title),
+        encode_query_value(body)
+    )
+}
+
+fn encode_path_segment(value: &str) -> String {
+    urlencoding::encode(value).into_owned()
+}
+
+fn encode_query_value(value: &str) -> String {
+    urlencoding::encode(value).into_owned()
+}
+
 fn default_body(metadata: &RunMetadata, push: &PushArtifact, target_branch: &str) -> String {
     format!(
         "Keel run: {}\nAgent: {}\nSource branch: {}\nTarget branch: {}\nCommit: {}\n\nHuman review required before merge.",
@@ -343,18 +414,21 @@ fn default_body(metadata: &RunMetadata, push: &PushArtifact, target_branch: &str
     )
 }
 
-fn manual_instructions(
+fn manual_steps(
     provider: PrProvider,
     push: &PushArtifact,
     target_branch: &str,
     repository_url: Option<&str>,
+    web_url: Option<&str>,
 ) -> Vec<String> {
     let request_label = match provider {
         PrProvider::Gitlab => "Merge Request",
         PrProvider::Github | PrProvider::Gitee | PrProvider::Gitea => "Pull Request",
     };
     let mut instructions = Vec::new();
-    if let Some(repository_url) = repository_url {
+    if let Some(web_url) = web_url {
+        instructions.push(format!("Open {web_url} in your browser."));
+    } else if let Some(repository_url) = repository_url {
         instructions.push(format!("Open {repository_url} in your browser."));
     }
     instructions.push(format!(
@@ -404,6 +478,37 @@ mod tests {
         assert_eq!(
             repository_web_url("https://gitee.com/owner/repo.git").as_deref(),
             Some("https://gitee.com/owner/repo")
+        );
+    }
+
+    #[test]
+    fn builds_provider_web_urls() {
+        for provider in [PrProvider::Github, PrProvider::Gitee, PrProvider::Gitea] {
+            let web_url = provider_pr_web_url(
+                provider,
+                "https://example.com/owner/repo",
+                "keel/run/123",
+                "release/v1",
+                "keel: test",
+                "body text",
+            );
+            assert_eq!(
+                web_url,
+                "https://example.com/owner/repo/compare/release%2Fv1...keel%2Frun%2F123?title=keel%3A%20test&body=body%20text"
+            );
+        }
+
+        let web_url = provider_pr_web_url(
+            PrProvider::Gitlab,
+            "https://gitlab.com/owner/repo",
+            "keel/run/123",
+            "release/v1",
+            "keel: test",
+            "body text",
+        );
+        assert_eq!(
+            web_url,
+            "https://gitlab.com/owner/repo/-/merge_requests/new?merge_request[source_branch]=keel%2Frun%2F123&merge_request[target_branch]=release%2Fv1&merge_request[title]=keel%3A%20test&merge_request[description]=body%20text"
         );
     }
 }

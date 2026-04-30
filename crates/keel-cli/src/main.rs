@@ -563,6 +563,9 @@ fn print_pr_plan(plan: &PrPlan) {
     if let Some(repository_url) = &plan.repository_url {
         println!("Repository URL: {repository_url}");
     }
+    if let Some(web_url) = &plan.web_url {
+        println!("Web URL: {web_url}");
+    }
     println!("Source branch: {}", plan.source_branch);
     println!("Target branch: {}", plan.target_branch);
     println!("Commit: {}", plan.commit_sha);
@@ -570,8 +573,8 @@ fn print_pr_plan(plan: &PrPlan) {
     println!("Body:");
     println!("{}", plan.body);
     println!("Manual next steps:");
-    for instruction in &plan.instructions {
-        println!("- {instruction}");
+    for step in &plan.manual_steps {
+        println!("- {step}");
     }
     println!("Keel did not create a PR/MR.");
     println!("Keel did not write pr.json.");

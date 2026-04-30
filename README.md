@@ -171,12 +171,21 @@ Manual plan behavior:
 - Requires the run to be ready, committed, and pushed.
 - Infers the provider from common remote hosts when possible.
 - Supports explicit providers: `github`, `gitlab`, `gitee`, and `gitea`.
-- Prints source branch, target branch, commit, title, body, and manual next
-  steps.
+- Prints source branch, target branch, commit, title, body, a provider web URL
+  when derivable, and manual next steps.
+- JSON output includes `web_url` and `manual_steps` for automation-friendly
+  manual workflows.
 - Does not call GitHub, GitLab, Gitee, or Gitea APIs.
 - Does not call `gh` or `glab`.
 - Does not write `pr.json`.
 - Does not push or merge anything.
+
+The generated web URL is a best-effort browser link:
+
+- GitHub, Gitee, and Gitea use a compare-style Pull Request URL.
+- GitLab uses a new Merge Request URL with source and target branches filled.
+- Local bare remotes and unknown self-hosted URLs may not produce a `web_url`;
+  pass `--provider` and use the printed manual steps.
 
 Keel uses `pr` as the generic command name for creating a code review / merge
 request. On GitHub, Gitee, and Gitea it maps to Pull Request language; on

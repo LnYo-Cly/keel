@@ -910,6 +910,7 @@ fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
     assert_eq!(plan.commit_sha, commit.commit_sha.unwrap());
     assert_eq!(plan.title, "keel: manual pr plan");
     assert!(plan.body.contains(&metadata.run_id));
+    assert!(plan.web_url.is_none());
     assert!(!plan.would_create_request);
     assert!(!plan.would_write_artifact);
     assert!(!plan.would_push);
@@ -957,6 +958,65 @@ fn pr_manual_dry_run_infers_provider_from_remote_url() {
         plan.repository_url.as_deref(),
         Some("https://gitlab.com/owner/repo")
     );
+    assert!(plan
+        .web_url
+        .as_deref()
+        .unwrap()
+        .starts_with("https://gitlab.com/owner/repo/-/merge_requests/new?"));
+    assert!(plan
+        .web_url
+        .as_deref()
+        .unwrap()
+        .contains("merge_request[source_branch]=keel%2Frun%2F"));
+    assert!(plan
+        .manual_steps
+        .iter()
+        .any(|step| step.contains("https://gitlab.com/owner/repo/-/merge_requests/new")));
+}
+
+#[test]
+fn pr_manual_dry_run_builds_github_web_url_with_overrides() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("github web url", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    pushed.push = None;
+    project.write_metadata(&pushed).unwrap();
+
+    let plan = project
+        .pr_plan(
+            &metadata.run_id,
+            PrOptions {
+                manual: true,
+                dry_run: true,
+                provider: None,
+                target: Some("release/v1".to_string()),
+                title: Some("custom title".to_string()),
+            },
+        )
+        .unwrap();
+
+    let web_url = plan.web_url.as_deref().unwrap();
+    assert_eq!(plan.provider, PrProvider::Github);
+    assert!(web_url.starts_with("https://github.com/owner/repo/compare/"));
+    assert!(web_url.contains("release%2Fv1...keel%2Frun%2F"));
+    assert!(web_url.contains("title=custom%20title"));
+    assert!(web_url.contains("body=Keel%20run%3A"));
 }
 
 #[test]

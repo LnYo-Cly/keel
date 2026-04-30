@@ -1046,19 +1046,16 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
 #[test]
 fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
     let repo = create_temp_git_repo();
-    let remote = create_bare_git_repo();
     git(
         repo.path(),
-        ["remote", "add", "origin", remote.path().to_str().unwrap()],
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
     );
     run_keel(repo.path(), ["init"]).assert().success();
     let run = run_noop(&repo, "cli pr manual dry run task");
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
-    run_keel(repo.path(), ["push", run.run_id.as_str()])
-        .assert()
-        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
     let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
     let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
 
@@ -1078,6 +1075,9 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
     .stdout(predicate::str::contains("PR/MR manual dry-run plan"))
     .stdout(predicate::str::contains("Provider: GitHub"))
     .stdout(predicate::str::contains("Request kind: pull_request"))
+    .stdout(predicate::str::contains(
+        "Web URL: https://github.com/owner/repo/compare/",
+    ))
     .stdout(predicate::str::contains("Keel did not create a PR/MR."))
     .stdout(predicate::str::contains("Keel did not write pr.json."))
     .stdout(predicate::str::contains(
@@ -1102,21 +1102,29 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
             "--manual",
             "--dry-run",
             "--provider",
-            "gitlab",
+            "github",
             "--json",
         ],
     ));
     assert_eq!(json["run_id"], run.run_id);
-    assert_eq!(json["provider"], "gitlab");
-    assert_eq!(json["provider_name"], "GitLab");
-    assert_eq!(json["request_kind"], "merge_request");
+    assert_eq!(json["provider"], "github");
+    assert_eq!(json["provider_name"], "GitHub");
+    assert_eq!(json["request_kind"], "pull_request");
     assert_eq!(json["manual"], true);
     assert_eq!(json["dry_run"], true);
+    assert!(json["repository_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("https://github.com/owner/repo"));
+    assert!(json["web_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("https://github.com/owner/repo/compare/"));
     assert_eq!(json["would_create_request"], false);
     assert_eq!(json["would_write_artifact"], false);
     assert_eq!(json["would_push"], false);
     assert_eq!(json["would_merge"], false);
-    assert!(json["instructions"]
+    assert!(json["manual_steps"]
         .as_array()
         .unwrap()
         .iter()
@@ -1124,6 +1132,7 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
             .as_str()
             .unwrap()
             .contains("Keel did not call any provider API.")));
+    assert!(json.get("instructions").is_none());
 }
 
 #[test]
@@ -1346,6 +1355,34 @@ fn newest_run_id_from_runs_dir(repo: &Path) -> String {
 
 fn read_run_artifact(repo: &TempDir, run_id: &str, artifact: &str) -> String {
     fs::read_to_string(run_artifact_path(repo, run_id, artifact)).unwrap()
+}
+
+fn mark_run_pushed(repo: &TempDir, run_id: &str, remote_url: &str) {
+    let metadata_path = run_artifact_path(repo, run_id, "metadata.json");
+    let mut metadata = parse_json_object(&fs::read_to_string(&metadata_path).unwrap());
+    let branch = metadata["branch"].as_str().unwrap().to_string();
+    let commit_sha = metadata["commit_sha"].as_str().unwrap().to_string();
+    let pushed_at = "2026-04-30T00:00:00Z";
+    metadata["pushed"] = Value::Bool(true);
+    metadata["pushed_at"] = Value::String(pushed_at.to_string());
+    metadata["push_remote"] = Value::String("origin".to_string());
+    metadata["push_remote_url"] = Value::String(remote_url.to_string());
+    metadata["pushed_branch"] = Value::String(branch.clone());
+    metadata["push"] = serde_json::json!({
+        "run_id": run_id,
+        "remote": "origin",
+        "remote_url": remote_url,
+        "branch": branch,
+        "commit_sha": commit_sha,
+        "pushed": true,
+        "pushed_at": pushed_at,
+        "dry_run": false
+    });
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
 }
 
 fn parse_json_array(output: &str) -> Vec<Value> {
