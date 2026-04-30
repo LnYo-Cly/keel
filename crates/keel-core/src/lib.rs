@@ -8,6 +8,7 @@ mod doctor;
 mod git;
 mod json;
 mod model;
+mod pr;
 mod project;
 mod push;
 mod report;
@@ -26,6 +27,7 @@ pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
     ReportInfo, RunMetadata, RunStatus,
 };
+pub use pr::{infer_provider, PrOptions, PrPlan, PrProvider};
 pub use project::KeelProject;
 pub use push::{PushArtifact, PushOptions, PushResult};
 pub use risk::{RiskWarning, RiskWarningKind};

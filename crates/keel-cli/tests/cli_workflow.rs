@@ -1044,6 +1044,127 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
 }
 
 #[test]
+fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
+    let repo = create_temp_git_repo();
+    let remote = create_bare_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr manual dry run task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
+        .assert()
+        .success();
+    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
+    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+
+    run_keel(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--manual",
+            "--dry-run",
+            "--provider",
+            "github",
+        ],
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("PR/MR manual dry-run plan"))
+    .stdout(predicate::str::contains("Provider: GitHub"))
+    .stdout(predicate::str::contains("Request kind: pull_request"))
+    .stdout(predicate::str::contains("Keel did not create a PR/MR."))
+    .stdout(predicate::str::contains("Keel did not write pr.json."))
+    .stdout(predicate::str::contains(
+        "Keel did not push or merge anything.",
+    ));
+
+    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        metadata_before
+    );
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "report.md"),
+        report_before
+    );
+
+    let json = parse_json_object(&run_keel_output(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--manual",
+            "--dry-run",
+            "--provider",
+            "gitlab",
+            "--json",
+        ],
+    ));
+    assert_eq!(json["run_id"], run.run_id);
+    assert_eq!(json["provider"], "gitlab");
+    assert_eq!(json["provider_name"], "GitLab");
+    assert_eq!(json["request_kind"], "merge_request");
+    assert_eq!(json["manual"], true);
+    assert_eq!(json["dry_run"], true);
+    assert_eq!(json["would_create_request"], false);
+    assert_eq!(json["would_write_artifact"], false);
+    assert_eq!(json["would_push"], false);
+    assert_eq!(json["would_merge"], false);
+    assert!(json["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item
+            .as_str()
+            .unwrap()
+            .contains("Keel did not call any provider API.")));
+}
+
+#[test]
+fn pr_manual_dry_run_rejects_missing_flags_and_unpushed_runs() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr rejection task");
+
+    run_keel(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--manual", "--dry-run"],
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is not committed"));
+
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    run_keel(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--manual",
+            "--dry-run",
+            "--provider",
+            "github",
+        ],
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is not pushed"));
+
+    run_keel(repo.path(), ["pr", run.run_id.as_str(), "--manual"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--manual --dry-run"));
+}
+
+#[test]
 fn diff_outputs_saved_patch_and_clear_missing_errors() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();

@@ -3,7 +3,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
     run_doctor, validate_config, ArtifactInfo, CommitArtifact, CommitOptions, CommitResult,
     ConfigValidationReport, ConfigValidationSeverity, DoctorReport, DoctorStatus, KeelProject,
-    PushArtifact, PushOptions, PushResult, ReportInfo, RiskWarning, RunMetadata, RunStatus,
+    PrOptions, PrPlan, PrProvider, PushArtifact, PushOptions, PushResult, ReportInfo, RiskWarning,
+    RunMetadata, RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -90,6 +91,29 @@ enum Commands {
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
+    },
+    /// Build a manual PR/MR plan for a pushed candidate branch.
+    Pr {
+        /// Run id.
+        run_id: String,
+        /// Generate manual instructions without provider API calls.
+        #[arg(long)]
+        manual: bool,
+        /// Print the plan without writing artifacts or creating provider requests.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+        /// Override provider inference. Supported: github, gitlab, gitee, gitea.
+        #[arg(long, value_parser = parse_pr_provider)]
+        provider: Option<PrProvider>,
+        /// Target branch for the future PR/MR.
+        #[arg(long)]
+        target: Option<String>,
+        /// Title for the future PR/MR.
+        #[arg(long)]
+        title: Option<String>,
     },
     /// Print the saved diff for a run.
     Diff {
@@ -245,6 +269,31 @@ fn main() -> Result<ExitCode> {
                 print_push_result(&result);
             }
         }
+        Commands::Pr {
+            run_id,
+            manual,
+            dry_run,
+            json,
+            provider,
+            target,
+            title,
+        } => {
+            let plan = project.pr_plan(
+                &run_id,
+                PrOptions {
+                    manual,
+                    dry_run,
+                    provider,
+                    target,
+                    title,
+                },
+            )?;
+            if json {
+                print_json(&plan)?;
+            } else {
+                print_pr_plan(&plan);
+            }
+        }
         Commands::Diff { run_id } => {
             let diff = project.diff(&run_id)?;
             println!("Diff: {}", diff.path.display());
@@ -313,6 +362,12 @@ fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
         return Err("limit must be greater than 0".to_string());
     }
     Ok(parsed)
+}
+
+fn parse_pr_provider(value: &str) -> std::result::Result<PrProvider, String> {
+    value
+        .parse::<PrProvider>()
+        .map_err(|error| error.to_string())
 }
 
 fn print_run_created(label: &str, metadata: &RunMetadata) {
@@ -496,6 +551,31 @@ fn print_push_result(result: &PushResult) {
     }
     println!("Keel did not create a PR/MR.");
     println!("Keel did not merge anything.");
+}
+
+fn print_pr_plan(plan: &PrPlan) {
+    println!("PR/MR manual dry-run plan");
+    println!("Run: {}", plan.run_id);
+    println!("Provider: {}", plan.provider_name);
+    println!("Request kind: {}", plan.request_kind);
+    println!("Remote: {}", plan.remote);
+    println!("Remote URL: {}", plan.remote_url);
+    if let Some(repository_url) = &plan.repository_url {
+        println!("Repository URL: {repository_url}");
+    }
+    println!("Source branch: {}", plan.source_branch);
+    println!("Target branch: {}", plan.target_branch);
+    println!("Commit: {}", plan.commit_sha);
+    println!("Title: {}", plan.title);
+    println!("Body:");
+    println!("{}", plan.body);
+    println!("Manual next steps:");
+    for instruction in &plan.instructions {
+        println!("- {instruction}");
+    }
+    println!("Keel did not create a PR/MR.");
+    println!("Keel did not write pr.json.");
+    println!("Keel did not push or merge anything.");
 }
 
 fn print_warning_summary(warnings: &[String]) {

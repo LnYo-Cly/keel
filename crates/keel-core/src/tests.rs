@@ -10,6 +10,7 @@ use crate::constants::{
 };
 use crate::json::read_json;
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
+use crate::pr::{PrOptions, PrProvider};
 use crate::project::{compare_created_at_for_test, KeelProject};
 use crate::push::PushOptions;
 use crate::risk::RiskWarningKind;
@@ -830,6 +831,182 @@ fn push_rejects_candidate_branch_head_mismatch() {
         .to_string();
 
     assert!(error.contains("does not match committed run SHA"));
+}
+
+#[test]
+fn pr_manual_dry_run_rejects_invalid_run_states() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let missing = project
+        .pr_plan("run-does-not-exist", pr_options(None))
+        .unwrap_err()
+        .to_string();
+    assert!(missing.contains("run `run-does-not-exist` does not exist"));
+
+    let uncommitted = project.run("pr uncommitted", "noop").unwrap();
+    let error = project
+        .pr_plan(&uncommitted.run_id, pr_options(None))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("is not committed"));
+
+    project
+        .commit(
+            &uncommitted.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let error = project
+        .pr_plan(&uncommitted.run_id, pr_options(None))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("is not pushed"));
+
+    let discarded = project.discard(&uncommitted.run_id).unwrap();
+    let error = project
+        .pr_plan(&discarded.run_id, pr_options(None))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("only ready runs can create a PR/MR plan"));
+}
+
+#[test]
+fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("manual pr plan", "noop").unwrap();
+    let commit = project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    project.push(&metadata.run_id, push_options(false)).unwrap();
+    let before_metadata = read_run_file(&temp, &metadata.run_id, METADATA_FILE);
+    let before_report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+
+    let plan = project
+        .pr_plan(&metadata.run_id, pr_options(Some(PrProvider::Github)))
+        .unwrap();
+
+    assert_eq!(plan.provider, PrProvider::Github);
+    assert_eq!(plan.request_kind, "pull_request");
+    assert_eq!(plan.source_branch, metadata.branch);
+    assert_eq!(
+        plan.target_branch,
+        git_stdout(temp.path(), &["branch", "--show-current"])
+    );
+    assert_eq!(plan.commit_sha, commit.commit_sha.unwrap());
+    assert_eq!(plan.title, "keel: manual pr plan");
+    assert!(plan.body.contains(&metadata.run_id));
+    assert!(!plan.would_create_request);
+    assert!(!plan.would_write_artifact);
+    assert!(!plan.would_push);
+    assert!(!plan.would_merge);
+    assert!(!run_dir(&temp, &metadata.run_id).join("pr.json").exists());
+    assert_eq!(
+        read_run_file(&temp, &metadata.run_id, METADATA_FILE),
+        before_metadata
+    );
+    assert_eq!(
+        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        before_report
+    );
+}
+
+#[test]
+fn pr_manual_dry_run_infers_provider_from_remote_url() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("provider inference", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@gitlab.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    pushed.push = None;
+    project.write_metadata(&pushed).unwrap();
+
+    let plan = project.pr_plan(&metadata.run_id, pr_options(None)).unwrap();
+
+    assert_eq!(plan.provider, PrProvider::Gitlab);
+    assert_eq!(plan.request_kind, "merge_request");
+    assert_eq!(
+        plan.repository_url.as_deref(),
+        Some("https://gitlab.com/owner/repo")
+    );
+}
+
+#[test]
+fn pr_manual_dry_run_rejects_unknown_provider_without_override() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("unknown provider", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    project.push(&metadata.run_id, push_options(false)).unwrap();
+
+    let error = project
+        .pr_plan(&metadata.run_id, pr_options(None))
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("could not infer PR provider"));
+}
+
+#[test]
+fn pr_manual_dry_run_requires_manual_and_dry_run_flags() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("pr mode", "noop").unwrap();
+
+    let error = project
+        .pr_plan(
+            &metadata.run_id,
+            PrOptions {
+                manual: false,
+                dry_run: true,
+                provider: Some(PrProvider::Github),
+                target: None,
+                title: None,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("--manual --dry-run"));
 }
 
 #[test]
@@ -1863,6 +2040,16 @@ fn push_options(dry_run: bool) -> PushOptions {
     PushOptions {
         remote: "origin".to_string(),
         dry_run,
+    }
+}
+
+fn pr_options(provider: Option<PrProvider>) -> PrOptions {
+    PrOptions {
+        manual: true,
+        dry_run: true,
+        provider,
+        target: None,
+        title: None,
     }
 }
 

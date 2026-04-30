@@ -17,6 +17,7 @@ use crate::json::{read_json, write_json_pretty};
 use crate::model::{
     ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
 };
+use crate::pr::{plan_pr, PrOptions, PrPlan};
 use crate::push::{push_run, PushOptions, PushResult};
 use crate::report::{render_commit_section, render_push_section, render_report};
 use crate::risk::{analyze_diff_risk, format_risk_warning};
@@ -355,6 +356,16 @@ impl KeelProject {
         }
 
         Ok(result)
+    }
+
+    pub fn pr_plan(&self, run_id: &str, options: PrOptions) -> Result<PrPlan> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+
+        let metadata = self
+            .read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        plan_pr(&self.root, &metadata, options)
     }
 
     pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {
