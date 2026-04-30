@@ -1,0 +1,16 @@
+---
+source: crates/keel-cli/tests/cli_workflow.rs
+expression: normalize_output(&output)
+---
+Report: <repo>/.keel/runs/<run-id>/report.md
+run_id=<run-id> parent=none task="report workflow task" agent=noop status=ready created_at=<timestamp> worktree=.keel/worktrees/<run-id>
+Artifacts:
+- Metadata: <repo>/.keel/runs/<run-id>/metadata.json (present)
+- Log: <repo>/.keel/runs/<run-id>/log.txt (present)
+- Diff: <repo>/.keel/runs/<run-id>/diff.patch (present)
+- Checks: <repo>/.keel/runs/<run-id>/checks.json (present)
+- Report: <repo>/.keel/runs/<run-id>/report.md (present)
+Suggested next actions:
+- keel diff <run-id>
+- keel rerun <run-id>
+- keel discard <run-id>
