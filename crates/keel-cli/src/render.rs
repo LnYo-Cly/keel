@@ -1,7 +1,7 @@
 use anyhow::Result;
 use keel_core::{
-    CommitResult, ConfigValidationReport, ConfigValidationSeverity, DoctorReport, DoctorStatus,
-    PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
+    CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
+    DoctorStatus, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -285,6 +285,26 @@ pub(crate) fn print_pr_result(result: &PrResult) {
     println!("Keel did not merge anything.");
 }
 
+pub(crate) fn print_diff(run_id: &str, diff: &DiffInfo) {
+    println!("Diff: {}", diff.path.display());
+    print_text_artifact(&diff.content, diff.is_empty, || {
+        println!("Diff for run `{run_id}` is empty.");
+    });
+}
+
+pub(crate) fn print_log(run_id: &str, log: &LogInfo) {
+    println!("Log: {}", log.path.display());
+    print_text_artifact(&log.content, log.is_empty, || {
+        println!("Log for run `{run_id}` is empty.");
+    });
+}
+
+pub(crate) fn print_discarded_run(metadata: &RunMetadata) {
+    println!("Discarded run: {}", metadata.run_id);
+    println!("Status: {}", metadata.status);
+    println!("History preserved at: {}", metadata.run_dir);
+}
+
 pub(crate) fn print_warning_summary(warnings: &[String]) {
     if warnings.is_empty() {
         println!("Warnings: none");
@@ -294,6 +314,21 @@ pub(crate) fn print_warning_summary(warnings: &[String]) {
     println!("Warnings:");
     for warning in warnings {
         println!("- {warning}");
+    }
+}
+
+fn print_text_artifact<F>(content: &str, is_empty: bool, print_empty: F)
+where
+    F: FnOnce(),
+{
+    if is_empty {
+        print_empty();
+        return;
+    }
+
+    print!("{content}");
+    if !content.ends_with('\n') {
+        println!();
     }
 }
 

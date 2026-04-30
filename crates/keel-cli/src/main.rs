@@ -301,27 +301,11 @@ fn main() -> Result<ExitCode> {
         }
         Commands::Diff { run_id } => {
             let diff = project.diff(&run_id)?;
-            println!("Diff: {}", diff.path.display());
-            if diff.is_empty {
-                println!("Diff for run `{run_id}` is empty.");
-            } else {
-                print!("{}", diff.content);
-                if !diff.content.ends_with('\n') {
-                    println!();
-                }
-            }
+            render::print_diff(&run_id, &diff);
         }
         Commands::Log { run_id } => {
             let log = project.log(&run_id)?;
-            println!("Log: {}", log.path.display());
-            if log.is_empty {
-                println!("Log for run `{run_id}` is empty.");
-            } else {
-                print!("{}", log.content);
-                if !log.content.ends_with('\n') {
-                    println!();
-                }
-            }
+            render::print_log(&run_id, &log);
         }
         Commands::Rerun { run_id } => {
             let metadata = project.rerun(&run_id)?;
@@ -333,9 +317,7 @@ fn main() -> Result<ExitCode> {
         }
         Commands::Discard { run_id } => {
             let metadata = project.discard(&run_id)?;
-            println!("Discarded run: {}", metadata.run_id);
-            println!("Status: {}", metadata.status);
-            println!("History preserved at: {}", metadata.run_dir);
+            render::print_discarded_run(&metadata);
         }
     }
 
