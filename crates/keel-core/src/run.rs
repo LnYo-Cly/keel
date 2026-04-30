@@ -96,6 +96,12 @@ impl RunSession {
             commit_message: None,
             committed_at: None,
             commit: None,
+            published: false,
+            published_at: None,
+            publish_remote: None,
+            publish_remote_url: None,
+            published_branch: None,
+            publish: None,
         };
         let session = Self {
             run_id,

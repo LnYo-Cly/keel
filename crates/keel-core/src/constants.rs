@@ -8,6 +8,7 @@ pub(crate) const DIFF_FILE: &str = "diff.patch";
 pub(crate) const CHECKS_FILE: &str = "checks.json";
 pub(crate) const REPORT_FILE: &str = "report.md";
 pub(crate) const COMMIT_FILE: &str = "commit.json";
+pub(crate) const PUBLISH_FILE: &str = "publish.json";
 pub(crate) const NOOP_OUTPUT_FILE: &str = "keel-noop-output.txt";
 pub(crate) const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 900;
 pub(crate) const REPORT_OUTPUT_LIMIT: usize = 4000;

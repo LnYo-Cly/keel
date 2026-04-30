@@ -3,7 +3,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
     run_doctor, validate_config, ArtifactInfo, CommitArtifact, CommitOptions, CommitResult,
     ConfigValidationReport, ConfigValidationSeverity, DoctorReport, DoctorStatus, KeelProject,
-    ReportInfo, RiskWarning, RunMetadata, RunStatus,
+    PublishArtifact, PublishOptions, PublishResult, ReportInfo, RiskWarning, RunMetadata,
+    RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -76,6 +77,20 @@ enum Commands {
         /// Custom local commit message.
         #[arg(long)]
         message: Option<String>,
+    },
+    /// Push a committed candidate branch to a generic Git remote.
+    Publish {
+        /// Run id.
+        run_id: String,
+        /// Git remote name to push to.
+        #[arg(long, default_value = "origin")]
+        remote: String,
+        /// Do all prechecks and print the plan without pushing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
     },
     /// Print the saved diff for a run.
     Diff {
@@ -218,6 +233,19 @@ fn main() -> Result<ExitCode> {
                 print_commit_result(&result);
             }
         }
+        Commands::Publish {
+            run_id,
+            remote,
+            dry_run,
+            json,
+        } => {
+            let result = project.publish(&run_id, PublishOptions { remote, dry_run })?;
+            if json {
+                print_json(&result)?;
+            } else {
+                print_publish_result(&result);
+            }
+        }
         Commands::Diff { run_id } => {
             let diff = project.diff(&run_id)?;
             println!("Diff: {}", diff.path.display());
@@ -346,6 +374,32 @@ fn print_report(report: ReportInfo) {
                 .unwrap_or("unknown")
         );
     }
+    if let Some(publish) = &report.metadata.publish {
+        println!("Publish:");
+        println!("- Remote: {}", publish.remote);
+        println!("- Remote URL: {}", publish.remote_url);
+        println!("- Branch: {}", publish.branch);
+        println!("- Commit: {}", publish.commit_sha);
+        println!("- Published at: {}", publish.published_at);
+    } else if report.metadata.published {
+        println!("Publish:");
+        println!(
+            "- Remote: {}",
+            report
+                .metadata
+                .publish_remote
+                .as_deref()
+                .unwrap_or("unknown")
+        );
+        println!(
+            "- Branch: {}",
+            report
+                .metadata
+                .published_branch
+                .as_deref()
+                .unwrap_or("unknown")
+        );
+    }
     if !report.metadata.warnings.is_empty() {
         println!("Warnings:");
         for warning in &report.metadata.warnings {
@@ -412,6 +466,41 @@ fn print_commit_result(result: &CommitResult) {
     }
     println!("Keel did not push or merge anything.");
     print_warning_summary(&result.warnings);
+}
+
+fn print_publish_result(result: &PublishResult) {
+    if result.already_published {
+        println!(
+            "This run is already published: {}/{}",
+            result.remote, result.branch
+        );
+        println!("Remote URL: {}", result.remote_url);
+        println!("Commit: {}", result.commit_sha);
+        return;
+    }
+
+    if result.dry_run {
+        println!("Publish dry-run plan");
+        println!("Run: {}", result.run_id);
+        println!("Remote: {}", result.remote);
+        println!("Remote URL: {}", result.remote_url);
+        println!("Branch: {}", result.branch);
+        println!("Commit: {}", result.commit_sha);
+        println!("Would run: git push -u {} {}", result.remote, result.branch);
+        return;
+    }
+
+    println!(
+        "Published run {}: {}/{}",
+        result.run_id, result.remote, result.branch
+    );
+    println!("Remote URL: {}", result.remote_url);
+    println!("Commit: {}", result.commit_sha);
+    if let Some(publish_path) = &result.publish_path {
+        println!("Publish artifact: {publish_path}");
+    }
+    println!("Keel did not create a PR/MR.");
+    println!("Keel did not merge anything.");
 }
 
 fn print_warning_summary(warnings: &[String]) {
@@ -541,6 +630,7 @@ fn report_json(report: &ReportInfo) -> ReportJson {
         warnings: report.metadata.warnings.clone(),
         risk_warnings: report.metadata.risk_warnings.clone(),
         commit: report_commit_json(&report.metadata),
+        publish: report_publish_json(&report.metadata),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
     }
@@ -591,6 +681,7 @@ struct ReportJson {
     warnings: Vec<String>,
     risk_warnings: Vec<RiskWarning>,
     commit: Option<CommitArtifact>,
+    publish: Option<PublishArtifact>,
     artifacts: ArtifactSetJson,
     next_actions: Vec<String>,
 }
@@ -603,6 +694,7 @@ struct ArtifactSetJson {
     checks: ArtifactJson,
     report: ArtifactJson,
     commit: ArtifactJson,
+    publish: ArtifactJson,
 }
 
 impl ArtifactSetJson {
@@ -614,6 +706,7 @@ impl ArtifactSetJson {
             checks: artifact_json(artifacts, "Checks"),
             report: artifact_json(artifacts, "Report"),
             commit: artifact_json(artifacts, "Commit"),
+            publish: artifact_json(artifacts, "Publish"),
         }
     }
 }
@@ -629,6 +722,21 @@ fn report_commit_json(metadata: &RunMetadata) -> Option<CommitArtifact> {
             committed_at: metadata.committed_at.clone()?,
             had_uncommitted_changes: false,
             warnings: metadata.warnings.clone(),
+            dry_run: false,
+        })
+    })
+}
+
+fn report_publish_json(metadata: &RunMetadata) -> Option<PublishArtifact> {
+    metadata.publish.clone().or_else(|| {
+        Some(PublishArtifact {
+            run_id: metadata.run_id.clone(),
+            remote: metadata.publish_remote.clone()?,
+            remote_url: metadata.publish_remote_url.clone()?,
+            branch: metadata.published_branch.clone()?,
+            commit_sha: metadata.commit_sha.clone()?,
+            pushed: true,
+            published_at: metadata.published_at.clone()?,
             dry_run: false,
         })
     })
@@ -765,6 +873,12 @@ mod tests {
             commit_message: None,
             committed_at: None,
             commit: None,
+            published: false,
+            published_at: None,
+            publish_remote: None,
+            publish_remote_url: None,
+            published_branch: None,
+            publish: None,
         }
     }
 }

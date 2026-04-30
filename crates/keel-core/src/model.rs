@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::publish::PublishArtifact;
 use crate::risk::RiskWarning;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -102,6 +103,18 @@ pub struct RunMetadata {
     pub committed_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<CommitArtifact>,
+    #[serde(default)]
+    pub published: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_remote: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_remote_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish: Option<PublishArtifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -6,11 +6,12 @@ use crate::commit::CommitOptions;
 use crate::config::{validate_config, ConfigValidationSeverity};
 use crate::constants::{
     CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE, KEEL_DIR,
-    LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
+    LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, PUBLISH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
 use crate::json::read_json;
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
 use crate::project::{compare_created_at_for_test, KeelProject};
+use crate::publish::PublishOptions;
 use crate::risk::RiskWarningKind;
 use anyhow::{bail, Result};
 use std::ffi::OsStr;
@@ -539,6 +540,208 @@ paths = ["keel-noop-output.txt"]
     assert!(commit.contains("touched risk path"));
     let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
     assert!(report.contains("touched risk path"));
+}
+
+#[test]
+fn publish_rejects_uncommitted_missing_remote_and_discarded_runs() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project.run("publish rejection task", "noop").unwrap();
+    let error = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("is not committed"));
+    assert!(error.contains("keel commit"));
+
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let error = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("git remote `origin` does not exist"));
+
+    let discarded = project.discard(&metadata.run_id).unwrap();
+    let error = project
+        .publish(&discarded.run_id, publish_options(false))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("only ready runs can be published"));
+}
+
+#[test]
+fn publish_dry_run_plans_without_writing_artifacts() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("publish dry run", "noop").unwrap();
+    let commit = project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let metadata_before = read_run_file(&temp, &metadata.run_id, METADATA_FILE);
+    let report_before = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+
+    let result = project
+        .publish(&metadata.run_id, publish_options(true))
+        .unwrap();
+
+    assert!(result.dry_run);
+    assert!(!result.pushed);
+    assert!(result.would_push);
+    assert_eq!(result.commit_sha, commit.commit_sha.unwrap());
+    assert_eq!(result.branch, metadata.branch);
+    assert!(!run_dir(&temp, &metadata.run_id).join(PUBLISH_FILE).exists());
+    assert_eq!(
+        read_run_file(&temp, &metadata.run_id, METADATA_FILE),
+        metadata_before
+    );
+    assert_eq!(
+        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        report_before
+    );
+}
+
+#[test]
+fn publish_success_writes_artifact_metadata_report_and_pushes_candidate_branch() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("publish success", "noop").unwrap();
+    let commit = project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+
+    let result = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap();
+
+    assert!(result.pushed);
+    assert!(!result.already_published);
+    assert_eq!(result.remote, "origin");
+    assert_eq!(result.branch, metadata.branch);
+    assert_eq!(result.commit_sha, commit.commit_sha.unwrap());
+    assert!(run_dir(&temp, &metadata.run_id)
+        .join(PUBLISH_FILE)
+        .is_file());
+    assert_eq!(
+        git_stdout(remote.path(), &["rev-parse", &metadata.branch]),
+        result.commit_sha
+    );
+
+    let updated = read_metadata(&temp, &metadata.run_id);
+    assert!(updated.published);
+    assert_eq!(updated.publish_remote.as_deref(), Some("origin"));
+    assert_eq!(
+        updated.published_branch.as_deref(),
+        Some(metadata.branch.as_str())
+    );
+    assert!(updated.published_at.is_some());
+    assert!(updated.publish.is_some());
+
+    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    assert!(report.contains("## Publish"));
+    assert!(report.contains("Keel did not create a PR/MR."));
+    assert!(report.contains("Keel did not merge anything."));
+}
+
+#[test]
+fn publish_is_idempotent() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("publish idempotent", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+
+    let first = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap();
+    let report_after_first = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let second = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap();
+
+    assert!(first.pushed);
+    assert!(second.already_published);
+    assert_eq!(first.commit_sha, second.commit_sha);
+    assert_eq!(
+        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        report_after_first
+    );
+}
+
+#[test]
+fn publish_rejects_candidate_branch_head_mismatch() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("publish branch mismatch", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    fs::write(
+        worktree_dir(&temp, &metadata.run_id).join("after-commit.txt"),
+        "extra\n",
+    )
+    .unwrap();
+    git(
+        &worktree_dir(&temp, &metadata.run_id),
+        &["add", "after-commit.txt"],
+    );
+    git(
+        &worktree_dir(&temp, &metadata.run_id),
+        &["commit", "-m", "extra change"],
+    );
+
+    let error = project
+        .publish(&metadata.run_id, publish_options(false))
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("does not match committed run SHA"));
 }
 
 #[test]
@@ -1553,6 +1756,26 @@ fn windows_program_resolution_prefers_pathext_shim() {
 
 fn git_repo() -> TempDir {
     git_repo_with_files(&[])
+}
+
+fn bare_git_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    git(temp.path(), &["init", "--bare"]);
+    temp
+}
+
+fn add_origin(repo: &TempDir, remote: &TempDir) {
+    git(
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+}
+
+fn publish_options(dry_run: bool) -> PublishOptions {
+    PublishOptions {
+        remote: "origin".to_string(),
+        dry_run,
+    }
 }
 
 fn config_path(temp: &TempDir) -> PathBuf {
