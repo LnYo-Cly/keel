@@ -34,6 +34,8 @@ Useful review commands:
 
 ```bash
 keel doctor
+keel config validate
+keel config validate --json
 keel status --agent noop
 keel status --status ready
 keel status --limit 5
@@ -43,6 +45,9 @@ keel report <run-id> --json
 
 `keel doctor` checks git, Keel's local `.keel/` layout, and optional agent
 CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
+
+`keel config validate` checks `.keel/config.toml` for presence, parseability,
+and basic value sanity. It does not rewrite the file.
 
 ## Supported Agents
 
@@ -90,6 +95,30 @@ command = ["git", "status", "--short"]
 name = "cargo test"
 command = ["cargo", "test"]
 run_if_path_exists = "Cargo.toml"
+```
+
+Validation currently accepts this legacy layout and also understands the
+future-facing validation fields:
+
+```toml
+[checks]
+commands = []
+
+[agents.codex]
+enabled = true
+timeout_seconds = 900
+
+[agents.claude]
+enabled = true
+timeout_seconds = 900
+
+[agents.opencode]
+enabled = true
+timeout_seconds = 900
+
+[readiness]
+require_non_empty_diff = true
+require_checks_pass = true
 ```
 
 Timed-out or failed agent runs are marked `not_ready`; Keel still writes

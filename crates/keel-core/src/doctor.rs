@@ -1,3 +1,4 @@
+use crate::config::{validate_config, ConfigValidationIssue, ConfigValidationSeverity};
 use crate::constants::{CONFIG_FILE, KEEL_DIR, RUNS_DIR, WORKTREES_DIR};
 use serde::Serialize;
 use std::path::Path;
@@ -151,9 +152,68 @@ pub fn run_doctor(project_root: &Path) -> DoctorReport {
     });
 
     checks.extend(keel_checks(project_root));
+    checks.extend(config_validation_checks(project_root));
     checks.extend(agent_checks());
 
     DoctorReport::from_checks(checks)
+}
+
+fn config_validation_checks(project_root: &Path) -> Vec<DoctorCheck> {
+    let config_path = project_root.join(KEEL_DIR).join(CONFIG_FILE);
+    if !config_path.is_file() {
+        return Vec::new();
+    }
+
+    let report = validate_config(project_root);
+    let details = config_validation_details(&report.issues);
+    let summary = format!(
+        "{} ok, {} warnings, {} errors",
+        report.summary.ok, report.summary.warnings, report.summary.errors
+    );
+
+    let check = if report.summary.errors > 0 {
+        DoctorCheck::error(
+            "keel.config_validation",
+            "Keel",
+            "config validation",
+            "config validation failed",
+            Some(format!("{summary}; {details}")),
+        )
+    } else if report.summary.warnings > 0 {
+        DoctorCheck::warning(
+            "keel.config_validation",
+            "Keel",
+            "config validation",
+            "config validation has warnings",
+            Some(format!("{summary}; {details}")),
+        )
+    } else {
+        DoctorCheck::ok(
+            "keel.config_validation",
+            "Keel",
+            "config validation",
+            "config validation passed",
+            Some(summary),
+        )
+    };
+
+    vec![check]
+}
+
+fn config_validation_details(issues: &[ConfigValidationIssue]) -> String {
+    issues
+        .iter()
+        .find(|issue| issue.severity == ConfigValidationSeverity::Error)
+        .or_else(|| {
+            issues
+                .iter()
+                .find(|issue| issue.severity == ConfigValidationSeverity::Warning)
+        })
+        .map(|issue| match &issue.details {
+            Some(details) => format!("{}: {details}", issue.message),
+            None => issue.message.clone(),
+        })
+        .unwrap_or_else(|| "no config validation issues".to_string())
 }
 
 fn keel_checks(project_root: &Path) -> Vec<DoctorCheck> {

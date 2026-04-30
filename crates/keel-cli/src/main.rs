@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
-    run_doctor, ArtifactInfo, DoctorReport, DoctorStatus, KeelProject, ReportInfo, RunMetadata,
-    RunStatus,
+    run_doctor, validate_config, ArtifactInfo, ConfigValidationReport, ConfigValidationSeverity,
+    DoctorReport, DoctorStatus, KeelProject, ReportInfo, RunMetadata, RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -23,6 +23,11 @@ enum Commands {
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
+    },
+    /// Inspect and validate Keel configuration.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
     },
     /// Initialize local Keel state in the current git repository.
     Init,
@@ -76,6 +81,16 @@ enum Commands {
     Discard {
         /// Run id.
         run_id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommands {
+    /// Validate .keel/config.toml without modifying it.
+    Validate {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -133,6 +148,17 @@ fn main() -> Result<ExitCode> {
 
     match cli.command {
         Commands::Doctor { .. } => unreachable!("doctor is handled before project discovery"),
+        Commands::Config {
+            command: ConfigCommands::Validate { json },
+        } => {
+            let report = validate_config(project.root());
+            if json {
+                print_json(&report)?;
+            } else {
+                print_config_validation(&report);
+            }
+            return Ok(exit_code_for_config_report(&report));
+        }
         Commands::Init => {
             let result = project.init()?;
             println!("Initialized Keel at {}", result.keel_dir.display());
@@ -327,11 +353,53 @@ fn print_doctor(report: &DoctorReport) {
     );
 }
 
+fn print_config_validation(report: &ConfigValidationReport) {
+    println!("Keel config validation");
+    println!();
+    println!("Config");
+    for issue in &report.issues {
+        let details = issue
+            .details
+            .as_deref()
+            .map(|details| format!(": {details}"))
+            .unwrap_or_default();
+        println!(
+            "  {} {}{}",
+            config_status_marker(issue.severity),
+            issue.message,
+            details
+        );
+    }
+
+    println!();
+    println!("Summary");
+    println!(
+        "  {} ok, {} warnings, {} errors",
+        report.summary.ok, report.summary.warnings, report.summary.errors
+    );
+}
+
+fn config_status_marker(status: ConfigValidationSeverity) -> &'static str {
+    match status {
+        ConfigValidationSeverity::Ok => "✅",
+        ConfigValidationSeverity::Warning => "⚠️",
+        ConfigValidationSeverity::Error => "❌",
+    }
+}
+
 fn doctor_status_marker(status: DoctorStatus) -> &'static str {
     match status {
         DoctorStatus::Ok => "✅",
         DoctorStatus::Warning => "⚠️",
         DoctorStatus::Error => "❌",
+    }
+}
+
+fn exit_code_for_config_report(report: &ConfigValidationReport) -> ExitCode {
+    if report.ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
 

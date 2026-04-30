@@ -170,6 +170,163 @@ fn doctor_missing_agents_are_warnings_and_fake_agents_are_ok() {
 }
 
 #[test]
+fn config_validate_after_init_reports_summary_and_is_json_parseable() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel(repo.path(), ["config", "validate"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel config validation"))
+        .stdout(predicate::str::contains("Config"))
+        .stdout(predicate::str::contains("Summary"));
+
+    let report = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["config", "validate", "--json"],
+    ));
+    assert_eq!(report["ok"], true);
+    assert!(report["config_path"].as_str().unwrap().contains(".keel"));
+    assert_eq!(report["summary"]["errors"].as_u64().unwrap(), 0);
+    assert!(report["issues"].as_array().is_some());
+}
+
+#[test]
+fn config_validate_reports_missing_and_invalid_config() {
+    let repo = create_temp_git_repo();
+
+    run_keel(repo.path(), ["config", "validate"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(".keel/config.toml is missing"));
+
+    let missing = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["config", "validate", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert!(missing["summary"]["errors"].as_u64().unwrap() > 0);
+
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        "not = [valid",
+    )
+    .unwrap();
+
+    run_keel(repo.path(), ["config", "validate"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "failed to parse .keel/config.toml",
+        ));
+
+    let invalid = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["config", "validate", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert!(invalid["summary"]["errors"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn config_validate_rejects_zero_timeout_and_empty_command() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[checks]
+commands = [""]
+
+[agents.codex]
+timeout_seconds = 0
+"#,
+    )
+    .unwrap();
+
+    run_keel(repo.path(), ["config", "validate"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "checks.commands contains an empty command",
+        ))
+        .stdout(predicate::str::contains(
+            "codex timeout_seconds must be greater than 0",
+        ));
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["config", "validate", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert!(report["summary"]["errors"].as_u64().unwrap() > 0);
+    assert_eq!(
+        check_issue_severity(&report, "checks.commands.empty"),
+        "error"
+    );
+    assert_eq!(
+        check_issue_severity(&report, "agents.codex.timeout_seconds"),
+        "error"
+    );
+}
+
+#[test]
+fn doctor_includes_config_validation_summary() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        true,
+    ));
+    assert!(report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["id"] == "keel.config_validation"));
+}
+
+#[test]
+fn doctor_reports_invalid_config_as_error() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[checks]
+commands = [""]
+
+[agents.codex]
+timeout_seconds = 0
+"#,
+    )
+    .unwrap();
+
+    run_keel(repo.path(), ["doctor"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("config validation failed"));
+
+    let report = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["doctor", "--json"],
+        &path_with_git_only(),
+        false,
+    ));
+    assert!(report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["id"] == "keel.config_validation" && check["status"] == "error"));
+}
+
+#[test]
 fn init_and_noop_run_create_run_artifacts() {
     let repo = create_temp_git_repo();
 
@@ -558,13 +715,13 @@ fn run_keel_output_with_path<const N: usize>(
     path: &str,
     expect_success: bool,
 ) -> String {
-    let mut assert = run_keel_with_path(repo, args, path).assert();
-    assert = if expect_success {
-        assert.success()
+    let assert = run_keel_with_path(repo, args, path).assert();
+    let output = if expect_success {
+        assert.success().get_output().clone()
     } else {
-        assert.failure()
+        assert.failure().get_output().clone()
     };
-    String::from_utf8(assert.get_output().stdout.clone()).unwrap()
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn extract_run_id_from_status_or_runs_dir(repo: &Path, output: &str) -> String {
@@ -620,6 +777,16 @@ fn check_details<'a>(report: &'a Value, id: &str) -> &'a str {
         .iter()
         .find(|check| check["id"] == id)
         .and_then(|check| check["details"].as_str())
+        .unwrap()
+}
+
+fn check_issue_severity<'a>(report: &'a Value, id: &str) -> &'a str {
+    report["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|issue| issue["id"] == id)
+        .and_then(|issue| issue["severity"].as_str())
         .unwrap()
 }
 

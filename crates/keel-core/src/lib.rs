@@ -12,6 +12,10 @@ mod report;
 mod run;
 mod time;
 
+pub use config::{
+    validate_config, AgentConfig, AgentsConfig, ChecksConfig, Config, ConfigValidationIssue,
+    ConfigValidationReport, ConfigValidationSeverity, ConfigValidationSummary, ReadinessConfig,
+};
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
