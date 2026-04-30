@@ -1,5 +1,8 @@
 use crate::command::run_command;
 use crate::commit::default_commit_message;
+use crate::constants::{
+    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PUSH_FILE, REPORT_FILE,
+};
 use crate::model::{RunMetadata, RunStatus};
 use crate::push::PushArtifact;
 use anyhow::{bail, Result};
@@ -90,11 +93,26 @@ pub struct PrPlan {
     pub commit_sha: String,
     pub title: String,
     pub body: String,
+    pub copyable_summary: String,
+    pub artifacts: PrArtifactPaths,
     pub manual_steps: Vec<String>,
     pub would_create_request: bool,
     pub would_write_artifact: bool,
     pub would_push: bool,
     pub would_merge: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrArtifactPaths {
+    pub metadata: String,
+    pub log: String,
+    pub diff: String,
+    pub checks: String,
+    pub report: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push: Option<String>,
 }
 
 pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -> Result<PrPlan> {
@@ -122,7 +140,9 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         .title
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| default_commit_message(metadata));
-    let body = default_body(metadata, &push, &target_branch);
+    let artifacts = artifact_paths(metadata);
+    let body = default_body(metadata, &push, &target_branch, &commit_sha, &artifacts);
+    let copyable_summary = copyable_summary(metadata, &push, &target_branch, &commit_sha);
     let repository_url = repository_web_url(&push.remote_url);
     let web_url = repository_url
         .as_deref()
@@ -151,6 +171,8 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         commit_sha,
         title,
         body,
+        copyable_summary,
+        artifacts,
         manual_steps,
         would_create_request: false,
         would_write_artifact: false,
@@ -407,11 +429,126 @@ fn encode_query_value(value: &str) -> String {
     urlencoding::encode(value).into_owned()
 }
 
-fn default_body(metadata: &RunMetadata, push: &PushArtifact, target_branch: &str) -> String {
+fn artifact_paths(metadata: &RunMetadata) -> PrArtifactPaths {
+    let run_dir = metadata.run_dir.trim_end_matches(['/', '\\']);
+    PrArtifactPaths {
+        metadata: format!("{run_dir}/{METADATA_FILE}"),
+        log: format!("{run_dir}/{LOG_FILE}"),
+        diff: format!("{run_dir}/{DIFF_FILE}"),
+        checks: format!("{run_dir}/{CHECKS_FILE}"),
+        report: format!("{run_dir}/{REPORT_FILE}"),
+        commit: metadata
+            .committed
+            .then(|| format!("{run_dir}/{COMMIT_FILE}")),
+        push: metadata.pushed.then(|| format!("{run_dir}/{PUSH_FILE}")),
+    }
+}
+
+fn default_body(
+    metadata: &RunMetadata,
+    push: &PushArtifact,
+    target_branch: &str,
+    commit_sha: &str,
+    artifacts: &PrArtifactPaths,
+) -> String {
+    let warnings = warnings_markdown(metadata);
     format!(
-        "Keel run: {}\nAgent: {}\nSource branch: {}\nTarget branch: {}\nCommit: {}\n\nHuman review required before merge.",
-        metadata.run_id, metadata.agent, push.branch, target_branch, push.commit_sha
+        "\
+## Keel Candidate Change
+
+- Run: `{}`
+- Agent: `{}`
+- Task: {}
+- Source branch: `{}`
+- Target branch: `{}`
+- Commit: `{}`
+- Status: `{}`
+- Readiness: {}
+
+## Warnings
+
+{}
+
+## Artifacts
+
+- Metadata: `{}`
+- Log: `{}`
+- Diff: `{}`
+- Checks: `{}`
+- Report: `{}`
+- Commit: `{}`
+- Push: `{}`
+
+## Safety
+
+- Keel did not create this PR/MR through a provider API.
+- Keel did not merge this candidate change.
+- Keel did not push anything from the PR command.
+- Human review is required before merge.
+",
+        metadata.run_id,
+        metadata.agent,
+        markdown_inline(&metadata.task),
+        push.branch,
+        target_branch,
+        commit_sha,
+        metadata.status,
+        markdown_inline(readiness_summary(metadata)),
+        warnings,
+        artifacts.metadata,
+        artifacts.log,
+        artifacts.diff,
+        artifacts.checks,
+        artifacts.report,
+        artifacts.commit.as_deref().unwrap_or("not available"),
+        artifacts.push.as_deref().unwrap_or("not available"),
     )
+}
+
+fn copyable_summary(
+    metadata: &RunMetadata,
+    push: &PushArtifact,
+    target_branch: &str,
+    commit_sha: &str,
+) -> String {
+    format!(
+        "Keel run {} by {}: {} ({} -> {}, commit {})",
+        metadata.run_id,
+        metadata.agent,
+        one_line(&metadata.task),
+        push.branch,
+        target_branch,
+        commit_sha
+    )
+}
+
+fn warnings_markdown(metadata: &RunMetadata) -> String {
+    if metadata.warnings.is_empty() {
+        return "None".to_string();
+    }
+
+    metadata
+        .warnings
+        .iter()
+        .map(|warning| format!("- {}", markdown_inline(warning)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn readiness_summary(metadata: &RunMetadata) -> &str {
+    if metadata.readiness_reason.trim().is_empty() {
+        "ready"
+    } else {
+        metadata.readiness_reason.trim()
+    }
+}
+
+fn markdown_inline(value: &str) -> String {
+    one_line(value).replace('`', "\\`")
+}
+
+fn one_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn manual_steps(

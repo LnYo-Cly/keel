@@ -910,6 +910,30 @@ fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
     assert_eq!(plan.commit_sha, commit.commit_sha.unwrap());
     assert_eq!(plan.title, "keel: manual pr plan");
     assert!(plan.body.contains(&metadata.run_id));
+    assert!(plan.body.contains("## Keel Candidate Change"));
+    assert!(plan.body.contains("## Warnings"));
+    assert!(plan.body.contains("None"));
+    assert!(plan.body.contains("## Artifacts"));
+    assert!(plan.body.contains(METADATA_FILE));
+    assert!(plan.body.contains(LOG_FILE));
+    assert!(plan.body.contains(DIFF_FILE));
+    assert!(plan.body.contains(CHECKS_FILE));
+    assert!(plan.body.contains(REPORT_FILE));
+    assert!(plan.body.contains(COMMIT_FILE));
+    assert!(plan.body.contains(PUSH_FILE));
+    assert!(plan
+        .body
+        .contains("Keel did not merge this candidate change"));
+    assert!(plan.copyable_summary.contains(&metadata.run_id));
+    assert!(plan.copyable_summary.contains("manual pr plan"));
+    assert!(plan.artifacts.metadata.ends_with(METADATA_FILE));
+    assert!(plan
+        .artifacts
+        .commit
+        .as_deref()
+        .unwrap()
+        .ends_with(COMMIT_FILE));
+    assert!(plan.artifacts.push.as_deref().unwrap().ends_with(PUSH_FILE));
     assert!(plan.web_url.is_none());
     assert!(!plan.would_create_request);
     assert!(!plan.would_write_artifact);
@@ -1016,7 +1040,54 @@ fn pr_manual_dry_run_builds_github_web_url_with_overrides() {
     assert!(web_url.starts_with("https://github.com/owner/repo/compare/"));
     assert!(web_url.contains("release%2Fv1...keel%2Frun%2F"));
     assert!(web_url.contains("title=custom%20title"));
-    assert!(web_url.contains("body=Keel%20run%3A"));
+    assert!(web_url.contains("body=%23%23%20Keel%20Candidate%20Change"));
+}
+
+#[test]
+fn pr_manual_dry_run_body_includes_warning_summary() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    write_config(
+        &temp,
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[[checks]]
+name = "git status"
+command = ["git", "status", "--short"]
+
+[risk]
+paths = ["keel-noop-output.txt"]
+"#,
+    );
+    let metadata = project.run("warning pr body", "noop").unwrap();
+    assert!(!metadata.warnings.is_empty());
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    pushed.push = None;
+    project.write_metadata(&pushed).unwrap();
+
+    let plan = project
+        .pr_plan(&metadata.run_id, pr_options(Some(PrProvider::Github)))
+        .unwrap();
+
+    assert!(plan.body.contains("touched risk path"));
+    assert!(!plan.body.contains("\nNone\n"));
 }
 
 #[test]

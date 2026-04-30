@@ -175,6 +175,10 @@ Manual plan behavior:
   when derivable, and manual next steps.
 - JSON output includes `web_url` and `manual_steps` for automation-friendly
   manual workflows.
+- The generated body is copyable Markdown with run id, agent, task, source and
+  target branches, commit SHA, readiness summary, warnings, artifact paths, and
+  safety notes.
+- JSON output also includes `copyable_summary` for compact handoff text.
 - Does not call GitHub, GitLab, Gitee, or Gitea APIs.
 - Does not call `gh` or `glab`.
 - Does not write `pr.json`.

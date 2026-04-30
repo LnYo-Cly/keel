@@ -1120,6 +1120,31 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
         .as_str()
         .unwrap()
         .starts_with("https://github.com/owner/repo/compare/"));
+    assert!(json["copyable_summary"]
+        .as_str()
+        .unwrap()
+        .contains("cli pr manual dry run task"));
+    assert!(json["body"]
+        .as_str()
+        .unwrap()
+        .contains("## Keel Candidate Change"));
+    assert!(json["body"].as_str().unwrap().contains("## Artifacts"));
+    assert!(json["body"]
+        .as_str()
+        .unwrap()
+        .contains("Keel did not merge this candidate change"));
+    assert!(json["artifacts"]["metadata"]
+        .as_str()
+        .unwrap()
+        .contains("metadata.json"));
+    assert!(json["artifacts"]["commit"]
+        .as_str()
+        .unwrap()
+        .contains("commit.json"));
+    assert!(json["artifacts"]["push"]
+        .as_str()
+        .unwrap()
+        .contains("push.json"));
     assert_eq!(json["would_create_request"], false);
     assert_eq!(json["would_write_artifact"], false);
     assert_eq!(json["would_push"], false);
