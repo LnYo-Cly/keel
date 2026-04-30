@@ -6,7 +6,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Remote,
 
-    [string]$Target = "main"
+    [string]$Target = "main",
+
+    [switch]$CloseRequest
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,6 +88,24 @@ function Assert-ProviderReady {
     return $cli
 }
 
+function Close-ProviderRequest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Provider,
+        [Parameter(Mandatory = $true)]
+        [string]$Cli,
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    if ($Provider -eq "github") {
+        Invoke-Checked -FilePath $Cli -Arguments @("pr", "close", $Url, "--delete-branch=false") | Out-Null
+        return
+    }
+
+    Invoke-Checked -FilePath $Cli -Arguments @("mr", "close", $Url) | Out-Null
+}
+
 $cli = Assert-ProviderReady $Provider
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $isWindows = [System.IO.Path]::DirectorySeparatorChar -eq "\"
@@ -122,6 +142,11 @@ try {
 
     Write-Output "REAL_PROVIDER_PR_SMOKE_OK provider=$Provider cli=$cli repo=$tempRoot run=$runId url=$($pr.url)"
     Write-Output ($prOutput | Out-String).TrimEnd()
+
+    if ($CloseRequest) {
+        Close-ProviderRequest -Provider $Provider -Cli $cli -Url $pr.url
+        Write-Output "REAL_PROVIDER_PR_SMOKE_CLOSED provider=$Provider url=$($pr.url)"
+    }
 }
 catch {
     Write-Error $_

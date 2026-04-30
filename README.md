@@ -344,7 +344,8 @@ cargo test -p keel-cli real_github_pr_smoke_is_opt_in -- --nocapture
 powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
   -Provider github \
   -Remote git@github.com:owner/test-repo.git \
-  -Target main
+  -Target main \
+  -CloseRequest
 ```
 
 Run a real GitLab MR smoke with a disposable writable repository:
@@ -358,11 +359,14 @@ cargo test -p keel-cli real_gitlab_pr_smoke_is_opt_in -- --nocapture
 powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
   -Provider gitlab \
   -Remote git@gitlab.com:owner/test-repo.git \
-  -Target main
+  -Target main \
+  -CloseRequest
 ```
 
 These real smoke tests intentionally create a candidate branch and a draft
-PR/MR on the target provider. Use only disposable test repositories.
+PR/MR on the target provider. Use only disposable test repositories. The
+PowerShell helper leaves the request open by default; pass `-CloseRequest` to
+close the request after verifying `pr.json`.
 
 Real Codex smoke tests are opt-in because they depend on local Codex
 installation, authentication, network access, and external model behavior:
