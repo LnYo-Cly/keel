@@ -326,6 +326,44 @@ Default regression does not require real agent CLIs:
 cargo test --workspace
 ```
 
+Provider-backed PR/MR regression has two evidence levels:
+
+- Default CLI tests use fake `gh` / `glab` shims to verify Keel's command
+  boundary without network access.
+- Real smoke tests are opt-in and must use real provider CLIs, authentication,
+  network access, and a writable test repository.
+
+Run a real GitHub PR smoke with a disposable writable repository:
+
+```bash
+KEEL_REAL_GITHUB_PR_SMOKE=1 \
+KEEL_REAL_GITHUB_REMOTE=git@github.com:owner/test-repo.git \
+KEEL_REAL_GITHUB_TARGET=main \
+cargo test -p keel-cli real_github_pr_smoke_is_opt_in -- --nocapture
+
+powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
+  -Provider github \
+  -Remote git@github.com:owner/test-repo.git \
+  -Target main
+```
+
+Run a real GitLab MR smoke with a disposable writable repository:
+
+```bash
+KEEL_REAL_GITLAB_PR_SMOKE=1 \
+KEEL_REAL_GITLAB_REMOTE=git@gitlab.com:owner/test-repo.git \
+KEEL_REAL_GITLAB_TARGET=main \
+cargo test -p keel-cli real_gitlab_pr_smoke_is_opt_in -- --nocapture
+
+powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
+  -Provider gitlab \
+  -Remote git@gitlab.com:owner/test-repo.git \
+  -Target main
+```
+
+These real smoke tests intentionally create a candidate branch and a draft
+PR/MR on the target provider. Use only disposable test repositories.
+
 Real Codex smoke tests are opt-in because they depend on local Codex
 installation, authentication, network access, and external model behavior:
 

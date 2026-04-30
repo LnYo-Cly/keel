@@ -1420,6 +1420,36 @@ fn pr_provider_gitlab_uses_glab_boundary() {
 }
 
 #[test]
+fn real_github_pr_smoke_is_opt_in() {
+    if std::env::var("KEEL_REAL_GITHUB_PR_SMOKE").ok().as_deref() != Some("1") {
+        return;
+    }
+
+    run_real_provider_pr_smoke(RealPrSmokeProvider {
+        provider: "github",
+        cli: "gh",
+        auth_args: &["auth", "status"],
+        remote_env: "KEEL_REAL_GITHUB_REMOTE",
+        target_env: "KEEL_REAL_GITHUB_TARGET",
+    });
+}
+
+#[test]
+fn real_gitlab_pr_smoke_is_opt_in() {
+    if std::env::var("KEEL_REAL_GITLAB_PR_SMOKE").ok().as_deref() != Some("1") {
+        return;
+    }
+
+    run_real_provider_pr_smoke(RealPrSmokeProvider {
+        provider: "gitlab",
+        cli: "glab",
+        auth_args: &["auth", "status"],
+        remote_env: "KEEL_REAL_GITLAB_REMOTE",
+        target_env: "KEEL_REAL_GITLAB_TARGET",
+    });
+}
+
+#[test]
 fn diff_outputs_saved_patch_and_clear_missing_errors() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -1515,6 +1545,81 @@ fn discard_preserves_history_and_keeps_report_and_diff_available() {
 
 struct NoopRun {
     run_id: String,
+}
+
+struct RealPrSmokeProvider {
+    provider: &'static str,
+    cli: &'static str,
+    auth_args: &'static [&'static str],
+    remote_env: &'static str,
+    target_env: &'static str,
+}
+
+fn run_real_provider_pr_smoke(provider: RealPrSmokeProvider) {
+    let remote = std::env::var(provider.remote_env).unwrap_or_else(|_| {
+        panic!(
+            "{} must be set to a writable test repository remote URL",
+            provider.remote_env
+        )
+    });
+    let target = std::env::var(provider.target_env).unwrap_or_else(|_| "main".to_string());
+
+    assert!(
+        command_success(provider.cli, provider.auth_args, Path::new(".")),
+        "{} is not installed or is not authenticated; run `{}` auth status` first",
+        provider.cli,
+        provider.cli
+    );
+
+    let repo = tempfile::tempdir().unwrap();
+    git(repo.path(), ["clone", remote.as_str(), "."]);
+    git(
+        repo.path(),
+        ["config", "user.email", "keel-real-pr@example.local"],
+    );
+    git(repo.path(), ["config", "user.name", "Keel Real PR Smoke"]);
+
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(
+        &repo,
+        &format!("real {} provider PR smoke", provider.provider),
+    );
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
+        .assert()
+        .success();
+
+    let output = run_keel(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            provider.provider,
+            "--target",
+            target.as_str(),
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("http://") || stdout.contains("https://"),
+        "provider PR smoke did not print a URL:\n{stdout}"
+    );
+
+    let pr_artifact = run_artifact_path(&repo, &run.run_id, "pr.json");
+    assert!(pr_artifact.is_file());
+    let report = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(report["artifacts"]["pr"]["exists"], true);
+    assert!(report["pr"]["url"].as_str().unwrap().starts_with("http"));
 }
 
 fn create_temp_git_repo() -> TempDir {
@@ -1710,6 +1815,15 @@ fn git_output<const N: usize>(repo: &Path, args: [&str; N]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn command_success(program: &str, args: &[&str], cwd: &Path) -> bool {
+    StdCommand::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn branch_exists(repo: &TempDir, branch: &str) -> bool {
