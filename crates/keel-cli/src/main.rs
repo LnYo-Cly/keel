@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
-    run_doctor, validate_config, CommitOptions, KeelProject, PrOptions, PrProvider, PushOptions,
-    RunMetadata, RunStatus,
+    report_json, run_doctor, status_json, validate_config, CommitOptions, KeelProject, PrOptions,
+    PrProvider, PushOptions, RunMetadata, RunStatus,
 };
 use std::process::ExitCode;
 
@@ -228,7 +228,7 @@ fn main() -> Result<ExitCode> {
         } => {
             let runs = filtered_runs(project.list_runs()?, agent.as_deref(), status, limit);
             if json {
-                render::print_json(&render::status_json(&runs))?;
+                render::print_json(&status_json(&runs))?;
             } else {
                 render::print_status(&runs, agent.as_deref().is_some() || status.is_some());
             }
@@ -236,7 +236,7 @@ fn main() -> Result<ExitCode> {
         Commands::Report { run_id, json } => {
             let report = project.report(&run_id)?;
             if json {
-                render::print_json(&render::report_json(&report))?;
+                render::print_json(&report_json(&report))?;
             } else {
                 render::print_report(report);
             }

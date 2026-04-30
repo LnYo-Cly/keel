@@ -8,7 +8,7 @@ use crate::constants::{
     CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE, KEEL_DIR,
     LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, PUSH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
-use crate::json::read_json;
+use crate::json::{read_json, report_json, status_json};
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
 use crate::pr::{PrOptions, PrProvider};
 use crate::project::{compare_created_at_for_test, KeelProject};
@@ -1318,6 +1318,35 @@ fn report_includes_artifact_paths_and_next_actions() {
     assert!(report
         .next_actions
         .contains(&format!("keel discard {}", metadata.run_id)));
+}
+
+#[test]
+fn core_json_views_cover_status_and_report_shapes() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("json view run", "noop").unwrap();
+
+    let status = serde_json::to_value(status_json(std::slice::from_ref(&metadata))).unwrap();
+    assert_eq!(status[0]["run_id"], metadata.run_id);
+    assert_eq!(status[0]["agent"], "noop");
+    assert_eq!(status[0]["status"], "ready");
+    assert_eq!(status[0]["branch"], metadata.branch);
+
+    let report = project.report(&metadata.run_id).unwrap();
+    let report = serde_json::to_value(report_json(&report)).unwrap();
+
+    assert_eq!(report["run_id"], metadata.run_id);
+    assert_eq!(report["agent"], "noop");
+    assert_eq!(report["status"], "ready");
+    assert_eq!(report["artifacts"]["metadata"]["exists"], true);
+    assert_eq!(report["artifacts"]["log"]["exists"], true);
+    assert_eq!(report["artifacts"]["diff"]["exists"], true);
+    assert!(report["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == &format!("keel diff {}", metadata.run_id)));
 }
 
 #[test]

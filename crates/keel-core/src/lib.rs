@@ -23,6 +23,9 @@ pub use config::{
     RiskConfig,
 };
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
+pub use json::{
+    report_json, status_json, ArtifactJson, ArtifactSetJson, ReportJson, RunSummaryJson,
+};
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
     ReportInfo, RunMetadata, RunStatus,
