@@ -1141,6 +1141,100 @@ fn pr_manual_dry_run_requires_manual_and_dry_run_flags() {
 }
 
 #[test]
+fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("provider pr dry run", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    pushed.push = None;
+    project.write_metadata(&pushed).unwrap();
+
+    let result = project
+        .pr(
+            &metadata.run_id,
+            PrOptions {
+                manual: false,
+                dry_run: true,
+                provider: Some(PrProvider::Github),
+                target: Some("main".to_string()),
+                title: Some("custom pr title".to_string()),
+            },
+        )
+        .unwrap();
+
+    assert!(!result.created);
+    assert!(result.dry_run);
+    assert_eq!(result.provider, PrProvider::Github);
+    assert_eq!(result.provider_command[0], "gh");
+    assert!(result.provider_command.iter().any(|arg| arg == "--draft"));
+    assert!(result
+        .provider_command
+        .windows(2)
+        .any(|pair| pair == ["--repo", "owner/repo"]));
+    assert!(result.would_create_request);
+    assert!(!result.would_write_artifact);
+    assert!(!result.would_push);
+    assert!(!result.would_merge);
+    assert!(!run_dir(&temp, &metadata.run_id).join("pr.json").exists());
+}
+
+#[test]
+fn pr_provider_rejects_unsupported_gitee_creation() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("unsupported provider pr", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@gitee.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    pushed.push = None;
+    project.write_metadata(&pushed).unwrap();
+
+    let error = project
+        .pr(
+            &metadata.run_id,
+            PrOptions {
+                manual: false,
+                dry_run: true,
+                provider: Some(PrProvider::Gitee),
+                target: None,
+                title: None,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("provider-backed PR/MR creation for Gitee is not implemented yet"));
+}
+
+#[test]
 fn list_runs_sorts_newest_first() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();

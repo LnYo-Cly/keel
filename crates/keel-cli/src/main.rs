@@ -3,8 +3,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use keel_core::{
     run_doctor, validate_config, ArtifactInfo, CommitArtifact, CommitOptions, CommitResult,
     ConfigValidationReport, ConfigValidationSeverity, DoctorReport, DoctorStatus, KeelProject,
-    PrOptions, PrPlan, PrProvider, PushArtifact, PushOptions, PushResult, ReportInfo, RiskWarning,
-    RunMetadata, RunStatus,
+    PrArtifact, PrOptions, PrPlan, PrProvider, PrResult, PushArtifact, PushOptions, PushResult,
+    ReportInfo, RiskWarning, RunMetadata, RunStatus,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -278,20 +278,27 @@ fn main() -> Result<ExitCode> {
             target,
             title,
         } => {
-            let plan = project.pr_plan(
-                &run_id,
-                PrOptions {
-                    manual,
-                    dry_run,
-                    provider,
-                    target,
-                    title,
-                },
-            )?;
-            if json {
-                print_json(&plan)?;
+            let options = PrOptions {
+                manual,
+                dry_run,
+                provider,
+                target,
+                title,
+            };
+            if manual {
+                let plan = project.pr_plan(&run_id, options)?;
+                if json {
+                    print_json(&plan)?;
+                } else {
+                    print_pr_plan(&plan);
+                }
             } else {
-                print_pr_plan(&plan);
+                let result = project.pr(&run_id, options)?;
+                if json {
+                    print_json(&result)?;
+                } else {
+                    print_pr_result(&result);
+                }
             }
         }
         Commands::Diff { run_id } => {
@@ -450,6 +457,24 @@ fn print_report(report: ReportInfo) {
                 .unwrap_or("unknown")
         );
     }
+    if let Some(pr) = &report.metadata.pr {
+        println!("PR/MR:");
+        println!("- Provider: {}", pr.provider_name);
+        println!("- URL: {}", pr.url);
+        println!("- Source branch: {}", pr.source_branch);
+        println!("- Target branch: {}", pr.target_branch);
+        println!("- Created at: {}", pr.created_at);
+    } else if report.metadata.pr_created {
+        println!("PR/MR:");
+        println!(
+            "- Provider: {}",
+            report.metadata.pr_provider.as_deref().unwrap_or("unknown")
+        );
+        println!(
+            "- URL: {}",
+            report.metadata.pr_url.as_deref().unwrap_or("unknown")
+        );
+    }
     if !report.metadata.warnings.is_empty() {
         println!("Warnings:");
         for warning in &report.metadata.warnings {
@@ -581,6 +606,56 @@ fn print_pr_plan(plan: &PrPlan) {
     println!("Keel did not push or merge anything.");
 }
 
+fn print_pr_result(result: &PrResult) {
+    if result.already_created {
+        println!(
+            "This run already has a PR/MR: {}",
+            result.url.as_deref().unwrap_or("unknown")
+        );
+        println!("Provider: {}", result.provider_name);
+        println!("Source branch: {}", result.source_branch);
+        println!("Target branch: {}", result.target_branch);
+        return;
+    }
+
+    if result.dry_run {
+        println!("PR/MR provider dry-run plan");
+        println!("Run: {}", result.run_id);
+        println!("Provider: {}", result.provider_name);
+        println!("Request kind: {}", result.request_kind);
+        println!("Remote: {}", result.remote);
+        println!("Remote URL: {}", result.remote_url);
+        if let Some(repository_url) = &result.repository_url {
+            println!("Repository URL: {repository_url}");
+        }
+        if let Some(url) = &result.url {
+            println!("Web URL: {url}");
+        }
+        println!("Source branch: {}", result.source_branch);
+        println!("Target branch: {}", result.target_branch);
+        println!("Commit: {}", result.commit_sha);
+        println!("Title: {}", result.title);
+        println!("Would run: {}", result.provider_command.join(" "));
+        println!("Keel would create a PR/MR through the provider CLI.");
+        println!("Keel would not write pr.json during dry-run.");
+        println!("Keel would not push or merge anything.");
+        return;
+    }
+
+    println!("Created {} for run {}", result.request_kind, result.run_id);
+    println!("Provider: {}", result.provider_name);
+    if let Some(url) = &result.url {
+        println!("URL: {url}");
+    }
+    println!("Source branch: {}", result.source_branch);
+    println!("Target branch: {}", result.target_branch);
+    println!("Commit: {}", result.commit_sha);
+    if let Some(pr_path) = &result.pr_path {
+        println!("PR/MR artifact: {pr_path}");
+    }
+    println!("Keel did not push or merge anything.");
+}
+
 fn print_warning_summary(warnings: &[String]) {
     if warnings.is_empty() {
         println!("Warnings: none");
@@ -709,6 +784,7 @@ fn report_json(report: &ReportInfo) -> ReportJson {
         risk_warnings: report.metadata.risk_warnings.clone(),
         commit: report_commit_json(&report.metadata),
         push: report_push_json(&report.metadata),
+        pr: report_pr_json(&report.metadata),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
     }
@@ -760,6 +836,7 @@ struct ReportJson {
     risk_warnings: Vec<RiskWarning>,
     commit: Option<CommitArtifact>,
     push: Option<PushArtifact>,
+    pr: Option<PrArtifact>,
     artifacts: ArtifactSetJson,
     next_actions: Vec<String>,
 }
@@ -773,6 +850,7 @@ struct ArtifactSetJson {
     report: ArtifactJson,
     commit: ArtifactJson,
     push: ArtifactJson,
+    pr: ArtifactJson,
 }
 
 impl ArtifactSetJson {
@@ -785,6 +863,7 @@ impl ArtifactSetJson {
             report: artifact_json(artifacts, "Report"),
             commit: artifact_json(artifacts, "Commit"),
             push: artifact_json(artifacts, "Push"),
+            pr: artifact_json(artifacts, "PR/MR"),
         }
     }
 }
@@ -815,6 +894,38 @@ fn report_push_json(metadata: &RunMetadata) -> Option<PushArtifact> {
             commit_sha: metadata.commit_sha.clone()?,
             pushed: true,
             pushed_at: metadata.pushed_at.clone()?,
+            dry_run: false,
+        })
+    })
+}
+
+fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
+    metadata.pr.clone().or_else(|| {
+        let provider = metadata
+            .pr_provider
+            .as_deref()?
+            .parse::<PrProvider>()
+            .ok()?;
+        Some(PrArtifact {
+            run_id: metadata.run_id.clone(),
+            provider,
+            provider_name: provider.display_name().to_string(),
+            request_kind: provider.request_kind().to_string(),
+            remote: metadata
+                .push_remote
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
+            repository_url: None,
+            source_branch: metadata.pr_source_branch.clone()?,
+            target_branch: metadata.pr_target_branch.clone()?,
+            commit_sha: metadata.commit_sha.clone()?,
+            title: metadata
+                .commit_message
+                .clone()
+                .unwrap_or_else(|| format!("keel: {}", metadata.task)),
+            url: metadata.pr_url.clone()?,
+            created_at: metadata.pr_created_at.clone()?,
             dry_run: false,
         })
     })
@@ -957,6 +1068,13 @@ mod tests {
             push_remote_url: None,
             pushed_branch: None,
             push: None,
+            pr_created: false,
+            pr_created_at: None,
+            pr_provider: None,
+            pr_url: None,
+            pr_target_branch: None,
+            pr_source_branch: None,
+            pr: None,
         }
     }
 }

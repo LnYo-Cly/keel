@@ -1199,6 +1199,227 @@ fn pr_manual_dry_run_rejects_missing_flags_and_unpushed_runs() {
 }
 
 #[test]
+fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifacts() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr provider dry run task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
+    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+
+    run_keel_with_path(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            "github",
+            "--dry-run",
+        ],
+        &path_with_git_only(),
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("PR/MR provider dry-run plan"))
+    .stdout(predicate::str::contains("Would run: gh pr create"))
+    .stdout(predicate::str::contains(
+        "Keel would not push or merge anything.",
+    ));
+
+    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        metadata_before
+    );
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, "report.md"),
+        report_before
+    );
+
+    let json = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            "github",
+            "--dry-run",
+            "--json",
+        ],
+        &path_with_git_only(),
+        true,
+    ));
+    assert_eq!(json["created"], false);
+    assert_eq!(json["dry_run"], true);
+    assert_eq!(json["would_create_request"], true);
+    assert_eq!(json["would_write_artifact"], false);
+    assert_eq!(json["would_push"], false);
+    assert_eq!(json["would_merge"], false);
+    assert_eq!(json["provider_command"][0], "gh");
+}
+
+#[test]
+fn pr_provider_rejects_missing_cli_and_unsupported_provider() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr missing provider task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
+
+    run_keel_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_only(),
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("gh CLI not found"));
+    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+
+    run_keel(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            "gitee",
+            "--dry-run",
+        ],
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "provider-backed PR/MR creation for Gitee is not implemented yet",
+    ));
+}
+
+#[test]
+fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr github success task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
+    let bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli(bin.path(), "gh", "https://github.com/owner/repo/pull/42");
+
+    run_keel_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_and(bin.path()),
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Created pull_request"))
+    .stdout(predicate::str::contains(
+        "https://github.com/owner/repo/pull/42",
+    ))
+    .stdout(predicate::str::contains(
+        "Keel did not push or merge anything.",
+    ));
+
+    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert_eq!(metadata["pr_created"], true);
+    assert_eq!(metadata["pr_provider"], "github");
+    assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/42");
+
+    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    assert!(report.contains("## PR/MR"));
+    assert!(report.contains("https://github.com/owner/repo/pull/42"));
+
+    let second = run_keel_output_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_and(bin.path()),
+        true,
+    );
+    assert!(second.contains("already has a PR/MR"));
+    assert_eq!(read_run_artifact(&repo, &run.run_id, "report.md"), report);
+
+    run_keel(repo.path(), ["report", run.run_id.as_str()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("PR/MR:"))
+        .stdout(predicate::str::contains("pr.json"));
+
+    let report_json = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(
+        report_json["pr"]["url"],
+        "https://github.com/owner/repo/pull/42"
+    );
+    assert_eq!(report_json["artifacts"]["pr"]["exists"], true);
+
+    let already_json = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github", "--json"],
+        &path_with_git_and(bin.path()),
+        true,
+    ));
+    assert_eq!(already_json["already_created"], true);
+    assert_eq!(already_json["created"], true);
+}
+
+#[test]
+fn pr_provider_gitlab_uses_glab_boundary() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@gitlab.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr gitlab success task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@gitlab.com:owner/repo.git");
+    let bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli(
+        bin.path(),
+        "glab",
+        "https://gitlab.com/owner/repo/-/merge_requests/7",
+    );
+
+    let json = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "gitlab", "--json"],
+        &path_with_git_and(bin.path()),
+        true,
+    ));
+
+    assert_eq!(json["provider"], "gitlab");
+    assert_eq!(json["request_kind"], "merge_request");
+    assert_eq!(json["provider_command"][0], "glab");
+    assert_eq!(
+        json["url"],
+        "https://gitlab.com/owner/repo/-/merge_requests/7"
+    );
+    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+}
+
+#[test]
 fn diff_outputs_saved_patch_and_clear_missing_errors() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -1551,6 +1772,35 @@ fn create_fake_executable(dir: &Path, name: &str) {
         "@echo off\r\nexit /B 0\r\n"
     } else {
         "#!/bin/sh\nexit 0\n"
+    };
+    fs::write(&path, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+    }
+}
+
+fn create_fake_provider_cli(dir: &Path, name: &str, url: &str) {
+    let path = dir.join(if cfg!(windows) {
+        format!("{name}.cmd")
+    } else {
+        name.to_string()
+    });
+    let content = if cfg!(windows) {
+        format!(
+            "@echo off\r\necho %* > \"{}\"\r\necho {}\r\nexit /B 0\r\n",
+            dir.join(format!("{name}-args.txt")).display(),
+            url
+        )
+    } else {
+        format!(
+            "#!/bin/sh\necho \"$@\" > '{}'\necho '{}'\nexit 0\n",
+            dir.join(format!("{name}-args.txt")).display(),
+            url
+        )
     };
     fs::write(&path, content).unwrap();
     #[cfg(unix)]

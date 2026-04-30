@@ -1,6 +1,6 @@
 use crate::command::{exit_code_text, format_command_line};
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PUSH_FILE, REPORT_FILE,
+    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PR_FILE, PUSH_FILE, REPORT_FILE,
     REPORT_OUTPUT_LIMIT,
 };
 use crate::model::{CheckResult, RunMetadata, RunStatus};
@@ -49,6 +49,7 @@ pub(crate) fn render_report(
          {}\
          {}\
          {}\
+         {}\
          ## Agent Output\n\n\
          ### Stdout\n\n\
          ```text\n{}\
@@ -85,6 +86,7 @@ pub(crate) fn render_report(
         render_warnings(&metadata.warnings),
         render_commit_section(metadata),
         render_push_section(metadata),
+        render_pr_section(metadata),
         render_failure_section(failure),
         agent_stdout,
         agent_stderr,
@@ -150,6 +152,7 @@ fn render_artifacts() -> String {
         ("Report", REPORT_FILE),
         ("Commit", COMMIT_FILE),
         ("Push", PUSH_FILE),
+        ("PR/MR", PR_FILE),
     ]
     .iter()
     .map(|(label, file)| format!("- {label}: `{file}`\n"))
@@ -213,6 +216,35 @@ pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
          ### Next\n\n\
          - Open a Pull Request or Merge Request on your Git hosting provider.\n\
          - Keel did not create a PR/MR.\n\
+         - Keel did not merge anything.\n\n"
+    )
+}
+
+pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
+    if !metadata.pr_created {
+        return String::new();
+    }
+
+    let provider = metadata.pr_provider.as_deref().unwrap_or("unknown");
+    let url = metadata.pr_url.as_deref().unwrap_or("unknown");
+    let source_branch = metadata
+        .pr_source_branch
+        .as_deref()
+        .unwrap_or(&metadata.branch);
+    let target_branch = metadata.pr_target_branch.as_deref().unwrap_or("unknown");
+    let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
+    let created_at = metadata.pr_created_at.as_deref().unwrap_or("unknown");
+
+    format!(
+        "## PR/MR\n\n\
+         - Provider: `{provider}`\n\
+         - URL: `{url}`\n\
+         - Source branch: `{source_branch}`\n\
+         - Target branch: `{target_branch}`\n\
+         - Commit: `{commit_sha}`\n\
+         - Created at: `{created_at}`\n\n\
+         ### Next\n\n\
+         - Review this request on the provider before merging.\n\
          - Keel did not merge anything.\n\n"
     )
 }

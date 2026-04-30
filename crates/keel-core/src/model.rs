@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::pr::PrArtifact;
 use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
 use serde::{Deserialize, Serialize};
@@ -131,6 +132,20 @@ pub struct RunMetadata {
     pub pushed_branch: Option<String>,
     #[serde(default, alias = "publish", skip_serializing_if = "Option::is_none")]
     pub push: Option<PushArtifact>,
+    #[serde(default)]
+    pub pr_created: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_target_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PrArtifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

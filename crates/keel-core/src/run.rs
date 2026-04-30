@@ -102,6 +102,13 @@ impl RunSession {
             push_remote_url: None,
             pushed_branch: None,
             push: None,
+            pr_created: false,
+            pr_created_at: None,
+            pr_provider: None,
+            pr_url: None,
+            pr_target_branch: None,
+            pr_source_branch: None,
+            pr: None,
         };
         let session = Self {
             run_id,

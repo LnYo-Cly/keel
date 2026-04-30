@@ -6,8 +6,8 @@ use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PUSH_FILE,
-    REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
+    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PR_FILE,
+    PUSH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
 use crate::git::{
     ensure_safe_run_id, ensure_safe_worktree_target, expected_run_branch,
@@ -17,9 +17,9 @@ use crate::json::{read_json, write_json_pretty};
 use crate::model::{
     ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
 };
-use crate::pr::{plan_pr, PrOptions, PrPlan};
+use crate::pr::{create_pr, plan_pr, PrOptions, PrPlan, PrResult};
 use crate::push::{push_run, PushOptions, PushResult};
-use crate::report::{render_commit_section, render_push_section, render_report};
+use crate::report::{render_commit_section, render_pr_section, render_push_section, render_report};
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
@@ -368,6 +368,24 @@ impl KeelProject {
         plan_pr(&self.root, &metadata, options)
     }
 
+    pub fn pr(&self, run_id: &str, options: PrOptions) -> Result<PrResult> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+
+        let mut metadata = self
+            .read_metadata(run_id)
+            .with_context(|| format!("run `{run_id}` does not exist"))?;
+        let run_dir = self.run_dir(run_id);
+        let result = create_pr(&self.root, &run_dir, &mut metadata, options)?;
+
+        if result.created && !result.already_created && !result.dry_run {
+            self.write_metadata(&metadata)?;
+            self.append_pr_to_report(&metadata)?;
+        }
+
+        Ok(result)
+    }
+
     pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
@@ -425,6 +443,7 @@ impl KeelProject {
             ("Report", REPORT_FILE),
             ("Commit", COMMIT_FILE),
             ("Push", PUSH_FILE),
+            ("PR/MR", PR_FILE),
         ]
         .into_iter()
         .map(|(label, file)| {
@@ -488,6 +507,19 @@ impl KeelProject {
 
         let push_section = render_push_section(metadata);
         fs::write(&report_path, format!("{existing_report}\n\n{push_section}"))
+            .with_context(|| format!("failed to update {}", report_path.display()))
+    }
+
+    fn append_pr_to_report(&self, metadata: &RunMetadata) -> Result<()> {
+        let report_path = self.run_dir(&metadata.run_id).join(REPORT_FILE);
+        let existing_report = fs::read_to_string(&report_path)
+            .with_context(|| format!("failed to read {}", report_path.display()))?;
+        if existing_report.contains("## PR/MR") {
+            return Ok(());
+        }
+
+        let pr_section = render_pr_section(metadata);
+        fs::write(&report_path, format!("{existing_report}\n\n{pr_section}"))
             .with_context(|| format!("failed to update {}", report_path.display()))
     }
 

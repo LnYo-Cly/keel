@@ -254,6 +254,8 @@ fn missing_cli_error(program: &str) -> Option<String> {
     let product_name = match cli_name.to_ascii_lowercase().as_str() {
         "codex" => "Codex",
         "claude" => "Claude Code",
+        "gh" => "GitHub CLI",
+        "glab" => "GitLab CLI",
         "opencode" => "OpenCode",
         _ => return None,
     };

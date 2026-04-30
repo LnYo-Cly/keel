@@ -33,6 +33,8 @@ keel commit <run-id>
 keel push <run-id> --dry-run
 keel push <run-id>
 keel pr <run-id> --manual --dry-run --provider github
+keel pr <run-id> --provider github --dry-run
+keel pr <run-id> --provider github
 keel rerun <run-id>
 keel discard <run-id>
 ```
@@ -51,6 +53,7 @@ keel report <run-id> --json
 keel commit <run-id> --json
 keel push <run-id> --json
 keel pr <run-id> --manual --dry-run --provider github --json
+keel pr <run-id> --provider github --json
 ```
 
 `keel doctor` checks git, Keel's local `.keel/` layout, and optional agent
@@ -80,6 +83,8 @@ on `PATH`.
   remote.
 - Push is generic Git push, not provider-specific PR/MR creation.
 - `keel pr <run-id> --manual --dry-run` only prints a manual PR/MR plan.
+- `keel pr <run-id> --provider github|gitlab` creates a draft PR/MR through
+  the installed provider CLI after the run has already been pushed.
 - Keel does not auto merge.
 - Keel does not auto push.
 - Keel preserves run history under `.keel/runs/`.
@@ -96,6 +101,7 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 - `report.md`
 - `commit.json` after `keel commit <run-id>` succeeds
 - `push.json` after `keel push <run-id>` succeeds
+- `pr.json` after provider-backed `keel pr <run-id>` succeeds
 
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
@@ -156,9 +162,13 @@ The remote can be GitHub, GitLab, Gitee, Gitea, a self-hosted Git service, or a
 bare Git repository. If a repository has no remote, Keel can still complete the
 local commit workflow; push is optional.
 
-## Manual PR/MR Plan
+## PR/MR Workflow
 
-Keel currently supports a read-only manual PR/MR dry-run plan:
+Keel uses `pr` as the generic command name for creating a code review / merge
+request. On GitHub, Gitee, and Gitea it maps to Pull Request language; on
+GitLab it maps to Merge Request language.
+
+Manual mode is still available and read-only:
 
 ```bash
 keel pr <run-id> --manual --dry-run --provider github
@@ -191,24 +201,39 @@ The generated web URL is a best-effort browser link:
 - Local bare remotes and unknown self-hosted URLs may not produce a `web_url`;
   pass `--provider` and use the printed manual steps.
 
-Keel uses `pr` as the generic command name for creating a code review / merge
-request. On GitHub, Gitee, and Gitea it maps to Pull Request language; on
-GitLab it maps to Merge Request language.
-
-Future provider-backed command shape:
+Provider-backed mode is available for GitHub and GitLab through their local
+CLIs:
 
 ```bash
-keel pr <run-id>
+keel pr <run-id> --provider github --dry-run
 keel pr <run-id> --provider github
+keel pr <run-id> --provider gitlab --dry-run
 keel pr <run-id> --provider gitlab
-keel pr <run-id> --provider gitee
-keel pr <run-id> --manual
-keel pr <run-id> --dry-run
-keel pr <run-id> --json
+keel pr <run-id> --provider github --json
 ```
 
-The future provider-backed `keel pr` workflow will still require the run to be
-pushed first. It will not auto merge.
+Provider-backed behavior:
+
+- Requires the run to be ready, committed, and pushed.
+- Uses `gh pr create --draft` for GitHub.
+- Uses `glab mr create --draft` for GitLab.
+- Writes `.keel/runs/<run-id>/pr.json` only after successful creation.
+- Updates `metadata.json` and `report.md` with the PR/MR URL.
+- Is idempotent when `pr.json` or PR metadata already exists.
+- Does not call `git push`.
+- Does not call `git merge`.
+- Does not auto merge.
+- Does not support provider-backed Gitee/Gitea creation yet; use manual mode.
+
+Future command shape for additional providers:
+
+```bash
+keel pr <run-id> --provider gitee
+keel pr <run-id> --provider gitea
+```
+
+All provider-backed `keel pr` workflows require the run to be pushed first.
+They do not auto merge.
 
 ## Risk Warnings
 
@@ -288,8 +313,9 @@ metadata, logs, diff, checks, and report artifacts when possible.
   - `keel push`: push a candidate branch to any Git remote.
   - `keel pr --manual --dry-run`: print a manual PR/MR plan without provider
     API calls.
-  - Future provider-backed `keel pr`: create a code review / merge request on
-    GitHub, GitLab, Gitee, or Gitea.
+  - `keel pr --provider github|gitlab`: create a draft PR/MR through `gh` or
+    `glab`.
+  - Future provider-backed Gitee/Gitea support.
 - v0.6: TUI for reviewing candidate runs.
 
 ## Development Smoke Tests

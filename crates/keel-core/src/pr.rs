@@ -1,10 +1,11 @@
-use crate::command::run_command;
+use crate::command::{format_command, run_command};
 use crate::commit::default_commit_message;
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PUSH_FILE, REPORT_FILE,
+    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PR_FILE, PUSH_FILE, REPORT_FILE,
 };
 use crate::model::{RunMetadata, RunStatus};
 use crate::push::PushArtifact;
+use crate::time::now_timestamp;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -102,6 +103,54 @@ pub struct PrPlan {
     pub would_merge: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrArtifact {
+    pub run_id: String,
+    pub provider: PrProvider,
+    pub provider_name: String,
+    pub request_kind: String,
+    pub remote: String,
+    pub remote_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_url: Option<String>,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub commit_sha: String,
+    pub title: String,
+    pub url: String,
+    pub created_at: String,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrResult {
+    pub run_id: String,
+    pub provider: PrProvider,
+    pub provider_name: &'static str,
+    pub request_kind: &'static str,
+    pub remote: String,
+    pub remote_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_url: Option<String>,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub commit_sha: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub manual: bool,
+    pub dry_run: bool,
+    pub created: bool,
+    pub already_created: bool,
+    pub would_create_request: bool,
+    pub would_write_artifact: bool,
+    pub would_push: bool,
+    pub would_merge: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_path: Option<String>,
+    pub provider_command: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PrArtifactPaths {
     pub metadata: String,
@@ -113,10 +162,124 @@ pub struct PrArtifactPaths {
     pub commit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<String>,
 }
 
 pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -> Result<PrPlan> {
-    validate_pr_mode(&options)?;
+    validate_manual_plan_mode(&options)?;
+    build_pr_plan(root, metadata, &options, true)
+}
+
+pub(crate) fn create_pr(
+    root: &Path,
+    run_dir: &Path,
+    metadata: &mut RunMetadata,
+    options: PrOptions,
+) -> Result<PrResult> {
+    validate_create_mode(&options)?;
+    let pr_path = run_dir.join(PR_FILE);
+
+    if let Some(existing) = existing_pr(metadata, &pr_path)? {
+        let plan = build_pr_plan(root, metadata, &options, false)?;
+        return Ok(already_created_result(
+            &plan,
+            existing,
+            options.dry_run,
+            &pr_path,
+        ));
+    }
+
+    let plan = build_pr_plan(root, metadata, &options, false)?;
+    let provider_command = provider_command(&plan)?;
+
+    if options.dry_run {
+        return Ok(PrResult {
+            run_id: plan.run_id,
+            provider: plan.provider,
+            provider_name: plan.provider_name,
+            request_kind: plan.request_kind,
+            remote: plan.remote,
+            remote_url: plan.remote_url,
+            repository_url: plan.repository_url,
+            source_branch: plan.source_branch,
+            target_branch: plan.target_branch,
+            commit_sha: plan.commit_sha,
+            title: plan.title,
+            url: plan.web_url,
+            manual: false,
+            dry_run: true,
+            created: false,
+            already_created: false,
+            would_create_request: true,
+            would_write_artifact: false,
+            would_push: false,
+            would_merge: false,
+            pr_path: None,
+            provider_command,
+        });
+    }
+
+    let url = run_provider_command(root, &plan, &provider_command)?;
+    let created_at = now_timestamp();
+    let artifact = PrArtifact {
+        run_id: plan.run_id.clone(),
+        provider: plan.provider,
+        provider_name: plan.provider_name.to_string(),
+        request_kind: plan.request_kind.to_string(),
+        remote: plan.remote.clone(),
+        remote_url: plan.remote_url.clone(),
+        repository_url: plan.repository_url.clone(),
+        source_branch: plan.source_branch.clone(),
+        target_branch: plan.target_branch.clone(),
+        commit_sha: plan.commit_sha.clone(),
+        title: plan.title.clone(),
+        url: url.clone(),
+        created_at: created_at.clone(),
+        dry_run: false,
+    };
+
+    crate::json::write_json_pretty(&pr_path, &artifact)?;
+    metadata.pr_created = true;
+    metadata.pr_created_at = Some(created_at);
+    metadata.pr_provider = Some(plan.provider.to_string());
+    metadata.pr_url = Some(url.clone());
+    metadata.pr_target_branch = Some(plan.target_branch.clone());
+    metadata.pr_source_branch = Some(plan.source_branch.clone());
+    metadata.pr = Some(artifact);
+
+    Ok(PrResult {
+        run_id: plan.run_id,
+        provider: plan.provider,
+        provider_name: plan.provider_name,
+        request_kind: plan.request_kind,
+        remote: plan.remote,
+        remote_url: plan.remote_url,
+        repository_url: plan.repository_url,
+        source_branch: plan.source_branch,
+        target_branch: plan.target_branch,
+        commit_sha: plan.commit_sha,
+        title: plan.title,
+        url: Some(url),
+        manual: false,
+        dry_run: false,
+        created: true,
+        already_created: false,
+        would_create_request: false,
+        would_write_artifact: false,
+        would_push: false,
+        would_merge: false,
+        pr_path: Some(pr_path.display().to_string()),
+        provider_command,
+    })
+}
+
+fn build_pr_plan(
+    root: &Path,
+    metadata: &RunMetadata,
+    options: &PrOptions,
+    manual: bool,
+) -> Result<PrPlan> {
     validate_pr_status(metadata)?;
 
     let commit_sha = committed_sha(metadata)?;
@@ -134,11 +297,15 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
     };
     let target_branch = options
         .target
+        .as_deref()
         .filter(|target| !target.trim().is_empty())
+        .map(str::to_string)
         .unwrap_or_else(|| default_target_branch(root));
     let title = options
         .title
+        .as_deref()
         .filter(|title| !title.trim().is_empty())
+        .map(str::to_string)
         .unwrap_or_else(|| default_commit_message(metadata));
     let artifacts = artifact_paths(metadata);
     let body = default_body(metadata, &push, &target_branch, &commit_sha, &artifacts);
@@ -160,8 +327,8 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         provider,
         provider_name: provider.display_name(),
         request_kind: provider.request_kind(),
-        manual: true,
-        dry_run: true,
+        manual,
+        dry_run: options.dry_run,
         remote: push.remote,
         remote_url: push.remote_url,
         repository_url,
@@ -174,16 +341,23 @@ pub(crate) fn plan_pr(root: &Path, metadata: &RunMetadata, options: PrOptions) -
         copyable_summary,
         artifacts,
         manual_steps,
-        would_create_request: false,
-        would_write_artifact: false,
+        would_create_request: !manual,
+        would_write_artifact: !manual && !options.dry_run,
         would_push: false,
         would_merge: false,
     })
 }
 
-fn validate_pr_mode(options: &PrOptions) -> Result<()> {
+fn validate_manual_plan_mode(options: &PrOptions) -> Result<()> {
     if !options.manual || !options.dry_run {
-        bail!("this Keel version only supports `keel pr <run-id> --manual --dry-run`");
+        bail!("manual PR/MR planning requires `--manual --dry-run`");
+    }
+    Ok(())
+}
+
+fn validate_create_mode(options: &PrOptions) -> Result<()> {
+    if options.manual && !options.dry_run {
+        bail!("manual PR/MR planning requires `--manual --dry-run`");
     }
     Ok(())
 }
@@ -276,6 +450,242 @@ fn validate_push_matches_run(
     }
 
     Ok(())
+}
+
+fn existing_pr(metadata: &RunMetadata, pr_path: &Path) -> Result<Option<PrArtifact>> {
+    if let Some(pr) = &metadata.pr {
+        return Ok(Some(pr.clone()));
+    }
+
+    if metadata.pr_created {
+        if let (
+            Some(created_at),
+            Some(provider),
+            Some(url),
+            Some(target_branch),
+            Some(source_branch),
+            Some(commit_sha),
+        ) = (
+            metadata.pr_created_at.clone(),
+            metadata.pr_provider.clone(),
+            metadata.pr_url.clone(),
+            metadata.pr_target_branch.clone(),
+            metadata.pr_source_branch.clone(),
+            metadata.commit_sha.clone(),
+        ) {
+            let provider = provider.parse::<PrProvider>()?;
+            return Ok(Some(PrArtifact {
+                run_id: metadata.run_id.clone(),
+                provider,
+                provider_name: provider.display_name().to_string(),
+                request_kind: provider.request_kind().to_string(),
+                remote: metadata
+                    .push_remote
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
+                repository_url: metadata
+                    .push_remote_url
+                    .as_deref()
+                    .and_then(repository_web_url),
+                source_branch,
+                target_branch,
+                commit_sha,
+                title: metadata
+                    .commit_message
+                    .clone()
+                    .unwrap_or_else(|| default_commit_message(metadata)),
+                url,
+                created_at,
+                dry_run: false,
+            }));
+        }
+    }
+
+    if pr_path.is_file() {
+        return Ok(Some(crate::json::read_json(pr_path)?));
+    }
+
+    Ok(None)
+}
+
+fn already_created_result(
+    plan: &PrPlan,
+    artifact: PrArtifact,
+    dry_run: bool,
+    pr_path: &Path,
+) -> PrResult {
+    PrResult {
+        run_id: plan.run_id.clone(),
+        provider: artifact.provider,
+        provider_name: artifact.provider.display_name(),
+        request_kind: artifact.provider.request_kind(),
+        remote: artifact.remote,
+        remote_url: artifact.remote_url,
+        repository_url: artifact.repository_url,
+        source_branch: artifact.source_branch,
+        target_branch: artifact.target_branch,
+        commit_sha: artifact.commit_sha,
+        title: artifact.title,
+        url: Some(artifact.url),
+        manual: false,
+        dry_run,
+        created: true,
+        already_created: true,
+        would_create_request: false,
+        would_write_artifact: false,
+        would_push: false,
+        would_merge: false,
+        pr_path: Some(pr_path.display().to_string()),
+        provider_command: provider_command(plan).unwrap_or_default(),
+    }
+}
+
+fn provider_command(plan: &PrPlan) -> Result<Vec<String>> {
+    let repository = repository_selector(&plan.remote_url).ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not derive repository selector from remote `{}`; use manual PR/MR planning for this remote",
+            plan.remote_url
+        )
+    })?;
+    match plan.provider {
+        PrProvider::Github => Ok(vec![
+            "gh".to_string(),
+            "pr".to_string(),
+            "create".to_string(),
+            "--repo".to_string(),
+            repository,
+            "--base".to_string(),
+            plan.target_branch.clone(),
+            "--head".to_string(),
+            plan.source_branch.clone(),
+            "--title".to_string(),
+            plan.title.clone(),
+            "--body".to_string(),
+            provider_body_arg(&plan.body),
+            "--draft".to_string(),
+        ]),
+        PrProvider::Gitlab => Ok(vec![
+            "glab".to_string(),
+            "mr".to_string(),
+            "create".to_string(),
+            "--repo".to_string(),
+            repository,
+            "--source-branch".to_string(),
+            plan.source_branch.clone(),
+            "--target-branch".to_string(),
+            plan.target_branch.clone(),
+            "--title".to_string(),
+            plan.title.clone(),
+            "--description".to_string(),
+            provider_body_arg(&plan.body),
+            "--draft".to_string(),
+            "--yes".to_string(),
+        ]),
+        PrProvider::Gitee | PrProvider::Gitea => bail!(
+            "provider-backed PR/MR creation for {} is not implemented yet; use `keel pr <run-id> --manual --dry-run --provider {}`",
+            plan.provider.display_name(),
+            plan.provider
+        ),
+    }
+}
+
+fn run_provider_command(root: &Path, plan: &PrPlan, command: &[String]) -> Result<String> {
+    let (program, args) = command
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("provider command is empty"))?;
+    let capture = run_command(root, program, args)?;
+    if !capture.status.success() {
+        bail!(
+            "failed to create {} with `{}`\nstdout:\n{}\nstderr:\n{}",
+            request_label(plan.provider),
+            format_command(program, args),
+            capture.stdout.trim(),
+            capture.stderr.trim()
+        );
+    }
+
+    provider_output_url(plan.provider, &capture.stdout)
+        .or_else(|| plan.web_url.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} command succeeded but no PR/MR URL was found in stdout",
+                provider_program(plan.provider)
+            )
+        })
+}
+
+fn provider_output_url(provider: PrProvider, output: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .find(|token| token_matches_provider_url(provider, token))
+        .map(|token| token.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`'))
+        .map(str::to_string)
+}
+
+fn token_matches_provider_url(provider: PrProvider, token: &str) -> bool {
+    let token = token.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`');
+    if !(token.starts_with("http://") || token.starts_with("https://")) {
+        return false;
+    }
+
+    match provider {
+        PrProvider::Github | PrProvider::Gitee | PrProvider::Gitea => token.contains("/pull/"),
+        PrProvider::Gitlab => {
+            token.contains("/merge_requests/") || token.contains("/-/merge_requests/")
+        }
+    }
+}
+
+fn repository_selector(remote_url: &str) -> Option<String> {
+    let remote_url = remote_url.trim().trim_end_matches(".git");
+    if remote_url.is_empty() {
+        return None;
+    }
+
+    let (host, path) = if let Some(index) = remote_url.find("://") {
+        let without_scheme = &remote_url[index + 3..];
+        let host = without_scheme.split('/').next()?.rsplit('@').next()?.trim();
+        let path = without_scheme
+            .split_once('/')
+            .map(|(_, path)| path.trim_matches('/'))
+            .filter(|path| !path.is_empty())?;
+        (host.to_ascii_lowercase(), path)
+    } else if let Some(index) = remote_url.find('@') {
+        let rest = &remote_url[index + 1..];
+        let (host, path) = rest.split_once([':', '/'])?;
+        (host.trim().to_ascii_lowercase(), path.trim_matches('/'))
+    } else {
+        return None;
+    };
+
+    if path.is_empty() {
+        None
+    } else if host == "github.com" {
+        Some(path.to_string())
+    } else {
+        Some(format!("{host}/{path}"))
+    }
+}
+
+fn provider_program(provider: PrProvider) -> &'static str {
+    match provider {
+        PrProvider::Github => "gh",
+        PrProvider::Gitlab => "glab",
+        PrProvider::Gitee => "gitee",
+        PrProvider::Gitea => "gitea",
+    }
+}
+
+fn request_label(provider: PrProvider) -> &'static str {
+    match provider {
+        PrProvider::Gitlab => "Merge Request",
+        PrProvider::Github | PrProvider::Gitee | PrProvider::Gitea => "Pull Request",
+    }
+}
+
+fn provider_body_arg(body: &str) -> String {
+    one_line(body)
 }
 
 pub fn infer_provider(remote_url: &str) -> Option<PrProvider> {
@@ -441,6 +851,7 @@ fn artifact_paths(metadata: &RunMetadata) -> PrArtifactPaths {
             .committed
             .then(|| format!("{run_dir}/{COMMIT_FILE}")),
         push: metadata.pushed.then(|| format!("{run_dir}/{PUSH_FILE}")),
+        pr: metadata.pr_created.then(|| format!("{run_dir}/{PR_FILE}")),
     }
 }
 
@@ -478,10 +889,10 @@ fn default_body(
 - Report: `{}`
 - Commit: `{}`
 - Push: `{}`
+- PR/MR: `{}`
 
 ## Safety
 
-- Keel did not create this PR/MR through a provider API.
 - Keel did not merge this candidate change.
 - Keel did not push anything from the PR command.
 - Human review is required before merge.
@@ -502,6 +913,7 @@ fn default_body(
         artifacts.report,
         artifacts.commit.as_deref().unwrap_or("not available"),
         artifacts.push.as_deref().unwrap_or("not available"),
+        artifacts.pr.as_deref().unwrap_or("not created yet"),
     )
 }
 
@@ -615,6 +1027,46 @@ mod tests {
         assert_eq!(
             repository_web_url("https://gitee.com/owner/repo.git").as_deref(),
             Some("https://gitee.com/owner/repo")
+        );
+    }
+
+    #[test]
+    fn builds_provider_cli_repository_selectors() {
+        assert_eq!(
+            repository_selector("git@github.com:owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            repository_selector("https://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            repository_selector("git@gitlab.com:group/project.git").as_deref(),
+            Some("gitlab.com/group/project")
+        );
+        assert_eq!(
+            repository_selector("ssh://git@gitlab.example.com/group/project.git").as_deref(),
+            Some("gitlab.example.com/group/project")
+        );
+    }
+
+    #[test]
+    fn extracts_provider_output_urls() {
+        assert_eq!(
+            provider_output_url(
+                PrProvider::Github,
+                "Creating pull request...\nhttps://github.com/owner/repo/pull/42\n"
+            )
+            .as_deref(),
+            Some("https://github.com/owner/repo/pull/42")
+        );
+        assert_eq!(
+            provider_output_url(
+                PrProvider::Gitlab,
+                "Created merge request: https://gitlab.com/owner/repo/-/merge_requests/7"
+            )
+            .as_deref(),
+            Some("https://gitlab.com/owner/repo/-/merge_requests/7")
         );
     }
 

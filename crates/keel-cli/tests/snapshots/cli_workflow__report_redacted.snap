@@ -12,6 +12,7 @@ Artifacts:
 - Report: <repo>/.keel/runs/<run-id>/report.md (present)
 - Commit: <repo>/.keel/runs/<run-id>/commit.json (missing)
 - Push: <repo>/.keel/runs/<run-id>/push.json (missing)
+- PR/MR: <repo>/.keel/runs/<run-id>/pr.json (missing)
 Suggested next actions:
 - keel diff <run-id>
 - keel rerun <run-id>
