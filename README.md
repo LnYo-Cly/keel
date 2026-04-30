@@ -192,7 +192,7 @@ Manual plan behavior:
 - Does not call GitHub, GitLab, Gitee, or Gitea APIs.
 - Does not call `gh` or `glab`.
 - Does not write `pr.json`.
-- Does not push or merge anything.
+- Does not merge anything.
 
 The generated web URL is a best-effort browser link:
 

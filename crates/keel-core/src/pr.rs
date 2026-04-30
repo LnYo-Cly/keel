@@ -985,7 +985,7 @@ fn manual_steps(
         push.branch
     ));
     instructions.push("Keel did not call any provider API.".to_string());
-    instructions.push("Keel did not push or merge anything.".to_string());
+    instructions.push("Keel did not merge anything.".to_string());
     instructions
 }
 

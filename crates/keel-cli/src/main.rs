@@ -603,7 +603,7 @@ fn print_pr_plan(plan: &PrPlan) {
     }
     println!("Keel did not create a PR/MR.");
     println!("Keel did not write pr.json.");
-    println!("Keel did not push or merge anything.");
+    println!("Keel did not merge anything.");
 }
 
 fn print_pr_result(result: &PrResult) {
@@ -638,7 +638,7 @@ fn print_pr_result(result: &PrResult) {
         println!("Would run: {}", result.provider_command.join(" "));
         println!("Keel would create a PR/MR through the provider CLI.");
         println!("Keel would not write pr.json during dry-run.");
-        println!("Keel would not push or merge anything.");
+        println!("Keel would not merge anything.");
         return;
     }
 
@@ -653,7 +653,7 @@ fn print_pr_result(result: &PrResult) {
     if let Some(pr_path) = &result.pr_path {
         println!("PR/MR artifact: {pr_path}");
     }
-    println!("Keel did not push or merge anything.");
+    println!("Keel did not merge anything.");
 }
 
 fn print_warning_summary(warnings: &[String]) {

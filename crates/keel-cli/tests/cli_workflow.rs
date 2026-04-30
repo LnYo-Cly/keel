@@ -1080,9 +1080,7 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
     ))
     .stdout(predicate::str::contains("Keel did not create a PR/MR."))
     .stdout(predicate::str::contains("Keel did not write pr.json."))
-    .stdout(predicate::str::contains(
-        "Keel did not push or merge anything.",
-    ));
+    .stdout(predicate::str::contains("Keel did not merge anything."));
 
     assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
     assert_eq!(
@@ -1229,9 +1227,7 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
     .success()
     .stdout(predicate::str::contains("PR/MR provider dry-run plan"))
     .stdout(predicate::str::contains("Would run: gh pr create"))
-    .stdout(predicate::str::contains(
-        "Keel would not push or merge anything.",
-    ));
+    .stdout(predicate::str::contains("Keel would not merge anything."));
 
     assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
     assert_eq!(
@@ -1333,9 +1329,7 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
     .stdout(predicate::str::contains(
         "https://github.com/owner/repo/pull/42",
     ))
-    .stdout(predicate::str::contains(
-        "Keel did not push or merge anything.",
-    ));
+    .stdout(predicate::str::contains("Keel did not merge anything."));
 
     assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
     let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
