@@ -88,7 +88,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Build a manual PR/MR plan for a pushed candidate branch.
+    /// Plan or create a PR/MR for a pushed candidate branch.
     Pr {
         /// Run id.
         run_id: String,
@@ -104,10 +104,10 @@ enum Commands {
         /// Override provider inference. Supported: github, gitlab, gitee, gitea.
         #[arg(long, value_parser = parse_pr_provider)]
         provider: Option<PrProvider>,
-        /// Target branch for the future PR/MR.
+        /// Target branch for the PR/MR.
         #[arg(long)]
         target: Option<String>,
-        /// Title for the future PR/MR.
+        /// Title for the PR/MR.
         #[arg(long)]
         title: Option<String>,
     },

@@ -106,6 +106,31 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
 
+## Artifact And JSON Contract
+
+Keel writes new v0.5 runs with push/pr naming:
+
+- `metadata.json` uses `pushed`, `pushed_at`, `push_remote`,
+  `push_remote_url`, `pushed_branch`, and `push`.
+- `push.json` is the push artifact written by `keel push <run-id>`.
+- `pr.json` is written only after provider-backed `keel pr <run-id>` succeeds.
+- `keel status --json` returns an array of run summaries.
+- `keel report <run-id> --json` returns a review summary with `commit`,
+  `push`, `pr`, `artifacts`, `warnings`, `risk_warnings`, and `next_actions`.
+- Missing artifacts are represented as `state: "missing"` instead of causing
+  report JSON rendering to fail.
+
+Compatibility policy:
+
+- Keel no longer exposes `keel publish`.
+- New runs do not write `publish.json` or `published*` metadata fields.
+- Read paths still understand legacy `publish.json`, `published`,
+  `published_at`, `publish_remote`, `publish_remote_url`,
+  `published_branch`, and `publish` so older local run history remains
+  reviewable.
+- There is no migration command yet. Legacy artifacts are read in place and are
+  not rewritten unless a future explicit migration command is added.
+
 ## Local Commit Workflow
 
 `keel commit <run-id>` turns a ready candidate change into a local Git commit on
