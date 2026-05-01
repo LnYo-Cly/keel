@@ -6,6 +6,7 @@
 # Local Keel runtime state and development worktrees.
 /.keel/
 /.worktrees/
+/output/
 
 # Rust build output.
 /target/

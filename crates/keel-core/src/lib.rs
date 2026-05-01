@@ -28,7 +28,7 @@ pub use json::{
 };
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
-    ReportInfo, RunMetadata, RunStatus,
+    ReportInfo, RunArtifacts, RunMetadata, RunStatus,
 };
 pub use pr::{infer_provider, PrArtifact, PrOptions, PrPlan, PrProvider, PrResult};
 pub use project::KeelProject;

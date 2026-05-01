@@ -40,6 +40,9 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             println!("Config: {}", result.config_path.display());
             println!("Runs: {}", result.runs_dir.display());
         }
+        Commands::Tui => {
+            keel_tui::run_tui(project)?;
+        }
         Commands::Run { task, agent } => {
             let metadata = project.run(&task, &agent)?;
             render::print_run_created("Run created", &metadata);

@@ -1,0 +1,948 @@
+use anyhow::Result;
+use keel_core::{KeelProject, RunArtifacts, RunMetadata, RunStatus};
+
+#[derive(Debug)]
+pub struct App {
+    project: KeelProject,
+    runs: Vec<RunMetadata>,
+    visible: Vec<usize>,
+    selected: usize,
+    run_list_offset: usize,
+    tab: DetailTab,
+    detail: Option<RunArtifacts>,
+    message: Option<String>,
+    filter: String,
+    filter_mode: bool,
+    help_visible: bool,
+    report_scroll: u16,
+    diff_scroll: u16,
+    log_scroll: u16,
+    artifact_scroll: u16,
+    report_scroll_max: u16,
+    diff_scroll_max: u16,
+    log_scroll_max: u16,
+    artifact_scroll_max: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DetailTab {
+    Report,
+    Diff,
+    Log,
+    Artifacts,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RunCounts {
+    pub ready: usize,
+    pub not_ready: usize,
+    pub running: usize,
+    pub discarded: usize,
+    pub committed: usize,
+    pub pushed: usize,
+    pub pr: usize,
+}
+
+impl App {
+    pub fn load(project: KeelProject) -> Result<Self> {
+        let mut app = Self {
+            project,
+            runs: Vec::new(),
+            visible: Vec::new(),
+            selected: 0,
+            run_list_offset: 0,
+            tab: DetailTab::Report,
+            detail: None,
+            message: None,
+            filter: String::new(),
+            filter_mode: false,
+            help_visible: false,
+            report_scroll: 0,
+            diff_scroll: 0,
+            log_scroll: 0,
+            artifact_scroll: 0,
+            report_scroll_max: u16::MAX,
+            diff_scroll_max: u16::MAX,
+            log_scroll_max: u16::MAX,
+            artifact_scroll_max: u16::MAX,
+        };
+        app.refresh()?;
+        Ok(app)
+    }
+
+    pub fn refresh(&mut self) -> Result<()> {
+        let selected_run_id = self.selected_run().map(|run| run.run_id.clone());
+        self.runs = self.project.list_runs()?;
+        self.rebuild_visible(selected_run_id);
+        self.reload_detail();
+        self.message = Some("refreshed".to_string());
+        Ok(())
+    }
+
+    pub fn select_next(&mut self) {
+        if self.visible.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + 1).min(self.visible.len() - 1);
+        self.clamp_run_list_offset();
+        self.reload_detail();
+    }
+
+    pub fn select_previous(&mut self) {
+        if self.visible.is_empty() {
+            return;
+        }
+        self.selected = self.selected.saturating_sub(1);
+        self.clamp_run_list_offset();
+        self.reload_detail();
+    }
+
+    pub fn next_tab(&mut self) {
+        self.tab = match self.tab {
+            DetailTab::Report => DetailTab::Diff,
+            DetailTab::Diff => DetailTab::Log,
+            DetailTab::Log => DetailTab::Artifacts,
+            DetailTab::Artifacts => DetailTab::Report,
+        };
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.tab = match self.tab {
+            DetailTab::Report => DetailTab::Artifacts,
+            DetailTab::Diff => DetailTab::Report,
+            DetailTab::Log => DetailTab::Diff,
+            DetailTab::Artifacts => DetailTab::Log,
+        };
+    }
+
+    pub fn runs(&self) -> &[RunMetadata] {
+        &self.runs
+    }
+
+    pub fn visible_count(&self) -> usize {
+        self.visible.len()
+    }
+
+    pub fn total_count(&self) -> usize {
+        self.runs.len()
+    }
+
+    pub fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    pub fn run_list_offset(&self) -> usize {
+        self.run_list_offset
+    }
+
+    pub fn selected_position(&self) -> Option<(usize, usize)> {
+        (!self.visible.is_empty()).then_some((self.selected + 1, self.visible.len()))
+    }
+
+    pub fn selected_run(&self) -> Option<&RunMetadata> {
+        self.visible
+            .get(self.selected)
+            .and_then(|index| self.runs.get(*index))
+    }
+
+    pub fn tab(&self) -> DetailTab {
+        self.tab
+    }
+
+    pub fn detail(&self) -> Option<&RunArtifacts> {
+        self.detail.as_ref()
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+
+    pub fn filter(&self) -> &str {
+        &self.filter
+    }
+
+    pub fn filter_mode(&self) -> bool {
+        self.filter_mode
+    }
+
+    pub fn help_visible(&self) -> bool {
+        self.help_visible
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.help_visible = !self.help_visible;
+    }
+
+    pub fn close_help(&mut self) {
+        self.help_visible = false;
+    }
+
+    pub fn begin_filter_edit(&mut self) {
+        self.close_help();
+        self.filter_mode = true;
+        self.message =
+            Some("filter mode: type to narrow runs, Enter to apply, Esc to clear".to_string());
+    }
+
+    pub fn finish_filter_edit(&mut self) {
+        self.filter_mode = false;
+        self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
+        self.reload_detail();
+        self.message = Some(self.filter_message());
+    }
+
+    pub fn clear_filter(&mut self) {
+        self.filter.clear();
+        self.filter_mode = false;
+        self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
+        self.reload_detail();
+        self.message = Some(self.filter_message());
+    }
+
+    pub fn push_filter_char(&mut self, ch: char) {
+        self.filter.push(ch);
+        self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
+        self.reload_detail();
+        self.message = Some(self.filter_message());
+    }
+
+    pub fn pop_filter_char(&mut self) {
+        self.filter.pop();
+        self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
+        self.reload_detail();
+        self.message = Some(self.filter_message());
+    }
+
+    pub fn scroll_up(&mut self, amount: u16) {
+        match self.tab {
+            DetailTab::Report => self.report_scroll = self.report_scroll.saturating_sub(amount),
+            DetailTab::Diff => self.diff_scroll = self.diff_scroll.saturating_sub(amount),
+            DetailTab::Log => self.log_scroll = self.log_scroll.saturating_sub(amount),
+            DetailTab::Artifacts => {
+                self.artifact_scroll = self.artifact_scroll.saturating_sub(amount);
+            }
+        }
+    }
+
+    pub fn scroll_down(&mut self, amount: u16) {
+        let max_scroll = self.scroll_max();
+        match self.tab {
+            DetailTab::Report => {
+                self.report_scroll = self.report_scroll.saturating_add(amount).min(max_scroll);
+            }
+            DetailTab::Diff => {
+                self.diff_scroll = self.diff_scroll.saturating_add(amount).min(max_scroll);
+            }
+            DetailTab::Log => {
+                self.log_scroll = self.log_scroll.saturating_add(amount).min(max_scroll);
+            }
+            DetailTab::Artifacts => {
+                self.artifact_scroll = self.artifact_scroll.saturating_add(amount).min(max_scroll);
+            }
+        }
+    }
+
+    pub fn scroll_home(&mut self) {
+        match self.tab {
+            DetailTab::Report => self.report_scroll = 0,
+            DetailTab::Diff => self.diff_scroll = 0,
+            DetailTab::Log => self.log_scroll = 0,
+            DetailTab::Artifacts => self.artifact_scroll = 0,
+        }
+    }
+
+    pub fn scroll_end(&mut self) {
+        let max_scroll = self.scroll_max();
+        match self.tab {
+            DetailTab::Report => self.report_scroll = max_scroll,
+            DetailTab::Diff => self.diff_scroll = max_scroll,
+            DetailTab::Log => self.log_scroll = max_scroll,
+            DetailTab::Artifacts => self.artifact_scroll = max_scroll,
+        }
+    }
+
+    pub fn scroll_offset(&self) -> u16 {
+        match self.tab {
+            DetailTab::Report => self.report_scroll,
+            DetailTab::Diff => self.diff_scroll,
+            DetailTab::Log => self.log_scroll,
+            DetailTab::Artifacts => self.artifact_scroll,
+        }
+    }
+
+    pub fn set_scroll_limit(&mut self, content_lines: usize, visible_rows: u16) {
+        let visible_rows = usize::from(visible_rows.max(1));
+        let max_scroll = content_lines
+            .saturating_sub(visible_rows)
+            .min(usize::from(u16::MAX)) as u16;
+
+        match self.tab {
+            DetailTab::Report => {
+                self.report_scroll_max = max_scroll;
+                self.report_scroll = self.report_scroll.min(max_scroll);
+            }
+            DetailTab::Diff => {
+                self.diff_scroll_max = max_scroll;
+                self.diff_scroll = self.diff_scroll.min(max_scroll);
+            }
+            DetailTab::Log => {
+                self.log_scroll_max = max_scroll;
+                self.log_scroll = self.log_scroll.min(max_scroll);
+            }
+            DetailTab::Artifacts => {
+                self.artifact_scroll_max = max_scroll;
+                self.artifact_scroll = self.artifact_scroll.min(max_scroll);
+            }
+        }
+    }
+
+    pub fn set_run_list_viewport(&mut self, visible_rows: usize) {
+        let visible_rows = visible_rows.max(1);
+        if self.visible.is_empty() {
+            self.run_list_offset = 0;
+            return;
+        }
+
+        if self.selected < self.run_list_offset {
+            self.run_list_offset = self.selected;
+        } else if self.selected >= self.run_list_offset + visible_rows {
+            self.run_list_offset = self.selected + 1 - visible_rows;
+        }
+
+        let max_offset = self.visible.len().saturating_sub(visible_rows);
+        self.run_list_offset = self.run_list_offset.min(max_offset);
+    }
+
+    pub fn visible_run_window(&self, visible_rows: usize) -> Vec<(usize, &RunMetadata)> {
+        let visible_rows = visible_rows.max(1);
+        self.visible
+            .iter()
+            .enumerate()
+            .skip(self.run_list_offset)
+            .take(visible_rows)
+            .filter_map(|(visible_index, index)| {
+                self.runs.get(*index).map(|run| (visible_index, run))
+            })
+            .collect()
+    }
+
+    pub fn counts(&self) -> RunCounts {
+        self.runs
+            .iter()
+            .fold(RunCounts::default(), |mut counts, run| {
+                match run.status {
+                    RunStatus::Ready => counts.ready += 1,
+                    RunStatus::NotReady => counts.not_ready += 1,
+                    RunStatus::Running => counts.running += 1,
+                    RunStatus::Discarded => counts.discarded += 1,
+                    RunStatus::Created => {}
+                }
+                if run.committed {
+                    counts.committed += 1;
+                }
+                if run.pushed {
+                    counts.pushed += 1;
+                }
+                if run.pr_created {
+                    counts.pr += 1;
+                }
+                counts
+            })
+    }
+
+    fn reload_detail(&mut self) {
+        let Some(run_id) = self.selected_run().map(|run| run.run_id.clone()) else {
+            self.detail = None;
+            return;
+        };
+
+        match self.project.run_artifacts(&run_id) {
+            Ok(detail) => {
+                self.detail = Some(detail);
+                self.message = None;
+            }
+            Err(error) => {
+                self.detail = None;
+                self.message = Some(error.to_string());
+            }
+        }
+    }
+
+    fn clamp_selection(&mut self) {
+        if self.visible.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.visible.len() {
+            self.selected = self.visible.len() - 1;
+        }
+        self.clamp_run_list_offset();
+    }
+
+    fn clamp_run_list_offset(&mut self) {
+        if self.visible.is_empty() {
+            self.run_list_offset = 0;
+        } else if self.run_list_offset > self.selected {
+            self.run_list_offset = self.selected;
+        }
+    }
+
+    fn rebuild_visible(&mut self, selected_run_id: Option<String>) {
+        self.visible = self
+            .runs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, run)| self.run_matches_filter(run).then_some(index))
+            .collect();
+
+        self.selected = selected_run_id
+            .and_then(|run_id| {
+                self.visible
+                    .iter()
+                    .position(|index| self.runs[*index].run_id == run_id)
+            })
+            .unwrap_or(0);
+        self.clamp_selection();
+    }
+
+    fn run_matches_filter(&self, run: &RunMetadata) -> bool {
+        let filter = self.filter.trim().to_ascii_lowercase();
+        if filter.is_empty() {
+            return true;
+        }
+
+        let haystacks = vec![
+            run.run_id.clone(),
+            run.task.clone(),
+            run.agent.clone(),
+            run.status.to_string(),
+            run.branch.clone(),
+            run.base_commit.clone(),
+            run.failure_reason
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            run.readiness_reason.clone(),
+            run.commit_sha.clone().unwrap_or_default(),
+            run.push_remote.clone().unwrap_or_default(),
+            run.push_remote_url.clone().unwrap_or_default(),
+            run.pr_provider.clone().unwrap_or_default(),
+            run.pr_url.clone().unwrap_or_default(),
+        ];
+
+        haystacks
+            .iter()
+            .any(|haystack| haystack.to_ascii_lowercase().contains(&filter))
+            || run
+                .warnings
+                .iter()
+                .any(|warning| warning.to_ascii_lowercase().contains(&filter))
+            || run.risk_warnings.iter().any(|warning| {
+                warning.kind.to_string().contains(&filter)
+                    || warning.message.to_ascii_lowercase().contains(&filter)
+                    || warning
+                        .path
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&filter)
+                    || warning
+                        .pattern
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&filter)
+                    || warning
+                        .details
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&filter)
+            })
+    }
+
+    fn filter_message(&self) -> String {
+        if self.filter.trim().is_empty() {
+            "filter cleared".to_string()
+        } else {
+            format!(
+                "filter: {} ({} of {} runs)",
+                self.filter.trim(),
+                self.visible.len(),
+                self.runs.len()
+            )
+        }
+    }
+
+    fn scroll_max(&self) -> u16 {
+        match self.tab {
+            DetailTab::Report => self.report_scroll_max,
+            DetailTab::Diff => self.diff_scroll_max,
+            DetailTab::Log => self.log_scroll_max,
+            DetailTab::Artifacts => self.artifact_scroll_max,
+        }
+    }
+}
+
+impl DetailTab {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Report => "Report",
+            Self::Diff => "Diff",
+            Self::Log => "Log",
+            Self::Artifacts => "Artifacts",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keel_core::{
+        ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo, RunMetadata,
+    };
+    use std::path::PathBuf;
+
+    #[test]
+    fn counts_include_review_and_git_states() {
+        let mut app = empty_app();
+        app.runs = vec![
+            sample_run("a", RunStatus::Ready, true, true, true),
+            sample_run("b", RunStatus::NotReady, false, false, false),
+            sample_run("c", RunStatus::Discarded, true, false, false),
+        ];
+
+        let counts = app.counts();
+
+        assert_eq!(counts.ready, 1);
+        assert_eq!(counts.not_ready, 1);
+        assert_eq!(counts.discarded, 1);
+        assert_eq!(counts.committed, 2);
+        assert_eq!(counts.pushed, 1);
+        assert_eq!(counts.pr, 1);
+    }
+
+    #[test]
+    fn tab_navigation_wraps() {
+        let mut app = empty_app();
+
+        app.previous_tab();
+        assert_eq!(app.tab(), DetailTab::Artifacts);
+
+        app.next_tab();
+        assert_eq!(app.tab(), DetailTab::Report);
+    }
+
+    fn empty_app() -> App {
+        App {
+            project: KeelProject::discover(".").expect("test should run inside git repo"),
+            runs: Vec::new(),
+            visible: Vec::new(),
+            selected: 0,
+            run_list_offset: 0,
+            tab: DetailTab::Report,
+            detail: None,
+            message: None,
+            filter: String::new(),
+            filter_mode: false,
+            help_visible: false,
+            report_scroll: 0,
+            diff_scroll: 0,
+            log_scroll: 0,
+            artifact_scroll: 0,
+            report_scroll_max: u16::MAX,
+            diff_scroll_max: u16::MAX,
+            log_scroll_max: u16::MAX,
+            artifact_scroll_max: u16::MAX,
+        }
+    }
+
+    #[test]
+    fn filter_narrows_visible_runs_and_clear_restores_all() {
+        let mut app = empty_app();
+        app.runs = vec![
+            sample_run("a", RunStatus::Ready, false, false, false),
+            sample_run("b", RunStatus::NotReady, false, false, false),
+        ];
+        app.runs[0].task = "fix config parser".to_string();
+        app.runs[1].task = "update readme".to_string();
+        app.rebuild_visible(None);
+
+        app.begin_filter_edit();
+        for ch in "config".chars() {
+            app.push_filter_char(ch);
+        }
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "a");
+
+        app.clear_filter();
+
+        assert_eq!(app.visible_count(), 2);
+        assert_eq!(app.filter(), "");
+    }
+
+    #[test]
+    fn help_overlay_toggles_and_filter_mode_closes_it() {
+        let mut app = empty_app();
+
+        assert!(!app.help_visible());
+
+        app.toggle_help();
+        assert!(app.help_visible());
+
+        app.toggle_help();
+        assert!(!app.help_visible());
+
+        app.toggle_help();
+        app.begin_filter_edit();
+
+        assert!(app.filter_mode());
+        assert!(!app.help_visible());
+    }
+
+    #[test]
+    fn scroll_state_is_per_text_tab() {
+        let mut app = empty_app();
+
+        app.scroll_down(6);
+        assert_eq!(app.scroll_offset(), 6);
+
+        app.next_tab();
+        assert_eq!(app.tab(), DetailTab::Diff);
+        app.scroll_down(10);
+        assert_eq!(app.scroll_offset(), 10);
+
+        app.next_tab();
+        assert_eq!(app.tab(), DetailTab::Log);
+        assert_eq!(app.scroll_offset(), 0);
+        app.scroll_down(4);
+        assert_eq!(app.scroll_offset(), 4);
+
+        app.previous_tab();
+        assert_eq!(app.tab(), DetailTab::Diff);
+        assert_eq!(app.scroll_offset(), 10);
+
+        app.previous_tab();
+        assert_eq!(app.tab(), DetailTab::Report);
+        assert_eq!(app.scroll_offset(), 6);
+
+        app.previous_tab();
+        assert_eq!(app.tab(), DetailTab::Artifacts);
+        assert_eq!(app.scroll_offset(), 0);
+        app.scroll_end();
+        assert_eq!(app.scroll_offset(), u16::MAX);
+    }
+
+    #[test]
+    fn rendered_scroll_bounds_keep_page_up_responsive() {
+        let mut app = empty_app();
+        let mut run = sample_run("run-scrolled", RunStatus::NotReady, false, false, false);
+        run.failure_reason = Some(keel_core::FailureReason::CheckFailed);
+        run.readiness_reason = "failed checks: cargo test".to_string();
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_not_ready_artifacts(run));
+
+        crate::ui::render_to_string(&mut app, 92, 28);
+        app.scroll_down(999);
+        let bottom = app.scroll_offset();
+
+        assert!(bottom < 999);
+
+        app.scroll_up(15);
+
+        assert!(app.scroll_offset() < bottom);
+    }
+
+    #[test]
+    fn report_and_artifact_tabs_keep_independent_scroll_state() {
+        let mut app = empty_app();
+
+        app.scroll_down(3);
+        assert_eq!(app.scroll_offset(), 3);
+
+        app.previous_tab();
+        assert_eq!(app.tab(), DetailTab::Artifacts);
+        assert_eq!(app.scroll_offset(), 0);
+
+        app.scroll_down(7);
+        assert_eq!(app.scroll_offset(), 7);
+
+        app.next_tab();
+        assert_eq!(app.tab(), DetailTab::Report);
+        assert_eq!(app.scroll_offset(), 3);
+    }
+
+    #[test]
+    fn run_list_window_keeps_selected_run_visible() {
+        let mut app = empty_app();
+        app.runs = (0..12)
+            .map(|index| {
+                sample_run(
+                    &format!("run-{index}"),
+                    RunStatus::Ready,
+                    false,
+                    false,
+                    false,
+                )
+            })
+            .collect();
+        app.rebuild_visible(None);
+        app.set_run_list_viewport(4);
+
+        assert_eq!(app.run_list_offset(), 0);
+
+        for _ in 0..7 {
+            app.select_next();
+        }
+        app.set_run_list_viewport(4);
+
+        assert_eq!(app.selected_index(), 7);
+        assert_eq!(app.run_list_offset(), 4);
+
+        let window = app.visible_run_window(4);
+        assert_eq!(window.first().unwrap().1.run_id, "run-4");
+        assert_eq!(window.last().unwrap().1.run_id, "run-7");
+
+        for _ in 0..6 {
+            app.select_previous();
+        }
+        app.set_run_list_viewport(4);
+
+        assert_eq!(app.selected_index(), 1);
+        assert_eq!(app.run_list_offset(), 1);
+    }
+
+    #[test]
+    fn render_snapshot_covers_read_only_review_layout() {
+        let mut app = empty_app();
+        let run = sample_run("run-123", RunStatus::Ready, true, true, false);
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_artifacts(run));
+
+        insta::assert_snapshot!(
+            "tui_read_only_review_layout",
+            crate::ui::render_to_string(&mut app, 120, 32)
+        );
+    }
+
+    #[test]
+    fn render_snapshot_covers_not_ready_failure_summary() {
+        let mut app = empty_app();
+        let mut run = sample_run("run-failed", RunStatus::NotReady, false, false, false);
+        run.failure_reason = Some(keel_core::FailureReason::CheckFailed);
+        run.readiness_reason = "failed checks: cargo test".to_string();
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_not_ready_artifacts(run));
+
+        insta::assert_snapshot!(
+            "tui_not_ready_failure_summary",
+            crate::ui::render_to_string(&mut app, 120, 32)
+        );
+    }
+
+    #[test]
+    fn render_snapshot_covers_narrow_review_layout() {
+        let mut app = empty_app();
+        let mut run = sample_run("run-narrow", RunStatus::NotReady, false, false, false);
+        run.task = "investigate failing narrow terminal review layout".to_string();
+        run.failure_reason = Some(keel_core::FailureReason::CheckFailed);
+        run.readiness_reason = "failed checks: cargo test".to_string();
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_not_ready_artifacts(run));
+
+        insta::assert_snapshot!(
+            "tui_narrow_review_layout",
+            crate::ui::render_to_string(&mut app, 92, 34)
+        );
+    }
+
+    #[test]
+    fn render_snapshot_covers_scrolled_report_summary() {
+        let mut app = empty_app();
+        let mut run = sample_run("run-scrolled", RunStatus::NotReady, false, false, false);
+        run.failure_reason = Some(keel_core::FailureReason::CheckFailed);
+        run.readiness_reason = "failed checks: cargo test".to_string();
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_not_ready_artifacts(run));
+        app.scroll_down(4);
+
+        insta::assert_snapshot!(
+            "tui_scrolled_report_summary",
+            crate::ui::render_to_string(&mut app, 92, 28)
+        );
+    }
+
+    #[test]
+    fn render_snapshot_covers_help_overlay() {
+        let mut app = empty_app();
+        let run = sample_run("run-help", RunStatus::Ready, false, false, false);
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_artifacts(run));
+        app.toggle_help();
+
+        insta::assert_snapshot!(
+            "tui_help_overlay",
+            crate::ui::render_to_string(&mut app, 120, 34)
+        );
+    }
+
+    fn sample_run(
+        run_id: &str,
+        status: RunStatus,
+        committed: bool,
+        pushed: bool,
+        pr_created: bool,
+    ) -> RunMetadata {
+        RunMetadata {
+            run_id: run_id.to_string(),
+            parent_run_id: None,
+            task: "task".to_string(),
+            agent: "noop".to_string(),
+            status,
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            updated_at: "2026-05-01T00:00:00Z".to_string(),
+            started_at: None,
+            finished_at: None,
+            duration_ms: None,
+            worktree_path: format!(".keel/worktrees/{run_id}"),
+            run_dir: format!(".keel/runs/{run_id}"),
+            branch: format!("keel/run/{run_id}"),
+            base_commit: "base".to_string(),
+            agent_command: Vec::new(),
+            exit_code: None,
+            failure_reason: None,
+            readiness_reason: String::new(),
+            warnings: Vec::new(),
+            risk_warnings: Vec::new(),
+            committed,
+            commit_sha: None,
+            commit_message: None,
+            committed_at: None,
+            commit: None,
+            pushed,
+            pushed_at: None,
+            push_remote: None,
+            push_remote_url: None,
+            pushed_branch: None,
+            push: None,
+            pr_created,
+            pr_created_at: None,
+            pr_provider: None,
+            pr_url: None,
+            pr_target_branch: None,
+            pr_source_branch: None,
+            pr: None,
+        }
+    }
+
+    fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
+        let run_dir = PathBuf::from(format!(".keel/runs/{}", metadata.run_id));
+        RunArtifacts {
+            report: ReportInfo {
+                metadata: metadata.clone(),
+                path: run_dir.join("report.md"),
+                summary: "sample summary".to_string(),
+                artifacts: vec![
+                    artifact("Metadata", "metadata.json", true),
+                    artifact("Log", "log.txt", true),
+                    artifact("Diff", "diff.patch", true),
+                    artifact("Checks", "checks.json", true),
+                    artifact("Report", "report.md", true),
+                    artifact("Commit", "commit.json", metadata.committed),
+                    artifact("Push", "push.json", metadata.pushed),
+                    artifact("PR/MR", "pr.json", metadata.pr_created),
+                ],
+                next_actions: vec!["keel diff run-123".to_string()],
+                is_discarded: false,
+            },
+            report_content: Some("# Keel Run Report\n".to_string()),
+            diff: Some(DiffInfo {
+                path: run_dir.join("diff.patch"),
+                content: "diff --git a/file b/file\n+changed\n".to_string(),
+                is_empty: false,
+            }),
+            log: Some(LogInfo {
+                path: run_dir.join("log.txt"),
+                content: "created run run-123\n".to_string(),
+                is_empty: false,
+            }),
+            checks: Some(vec![CheckResult {
+                name: "cargo test".to_string(),
+                command: "cargo test".to_string(),
+                status: CheckStatus::Passed,
+                exit_code: Some(0),
+                stdout: String::new(),
+                stderr: String::new(),
+            }]),
+        }
+    }
+
+    fn sample_not_ready_artifacts(metadata: RunMetadata) -> RunArtifacts {
+        let run_dir = PathBuf::from(format!(".keel/runs/{}", metadata.run_id));
+        RunArtifacts {
+            report: ReportInfo {
+                metadata: metadata.clone(),
+                path: run_dir.join("report.md"),
+                summary: "failed checks: cargo test".to_string(),
+                artifacts: vec![
+                    artifact_for(&metadata.run_id, "Metadata", "metadata.json", true),
+                    artifact_for(&metadata.run_id, "Log", "log.txt", true),
+                    artifact_for(&metadata.run_id, "Diff", "diff.patch", true),
+                    artifact_for(&metadata.run_id, "Checks", "checks.json", true),
+                    artifact_for(&metadata.run_id, "Report", "report.md", true),
+                    artifact_for(&metadata.run_id, "Commit", "commit.json", false),
+                    artifact_for(&metadata.run_id, "Push", "push.json", false),
+                    artifact_for(&metadata.run_id, "PR/MR", "pr.json", false),
+                ],
+                next_actions: vec!["keel log run-failed".to_string()],
+                is_discarded: false,
+            },
+            report_content: Some("# Keel Run Report\n".to_string()),
+            diff: Some(DiffInfo {
+                path: run_dir.join("diff.patch"),
+                content: "diff --git a/file b/file\n+changed\n".to_string(),
+                is_empty: false,
+            }),
+            log: Some(LogInfo {
+                path: run_dir.join("log.txt"),
+                content: "cargo test failed\n".to_string(),
+                is_empty: false,
+            }),
+            checks: Some(vec![
+                CheckResult {
+                    name: "git status".to_string(),
+                    command: "git status --short".to_string(),
+                    status: CheckStatus::Passed,
+                    exit_code: Some(0),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+                CheckResult {
+                    name: "cargo test".to_string(),
+                    command: "cargo test".to_string(),
+                    status: CheckStatus::Failed,
+                    exit_code: Some(101),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+            ]),
+        }
+    }
+
+    fn artifact(label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
+        artifact_for("run-123", label, file, exists)
+    }
+
+    fn artifact_for(run_id: &str, label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
+        ArtifactInfo {
+            label,
+            path: PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
+            exists,
+        }
+    }
+}

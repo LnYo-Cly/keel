@@ -44,6 +44,15 @@ pub struct LogInfo {
     pub is_empty: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct RunArtifacts {
+    pub report: ReportInfo,
+    pub report_content: Option<String>,
+    pub diff: Option<DiffInfo>,
+    pub log: Option<LogInfo>,
+    pub checks: Option<Vec<CheckResult>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {

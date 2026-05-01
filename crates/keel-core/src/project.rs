@@ -15,7 +15,8 @@ use crate::git::{
 };
 use crate::json::{read_json, write_json_pretty};
 use crate::model::{
-    ArtifactInfo, DiffInfo, InitResult, LogInfo, ReportInfo, RunMetadata, RunStatus,
+    ArtifactInfo, CheckResult, DiffInfo, InitResult, LogInfo, ReportInfo, RunArtifacts,
+    RunMetadata, RunStatus,
 };
 use crate::pr::{create_pr, plan_pr, PrOptions, PrPlan, PrResult};
 use crate::push::{push_run, PushOptions, PushResult};
@@ -399,6 +400,25 @@ impl KeelProject {
             path,
             content,
             is_empty,
+        })
+    }
+
+    pub fn run_artifacts(&self, run_id: &str) -> Result<RunArtifacts> {
+        ensure_safe_run_id(run_id)?;
+        self.ensure_initialized()?;
+
+        let report = self.report(run_id)?;
+        let report_content = read_optional_text(&report.path)?;
+        let diff = read_optional_diff(&self.run_dir(run_id).join(DIFF_FILE))?;
+        let log = read_optional_log(&self.run_dir(run_id).join(LOG_FILE))?;
+        let checks = read_optional_checks(&self.run_dir(run_id).join(CHECKS_FILE))?;
+
+        Ok(RunArtifacts {
+            report,
+            report_content,
+            diff,
+            log,
+            checks,
         })
     }
 
@@ -807,6 +827,48 @@ fn parse_created_at_millis(value: &str) -> Option<i128> {
 fn parse_rfc3339_millis(value: &str) -> Option<i128> {
     let parsed = OffsetDateTime::parse(value, &Rfc3339).ok()?;
     Some(parsed.unix_timestamp_nanos() / 1_000_000)
+}
+
+fn read_optional_text(path: &Path) -> Result<Option<String>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))
+        .map(Some)
+}
+
+fn read_optional_diff(path: &Path) -> Result<Option<DiffInfo>> {
+    let Some(content) = read_optional_text(path)? else {
+        return Ok(None);
+    };
+    let is_empty = content.trim().is_empty();
+    Ok(Some(DiffInfo {
+        path: path.to_path_buf(),
+        content,
+        is_empty,
+    }))
+}
+
+fn read_optional_log(path: &Path) -> Result<Option<LogInfo>> {
+    let Some(content) = read_optional_text(path)? else {
+        return Ok(None);
+    };
+    let is_empty = content.trim().is_empty();
+    Ok(Some(LogInfo {
+        path: path.to_path_buf(),
+        content,
+        is_empty,
+    }))
+}
+
+fn read_optional_checks(path: &Path) -> Result<Option<Vec<CheckResult>>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    read_json(path).map(Some)
 }
 
 #[cfg(test)]

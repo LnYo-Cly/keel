@@ -394,6 +394,18 @@ fn init_and_noop_run_create_run_artifacts() {
 }
 
 #[test]
+fn tui_command_is_exposed_as_read_only_review_ui() {
+    Command::cargo_bin("keel")
+        .unwrap()
+        .args(["tui", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Open the read-only terminal review UI",
+        ));
+}
+
+#[test]
 fn status_lists_runs_newest_first_and_filters_review_output() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();

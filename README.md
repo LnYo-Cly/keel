@@ -12,7 +12,9 @@ something to merge automatically.
 ## What Keel Is Not
 
 - Not a coding agent replacement.
-- Not a desktop app, Web UI, or TUI.
+- Not a desktop app or Web UI.
+- Not a TUI-first product; the TUI is a read-only review surface over local
+  artifacts.
 - Not a cloud service.
 - Not an automatic merge or push tool.
 - Not tied to one specific agent or harness.
@@ -28,6 +30,7 @@ keel status
 keel report <run-id>
 keel diff <run-id>
 keel log <run-id>
+keel tui
 keel commit <run-id> --dry-run
 keel commit <run-id>
 keel push <run-id> --dry-run
@@ -50,6 +53,7 @@ keel status --status ready
 keel status --limit 5
 keel status --json
 keel report <run-id> --json
+keel tui
 keel commit <run-id> --json
 keel push <run-id> --json
 keel pr <run-id> --manual --dry-run --provider github --json
@@ -62,6 +66,9 @@ CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 `keel config validate` checks `.keel/config.toml` for presence, parseability,
 and basic value sanity, including risk warning settings. It does not rewrite the
 file.
+
+`keel tui` opens a read-only terminal review UI for browsing runs and artifacts.
+It does not commit, push, discard, create PRs, merge, or modify run history.
 
 ## Supported Agents
 
@@ -88,6 +95,7 @@ on `PATH`.
 - Keel does not auto merge.
 - Keel does not auto push.
 - Keel preserves run history under `.keel/runs/`.
+- The TUI is read-only and renders existing `.keel/runs/<run-id>/` artifacts.
 - A human developer is always the final merge decision maker.
 
 ## Artifacts
@@ -105,6 +113,44 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
+
+## Terminal Review UI
+
+`keel tui` provides a local read-only review view over existing run artifacts.
+It is built with `ratatui` and Crossterm.
+
+```bash
+keel tui
+```
+
+Current TUI behavior:
+
+- Lists runs newest first.
+- Keeps the selected run visible when the run list is longer than the terminal.
+- Shows run position in the list title, for example `Runs (3/12, newest first)`.
+- Shows status counts for ready, not ready, running, discarded, committed,
+  pushed, and PR/MR-created runs.
+- Shows the selected run's report summary, checks, warnings, suggested next
+  actions, diff, log, and artifact paths.
+- Supports `j/k` or arrow keys to move through runs.
+- Supports `Tab` and `Shift+Tab` to switch between Report, Diff, Log, and
+  Artifacts.
+- Supports `/` to filter runs by run id, task, agent, status, branch, warning,
+  commit, push, or PR metadata.
+- Supports `PgUp/PgDn`, `Home`, and `End` for detail scrolling.
+- Shows scroll position in long detail panels, for example `Diff (16-30/120)`.
+- Supports `?` for a read-only help overlay.
+- Supports `r` to refresh and `q`/`Esc`/`Ctrl-C` to quit.
+
+TUI safety boundary:
+
+- Does not execute agents.
+- Does not commit.
+- Does not push.
+- Does not create PRs/MRs.
+- Does not discard.
+- Does not merge.
+- Does not rewrite `.keel/` artifacts.
 
 ## Artifact And JSON Contract
 
@@ -353,13 +399,14 @@ metadata, logs, diff, checks, and report artifacts when possible.
     API calls.
   - `keel pr --provider github`: create a GitHub PR through `gh`.
   - Future provider-backed GitLab/Gitee/Gitea support.
-- v0.6: TUI for reviewing candidate runs.
-  - Planned stack: `ratatui` with the Crossterm backend.
-  - First slice: read-only review UI for runs, reports, diffs, and logs.
+- v0.6: read-only TUI for reviewing candidate runs.
+  - Current stack: `ratatui` with the Crossterm backend.
+  - Current slice: run list, report, diff, log, artifacts, filtering, and
+    diff/log scrolling.
   - Deferred: agent execution controls, commit, push, PR creation, merge, and
     destructive actions.
-  - The TUI should consume existing `keel-core` models instead of duplicating
-    CLI parsing or artifact logic.
+  - The TUI consumes existing `keel-core` models instead of duplicating CLI
+    parsing or artifact logic.
 
 ## Development Smoke Tests
 

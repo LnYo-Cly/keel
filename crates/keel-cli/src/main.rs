@@ -29,6 +29,8 @@ enum Commands {
     },
     /// Initialize local Keel state in the current git repository.
     Init,
+    /// Open the read-only terminal review UI.
+    Tui,
     /// Run a coding task with an agent.
     Run {
         /// Task prompt to pass to the agent.
