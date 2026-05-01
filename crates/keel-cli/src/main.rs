@@ -31,9 +31,15 @@ enum Commands {
     Init,
     /// Open the read-only terminal review UI.
     Tui {
-        /// Start with a run filter applied.
+        /// Start with a fuzzy text filter applied.
         #[arg(long)]
         filter: Option<String>,
+        /// Start with an exact agent filter applied.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Start with an exact run status filter applied.
+        #[arg(long)]
+        status: Option<StatusFilter>,
     },
     /// Run a coding task with an agent.
     Run {
@@ -191,6 +197,16 @@ impl StatusFilter {
                 | (Self::NotReady, RunStatus::NotReady)
                 | (Self::Discarded, RunStatus::Discarded)
         )
+    }
+
+    fn to_run_status(self) -> RunStatus {
+        match self {
+            Self::Created => RunStatus::Created,
+            Self::Running => RunStatus::Running,
+            Self::Ready => RunStatus::Ready,
+            Self::NotReady => RunStatus::NotReady,
+            Self::Discarded => RunStatus::Discarded,
+        }
     }
 }
 

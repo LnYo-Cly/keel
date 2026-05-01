@@ -586,11 +586,10 @@ fn render_lines_panel(
 
 fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let status = app.message().unwrap_or("read-only review mode");
-    let filter = if app.filter().is_empty() {
-        "filter: <none>".to_string()
-    } else {
-        format!("filter: {}", app.filter())
-    };
+    let filter = app
+        .active_filter_label()
+        .map(|label| format!("filter: {label}"))
+        .unwrap_or_else(|| "filter: <none>".to_string());
     let mode = if app.filter_mode() {
         "FILTER"
     } else {
@@ -772,14 +771,14 @@ fn run_list_title(app: &App) -> String {
         .selected_position()
         .map(|(selected, total)| format!("{selected}/{total}"))
         .unwrap_or_else(|| "0/0".to_string());
-    if app.filter().trim().is_empty() {
+    if !app.has_active_filters() {
         format!("Runs ({position}, newest first)")
     } else {
         format!(
             "Runs ({position}, {} of {}, filter: {})",
             app.visible_count(),
             app.total_count(),
-            app.filter()
+            app.active_filter_label().unwrap_or_default()
         )
     }
 }

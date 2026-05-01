@@ -1,6 +1,13 @@
 use anyhow::Result;
 use keel_core::{KeelProject, RunArtifacts, RunMetadata, RunStatus};
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TuiFilters {
+    pub text: String,
+    pub agent: Option<String>,
+    pub status: Option<RunStatus>,
+}
+
 #[derive(Debug)]
 pub struct App {
     project: KeelProject,
@@ -11,7 +18,7 @@ pub struct App {
     tab: DetailTab,
     detail: Option<RunArtifacts>,
     message: Option<String>,
-    filter: String,
+    filters: TuiFilters,
     filter_mode: bool,
     help_visible: bool,
     report_scroll: u16,
@@ -45,10 +52,20 @@ pub struct RunCounts {
 
 impl App {
     pub fn load(project: KeelProject) -> Result<Self> {
-        Self::load_with_filter(project, None)
+        Self::load_with_filters(project, TuiFilters::default())
     }
 
     pub fn load_with_filter(project: KeelProject, filter: Option<String>) -> Result<Self> {
+        Self::load_with_filters(
+            project,
+            TuiFilters {
+                text: filter.unwrap_or_default(),
+                ..TuiFilters::default()
+            },
+        )
+    }
+
+    pub fn load_with_filters(project: KeelProject, filters: TuiFilters) -> Result<Self> {
         let mut app = Self {
             project,
             runs: Vec::new(),
@@ -58,7 +75,7 @@ impl App {
             tab: DetailTab::Report,
             detail: None,
             message: None,
-            filter: filter.unwrap_or_default(),
+            filters,
             filter_mode: false,
             help_visible: false,
             report_scroll: 0,
@@ -162,7 +179,15 @@ impl App {
     }
 
     pub fn filter(&self) -> &str {
-        &self.filter
+        &self.filters.text
+    }
+
+    pub fn active_filter_label(&self) -> Option<String> {
+        self.filters.label()
+    }
+
+    pub fn has_active_filters(&self) -> bool {
+        self.filters.has_active()
     }
 
     pub fn filter_mode(&self) -> bool {
@@ -170,7 +195,7 @@ impl App {
     }
 
     pub fn apply_filter(&mut self, filter: impl Into<String>) {
-        self.filter = filter.into();
+        self.filters.text = filter.into();
         self.filter_mode = false;
         self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
         self.reload_detail();
@@ -204,7 +229,7 @@ impl App {
     }
 
     pub fn clear_filter(&mut self) {
-        self.filter.clear();
+        self.filters.text.clear();
         self.filter_mode = false;
         self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
         self.reload_detail();
@@ -212,14 +237,14 @@ impl App {
     }
 
     pub fn push_filter_char(&mut self, ch: char) {
-        self.filter.push(ch);
+        self.filters.text.push(ch);
         self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
         self.reload_detail();
         self.message = Some(self.filter_message());
     }
 
     pub fn pop_filter_char(&mut self) {
-        self.filter.pop();
+        self.filters.text.pop();
         self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
         self.reload_detail();
         self.message = Some(self.filter_message());
@@ -416,7 +441,19 @@ impl App {
     }
 
     fn run_matches_filter(&self, run: &RunMetadata) -> bool {
-        let filter = self.filter.trim().to_ascii_lowercase();
+        if let Some(agent) = self.filters.agent.as_deref() {
+            if run.agent != agent {
+                return false;
+            }
+        }
+
+        if let Some(status) = self.filters.status.as_ref() {
+            if &run.status != status {
+                return false;
+            }
+        }
+
+        let filter = self.filters.text.trim().to_ascii_lowercase();
         if filter.is_empty() {
             return true;
         }
@@ -472,16 +509,15 @@ impl App {
     }
 
     fn filter_message(&self) -> String {
-        if self.filter.trim().is_empty() {
-            "filter cleared".to_string()
-        } else {
-            format!(
-                "filter: {} ({} of {} runs)",
-                self.filter.trim(),
-                self.visible.len(),
-                self.runs.len()
-            )
-        }
+        let Some(label) = self.filters.label() else {
+            return "filter cleared".to_string();
+        };
+
+        format!(
+            "filter: {label} ({} of {} runs)",
+            self.visible.len(),
+            self.runs.len()
+        )
     }
 
     fn scroll_max(&self) -> u16 {
@@ -491,6 +527,27 @@ impl App {
             DetailTab::Log => self.log_scroll_max,
             DetailTab::Artifacts => self.artifact_scroll_max,
         }
+    }
+}
+
+impl TuiFilters {
+    fn has_active(&self) -> bool {
+        !self.text.trim().is_empty() || self.agent.is_some() || self.status.is_some()
+    }
+
+    fn label(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        let text = self.text.trim();
+        if !text.is_empty() {
+            parts.push(text.to_string());
+        }
+        if let Some(agent) = self.agent.as_deref() {
+            parts.push(format!("agent: {agent}"));
+        }
+        if let Some(status) = self.status.as_ref() {
+            parts.push(format!("status: {status}"));
+        }
+        (!parts.is_empty()).then(|| parts.join(", "))
     }
 }
 
@@ -544,6 +601,10 @@ mod tests {
     }
 
     fn empty_app() -> App {
+        empty_app_with_filters(TuiFilters::default())
+    }
+
+    fn empty_app_with_filters(filters: TuiFilters) -> App {
         App {
             project: KeelProject::discover(".").expect("test should run inside git repo"),
             runs: Vec::new(),
@@ -553,7 +614,7 @@ mod tests {
             tab: DetailTab::Report,
             detail: None,
             message: None,
-            filter: String::new(),
+            filters,
             filter_mode: false,
             help_visible: false,
             report_scroll: 0,
@@ -626,6 +687,71 @@ mod tests {
         assert_eq!(app.filter(), "auth");
         assert_eq!(app.visible_count(), 1);
         assert_eq!(app.selected_run().unwrap().run_id, "run-auth");
+    }
+
+    #[test]
+    fn startup_filters_match_agent_and_status_exactly() {
+        let mut app = empty_app_with_filters(TuiFilters {
+            agent: Some("codex".to_string()),
+            status: Some(RunStatus::Ready),
+            ..TuiFilters::default()
+        });
+        app.runs = vec![
+            sample_run_with_agent("run-noop-ready", "noop", RunStatus::Ready),
+            sample_run_with_agent("run-codex-ready", "codex", RunStatus::Ready),
+            sample_run_with_agent("run-codex-failed", "codex", RunStatus::NotReady),
+        ];
+        app.rebuild_visible(None);
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-codex-ready");
+    }
+
+    #[test]
+    fn startup_filters_combine_with_text_filter() {
+        let mut app = empty_app_with_filters(TuiFilters {
+            text: "auth".to_string(),
+            agent: Some("noop".to_string()),
+            status: Some(RunStatus::Ready),
+        });
+        app.runs = vec![
+            sample_run_with_task("run-auth-ready", "noop", RunStatus::Ready, "fix auth"),
+            sample_run_with_task("run-docs-ready", "noop", RunStatus::Ready, "update docs"),
+            sample_run_with_task("run-auth-codex", "codex", RunStatus::Ready, "fix auth"),
+            sample_run_with_task("run-auth-failed", "noop", RunStatus::NotReady, "fix auth"),
+        ];
+        app.rebuild_visible(None);
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-auth-ready");
+        assert_eq!(
+            app.active_filter_label().unwrap(),
+            "auth, agent: noop, status: ready"
+        );
+    }
+
+    #[test]
+    fn clearing_text_filter_preserves_structured_startup_filters() {
+        let mut app = empty_app_with_filters(TuiFilters {
+            text: "auth".to_string(),
+            agent: Some("noop".to_string()),
+            status: Some(RunStatus::Ready),
+        });
+        app.runs = vec![
+            sample_run_with_task("run-auth-ready", "noop", RunStatus::Ready, "fix auth"),
+            sample_run_with_task("run-docs-ready", "noop", RunStatus::Ready, "update docs"),
+            sample_run_with_task("run-auth-codex", "codex", RunStatus::Ready, "fix auth"),
+        ];
+        app.rebuild_visible(None);
+
+        app.clear_filter();
+
+        assert_eq!(app.filter(), "");
+        assert_eq!(app.visible_count(), 2);
+        assert_eq!(
+            app.active_filter_label().unwrap(),
+            "agent: noop, status: ready"
+        );
     }
 
     #[test]
@@ -827,11 +953,38 @@ mod tests {
         pushed: bool,
         pr_created: bool,
     ) -> RunMetadata {
+        sample_run_with_agent_and_task(
+            run_id, "noop", status, "task", committed, pushed, pr_created,
+        )
+    }
+
+    fn sample_run_with_agent(run_id: &str, agent: &str, status: RunStatus) -> RunMetadata {
+        sample_run_with_agent_and_task(run_id, agent, status, "task", false, false, false)
+    }
+
+    fn sample_run_with_task(
+        run_id: &str,
+        agent: &str,
+        status: RunStatus,
+        task: &str,
+    ) -> RunMetadata {
+        sample_run_with_agent_and_task(run_id, agent, status, task, false, false, false)
+    }
+
+    fn sample_run_with_agent_and_task(
+        run_id: &str,
+        agent: &str,
+        status: RunStatus,
+        task: &str,
+        committed: bool,
+        pushed: bool,
+        pr_created: bool,
+    ) -> RunMetadata {
         RunMetadata {
             run_id: run_id.to_string(),
             parent_run_id: None,
-            task: "task".to_string(),
-            agent: "noop".to_string(),
+            task: task.to_string(),
+            agent: agent.to_string(),
             status,
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),

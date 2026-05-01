@@ -54,6 +54,7 @@ keel status --limit 5
 keel status --json
 keel report <run-id> --json
 keel tui
+keel tui --agent noop --status ready
 keel commit <run-id> --json
 keel push <run-id> --json
 keel pr <run-id> --manual --dry-run --provider github --json
@@ -122,6 +123,9 @@ It is built with `ratatui` and Crossterm.
 ```bash
 keel tui
 keel tui --filter not_ready
+keel tui --agent noop
+keel tui --status not_ready
+keel tui --agent codex --status ready
 ```
 
 The TUI is review-only. Write actions stay in the CLI so the terminal UI cannot
@@ -132,7 +136,8 @@ Current TUI behavior:
 - Lists runs newest first.
 - Keeps the selected run visible when the run list is longer than the terminal.
 - Shows run position in the list title, for example `Runs (3/12, newest first)`.
-- Supports `--filter <text>` at startup to open directly on matching runs.
+- Supports `--filter <text>`, `--agent <agent>`, and `--status <status>` at
+  startup to open directly on matching runs. These filters can be combined.
 - Shows status counts for ready, not ready, running, discarded, committed,
   pushed, and PR/MR-created runs.
 - Shows the selected run's report summary, checks, warnings, suggested next

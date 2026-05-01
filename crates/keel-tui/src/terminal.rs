@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, TuiFilters};
 use crate::ui;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -13,11 +13,21 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 pub fn run_tui(project: KeelProject) -> Result<()> {
-    run_tui_with_filter(project, None)
+    run_tui_with_filters(project, TuiFilters::default())
 }
 
 pub fn run_tui_with_filter(project: KeelProject, filter: Option<String>) -> Result<()> {
-    let mut app = App::load_with_filter(project, filter)?;
+    run_tui_with_filters(
+        project,
+        TuiFilters {
+            text: filter.unwrap_or_default(),
+            ..TuiFilters::default()
+        },
+    )
+}
+
+pub fn run_tui_with_filters(project: KeelProject, filters: TuiFilters) -> Result<()> {
+    let mut app = App::load_with_filters(project, filters)?;
     let mut terminal = setup_terminal()?;
     let result = run_event_loop(&mut terminal, &mut app);
     restore_terminal(&mut terminal)?;

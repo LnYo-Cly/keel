@@ -403,7 +403,9 @@ fn tui_command_is_exposed_as_read_only_review_ui() {
         .stdout(predicate::str::contains(
             "Open the read-only terminal review UI",
         ))
-        .stdout(predicate::str::contains("--filter"));
+        .stdout(predicate::str::contains("--filter"))
+        .stdout(predicate::str::contains("--agent"))
+        .stdout(predicate::str::contains("--status"));
 }
 
 #[test]
