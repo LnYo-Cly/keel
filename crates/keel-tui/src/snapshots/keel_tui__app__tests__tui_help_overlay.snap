@@ -1,6 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
-assertion_line: 788
+assertion_line: 943
 expression: "crate::ui::render_to_string(&mut app, 120, 34)"
 ---
 "Keel                    Ready       Not Ready       Running        Discarded        Committed       Pushed        PR    "
@@ -11,12 +11,12 @@ expression: "crate::ui::render_to_string(&mut app, 120, 34)"
 "┌Runs (1/1, ne┌Help──────────────────────────────────────────────────────────────────────────────────────┐─────────────┐"
 "│Run      Stat│Keel TUI Help                                                                             │             │"
 "│run-help read│                                                                                          │             │"
-"│             │Navigation                                                                                │             │"
-"│             │j / Down      select next run                                                             │─────────────┘"
+"│             │Navigation                                                                                │─────────────┘"
+"│             │j / Down      select next run                                                             │              "
 "│             │k / Up        select previous run                                                         │              "
-"│             │Tab           next detail tab                                                             │              "
-"│             │Shift+Tab     previous detail tab                                                         │──────────────"
-"│             │PgUp / PgDn   scroll the current detail tab                                               │─────────────┐"
+"│             │Tab           next detail tab                                                             │──────────────"
+"│             │Shift+Tab     previous detail tab                                                         │─────────────┐"
+"│             │PgUp / PgDn   scroll the current detail tab                                               │             │"
 "│             │Home / End    jump to top or bottom of the current detail tab                             │             │"
 "│             │                                                                                          │             │"
 "│             │Review                                                                                    │             │"

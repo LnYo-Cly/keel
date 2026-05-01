@@ -12,8 +12,8 @@ use ratatui::Frame;
 
 const RUN_TABLE_WIDTHS: [Constraint; 5] = [
     Constraint::Length(12),
-    Constraint::Length(8),
-    Constraint::Length(8),
+    Constraint::Length(10),
+    Constraint::Length(14),
     Constraint::Min(16),
     Constraint::Length(7),
 ];
@@ -198,7 +198,7 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             Row::new(vec![
                 Cell::from(short_id(&run.run_id)),
                 Cell::from(status_short_label(&run.status)),
-                Cell::from(truncate(&run.agent, 8)),
+                Cell::from(run_review_label(run)),
                 Cell::from(truncate(&run.task, 34)),
                 Cell::from(git_state(run)),
             ])
@@ -208,7 +208,7 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let table = Table::new(rows, RUN_TABLE_WIDTHS)
         .header(
-            Row::new(vec!["Run", "State", "Agent", "Task", "Git"])
+            Row::new(vec!["Run", "State", "Review", "Task", "Git"])
                 .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
         )
         .block(
@@ -244,7 +244,7 @@ fn render_detail(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(4),
             Constraint::Length(3),
             Constraint::Min(8),
         ])
@@ -256,23 +256,25 @@ fn render_detail(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 }
 
 fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
-    let status_color = status_color(&run.status);
+    let state_color = status_color(&run.status);
+    let verdict = review_verdict(run, 0);
     let lines = if area.width < NARROW_WIDTH {
         vec![
             Line::from(vec![
                 Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(status_label(&run.status), Style::default().fg(status_color)),
+                Span::styled(
+                    status_label(&run.status),
+                    Style::default()
+                        .fg(status_color(&run.status))
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("  "),
-                Span::styled(truncate(&run.task, 42), Style::default().fg(theme::TEXT)),
+                Span::raw(truncate(&run.task, 48)),
             ]),
             Line::from(vec![
-                Span::styled("Failure: ", theme::muted()),
-                Span::raw(failure_label(run)),
-            ]),
-            Line::from(vec![
-                Span::styled("Readiness: ", theme::muted()),
-                Span::raw(compact_reason(&run.readiness_reason)),
+                Span::styled("Next: ", theme::muted()),
+                Span::styled(verdict, Style::default().fg(state_color)),
             ]),
         ]
     } else {
@@ -280,21 +282,22 @@ fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
             Line::from(vec![
                 Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(truncate(&run.task, 80), Style::default().fg(theme::TEXT)),
+                Span::styled(
+                    status_label(&run.status),
+                    Style::default()
+                        .fg(state_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("  "),
-                Span::styled(status_label(&run.status), Style::default().fg(status_color)),
+                Span::raw(truncate(&run.task, 80)),
             ]),
             Line::from(vec![
-                Span::styled("Branch: ", theme::muted()),
-                Span::raw(compact_branch(&run.branch)),
-                Span::styled("  Worktree: ", theme::muted()),
-                Span::raw(compact_path(&run.worktree_path)),
-            ]),
-            Line::from(vec![
-                Span::styled("Failure: ", theme::muted()),
+                Span::styled("Next: ", theme::muted()),
+                Span::styled(verdict, Style::default().fg(state_color)),
+                Span::styled("  Failure: ", theme::muted()),
                 Span::raw(failure_label(run)),
-                Span::styled("  Readiness: ", theme::muted()),
-                Span::raw(compact_reason(&run.readiness_reason)),
+                Span::styled("  Branch: ", theme::muted()),
+                Span::raw(compact_branch(&run.branch)),
             ]),
         ]
     };
@@ -1048,8 +1051,25 @@ fn status_short_label(status: &RunStatus) -> &'static str {
         RunStatus::Created => "created",
         RunStatus::Running => "running",
         RunStatus::Ready => "ready",
-        RunStatus::NotReady => "notready",
+        RunStatus::NotReady => "not_ready",
         RunStatus::Discarded => "discard",
+    }
+}
+
+fn run_review_label(run: &RunMetadata) -> String {
+    let risk_count = run.warnings.len() + run.risk_warnings.len();
+    let signal = match run.status {
+        RunStatus::Ready => "review",
+        RunStatus::NotReady => "blocked",
+        RunStatus::Running => "running",
+        RunStatus::Discarded => "discarded",
+        RunStatus::Created => "created",
+    };
+
+    if risk_count == 0 {
+        signal.to_string()
+    } else {
+        format!("{signal} risk:{risk_count}")
     }
 }
 
