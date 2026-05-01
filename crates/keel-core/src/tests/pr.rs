@@ -195,7 +195,10 @@ fn pr_manual_dry_run_builds_github_web_url_with_overrides() {
             PrOptions {
                 manual: true,
                 dry_run: true,
+                draft: true,
                 provider: None,
+                base: Some("release/v1".to_string()),
+                head: None,
                 target: Some("release/v1".to_string()),
                 title: Some("custom title".to_string()),
             },
@@ -297,7 +300,10 @@ fn pr_manual_dry_run_requires_manual_and_dry_run_flags() {
             PrOptions {
                 manual: false,
                 dry_run: true,
+                draft: true,
                 provider: Some(PrProvider::Github),
+                base: None,
+                head: None,
                 target: None,
                 title: None,
             },
@@ -337,8 +343,11 @@ fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
             PrOptions {
                 manual: false,
                 dry_run: true,
+                draft: true,
                 provider: Some(PrProvider::Github),
-                target: Some("main".to_string()),
+                base: Some("main".to_string()),
+                head: None,
+                target: None,
                 title: Some("custom pr title".to_string()),
             },
         )
@@ -390,7 +399,10 @@ fn pr_provider_rejects_unsupported_gitee_creation() {
             PrOptions {
                 manual: false,
                 dry_run: true,
+                draft: true,
                 provider: Some(PrProvider::Gitee),
+                base: None,
+                head: None,
                 target: None,
                 title: None,
             },
@@ -398,5 +410,5 @@ fn pr_provider_rejects_unsupported_gitee_creation() {
         .unwrap_err()
         .to_string();
 
-    assert!(error.contains("provider-backed PR/MR creation for Gitee is not implemented yet"));
+    assert!(error.contains("provider-backed PR/MR creation for Gitee is not implemented in v0.5c"));
 }

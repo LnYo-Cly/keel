@@ -83,8 +83,8 @@ on `PATH`.
   remote.
 - Push is generic Git push, not provider-specific PR/MR creation.
 - `keel pr <run-id> --manual --dry-run` only prints a manual PR/MR plan.
-- `keel pr <run-id> --provider github|gitlab` creates a draft PR/MR through
-  the installed provider CLI after the run has already been pushed.
+- `keel pr <run-id> --provider github` creates a GitHub Pull Request through
+  the installed `gh` CLI after the run has already been pushed.
 - Keel does not auto merge.
 - Keel does not auto push.
 - Keel preserves run history under `.keel/runs/`.
@@ -215,7 +215,7 @@ Manual plan behavior:
   safety notes.
 - JSON output also includes `copyable_summary` for compact handoff text.
 - Does not call GitHub, GitLab, Gitee, or Gitea APIs.
-- Does not call `gh` or `glab`.
+- Does not call provider CLIs.
 - Does not write `pr.json`.
 - Does not merge anything.
 
@@ -226,33 +226,41 @@ The generated web URL is a best-effort browser link:
 - Local bare remotes and unknown self-hosted URLs may not produce a `web_url`;
   pass `--provider` and use the printed manual steps.
 
-Provider-backed mode is available for GitHub and GitLab through their local
-CLIs:
+Provider-backed mode is available for GitHub through the local `gh` CLI:
 
 ```bash
 keel pr <run-id> --provider github --dry-run
 keel pr <run-id> --provider github
-keel pr <run-id> --provider gitlab --dry-run
-keel pr <run-id> --provider gitlab
+keel pr <run-id> --provider github --draft
+keel pr <run-id> --provider github --base main
+keel pr <run-id> --provider github --head owner:feature-branch
 keel pr <run-id> --provider github --json
 ```
 
 Provider-backed behavior:
 
 - Requires the run to be ready, committed, and pushed.
-- Uses `gh pr create --draft` for GitHub.
-- Uses `glab mr create --draft` for GitLab.
+- Uses `gh pr create` for GitHub.
+- Supports `--draft` for creating a Draft PR.
+- Passes generated title/body with `--title` and `--body`.
+- Supports `--base <branch>` for the target branch.
+- Supports `--head <branch>` for the source branch. This is useful for
+  explicit GitHub head refs such as `owner:feature-branch`.
+- Passes `--head` by default using Keel's pushed candidate branch, so the
+  GitHub CLI does not prompt Keel to push or fork from the PR command.
 - Writes `.keel/runs/<run-id>/pr.json` only after successful creation.
 - Updates `metadata.json` and `report.md` with the PR/MR URL.
 - Is idempotent when `pr.json` or PR metadata already exists.
 - Does not call `git push`.
 - Does not call `git merge`.
 - Does not auto merge.
-- Does not support provider-backed Gitee/Gitea creation yet; use manual mode.
+- Does not support provider-backed GitLab, Gitee, or Gitea creation yet; use
+  manual mode for those providers.
 
-Future command shape for additional providers:
+Future command shape for additional provider-backed creation:
 
 ```bash
+keel pr <run-id> --provider gitlab
 keel pr <run-id> --provider gitee
 keel pr <run-id> --provider gitea
 ```
@@ -338,9 +346,8 @@ metadata, logs, diff, checks, and report artifacts when possible.
   - `keel push`: push a candidate branch to any Git remote.
   - `keel pr --manual --dry-run`: print a manual PR/MR plan without provider
     API calls.
-  - `keel pr --provider github|gitlab`: create a draft PR/MR through `gh` or
-    `glab`.
-  - Future provider-backed Gitee/Gitea support.
+  - `keel pr --provider github`: create a GitHub PR through `gh`.
+  - Future provider-backed GitLab/Gitee/Gitea support.
 - v0.6: TUI for reviewing candidate runs.
 
 ## Development Smoke Tests
@@ -351,12 +358,12 @@ Default regression does not require real agent CLIs:
 cargo test --workspace
 ```
 
-Provider-backed PR/MR regression has two evidence levels:
+Provider-backed GitHub PR regression has two evidence levels:
 
-- Default CLI tests use fake `gh` / `glab` shims to verify Keel's command
-  boundary without network access.
-- Real smoke tests are opt-in and must use real provider CLIs, authentication,
-  network access, and a writable test repository.
+- Default CLI tests use a fake `gh` shim to verify Keel's command boundary
+  without network access.
+- Real smoke tests are opt-in and must use the real GitHub CLI,
+  authentication, network access, and a writable test repository.
 
 Run a real GitHub PR smoke with a disposable writable repository:
 
@@ -369,29 +376,14 @@ cargo test -p keel-cli real_github_pr_smoke_is_opt_in -- --nocapture
 powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
   -Provider github \
   -Remote git@github.com:owner/test-repo.git \
-  -Target main \
+  -Base main \
   -CloseRequest
 ```
 
-Run a real GitLab MR smoke with a disposable writable repository:
-
-```bash
-KEEL_REAL_GITLAB_PR_SMOKE=1 \
-KEEL_REAL_GITLAB_REMOTE=git@gitlab.com:owner/test-repo.git \
-KEEL_REAL_GITLAB_TARGET=main \
-cargo test -p keel-cli real_gitlab_pr_smoke_is_opt_in -- --nocapture
-
-powershell -ExecutionPolicy Bypass -File scripts/real-provider-pr-smoke.ps1 \
-  -Provider gitlab \
-  -Remote git@gitlab.com:owner/test-repo.git \
-  -Target main \
-  -CloseRequest
-```
-
-These real smoke tests intentionally create a candidate branch and a draft
-PR/MR on the target provider. Use only disposable test repositories. The
-PowerShell helper leaves the request open by default; pass `-CloseRequest` to
-close the request after verifying `pr.json`.
+These real smoke tests intentionally create a candidate branch and a GitHub
+Pull Request. Use only disposable test repositories. The PowerShell helper
+leaves the request open by default; pass `-CloseRequest` to close the request
+after verifying `pr.json`.
 
 Real Codex smoke tests are opt-in because they depend on local Codex
 installation, authentication, network access, and external model behavior:

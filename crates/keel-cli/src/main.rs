@@ -101,11 +101,20 @@ enum Commands {
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
-        /// Override provider inference. Supported: github, gitlab, gitee, gitea.
+        /// Create a draft PR when using a provider-backed flow.
+        #[arg(long)]
+        draft: bool,
+        /// Override provider inference. Automated creation is GitHub-only; other providers support manual planning.
         #[arg(long, value_parser = parse_pr_provider)]
         provider: Option<PrProvider>,
         /// Target branch for the PR/MR.
         #[arg(long)]
+        base: Option<String>,
+        /// Source branch for the PR/MR. Defaults to the pushed candidate branch.
+        #[arg(long)]
+        head: Option<String>,
+        /// Deprecated alias for --base.
+        #[arg(long, hide = true)]
         target: Option<String>,
         /// Title for the PR/MR.
         #[arg(long)]

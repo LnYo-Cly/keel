@@ -198,6 +198,7 @@ fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
                 .unwrap_or_else(|| format!("keel: {}", metadata.task)),
             url: metadata.pr_url.clone()?,
             created_at: metadata.pr_created_at.clone()?,
+            draft: false,
             dry_run: false,
         })
     })

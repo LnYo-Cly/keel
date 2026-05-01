@@ -96,14 +96,20 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             manual,
             dry_run,
             json,
+            draft,
             provider,
+            base,
+            head,
             target,
             title,
         } => {
             let options = PrOptions {
                 manual,
                 dry_run,
+                draft,
                 provider,
+                base,
+                head,
                 target,
                 title,
             };

@@ -1219,6 +1219,11 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
             run.run_id.as_str(),
             "--provider",
             "github",
+            "--base",
+            "release/v1",
+            "--head",
+            "owner:feature-branch",
+            "--draft",
             "--dry-run",
         ],
         &path_with_git_only(),
@@ -1227,6 +1232,11 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
     .success()
     .stdout(predicate::str::contains("PR/MR provider dry-run plan"))
     .stdout(predicate::str::contains("Would run: gh pr create"))
+    .stdout(predicate::str::contains(
+        "Source branch: owner:feature-branch",
+    ))
+    .stdout(predicate::str::contains("Target branch: release/v1"))
+    .stdout(predicate::str::contains("Draft: yes"))
     .stdout(predicate::str::contains("Keel would not merge anything."));
 
     assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
@@ -1239,6 +1249,8 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
         report_before
     );
 
+    let metadata_json = parse_json_object(&metadata_before);
+    let expected_source_branch = metadata_json["branch"].as_str().unwrap();
     let json = parse_json_object(&run_keel_output_with_path(
         repo.path(),
         [
@@ -1246,6 +1258,7 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
             run.run_id.as_str(),
             "--provider",
             "github",
+            "--draft",
             "--dry-run",
             "--json",
         ],
@@ -1258,7 +1271,53 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
     assert_eq!(json["would_write_artifact"], false);
     assert_eq!(json["would_push"], false);
     assert_eq!(json["would_merge"], false);
+    assert_eq!(json["draft"], true);
     assert_eq!(json["provider_command"][0], "gh");
+    assert_eq!(json["target_branch"], "master");
+    assert_eq!(json["source_branch"], expected_source_branch);
+    assert!(json["provider_command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == "--draft"));
+
+    let custom_json = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            "github",
+            "--base",
+            "release/v1",
+            "--head",
+            "owner:feature-branch",
+            "--title",
+            "custom pr title",
+            "--draft",
+            "--dry-run",
+            "--json",
+        ],
+        &path_with_git_only(),
+        true,
+    ));
+    assert_eq!(custom_json["target_branch"], "release/v1");
+    assert_eq!(custom_json["source_branch"], "owner:feature-branch");
+    assert_eq!(custom_json["title"], "custom pr title");
+    let command = custom_json["provider_command"].as_array().unwrap();
+    assert_eq!(command[5], "--base");
+    assert_eq!(command[6], "release/v1");
+    assert_eq!(command[7], "--head");
+    assert_eq!(command[8], "owner:feature-branch");
+    assert_eq!(command[9], "--title");
+    assert_eq!(command[10], "custom pr title");
+    let body_index = command.iter().position(|arg| arg == "--body").unwrap();
+    assert!(command[body_index + 1]
+        .as_str()
+        .unwrap()
+        .contains("Source branch: `owner:feature-branch`"));
+    assert!(command.iter().any(|arg| arg == "--body"));
+    assert!(command.iter().any(|arg| arg == "--draft"));
 }
 
 #[test]
@@ -1298,7 +1357,7 @@ fn pr_provider_rejects_missing_cli_and_unsupported_provider() {
     .assert()
     .failure()
     .stderr(predicate::str::contains(
-        "provider-backed PR/MR creation for Gitee is not implemented yet",
+        "provider-backed PR/MR creation for Gitee is not implemented in v0.5c",
     ));
 }
 
@@ -1320,7 +1379,7 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
 
     run_keel_with_path(
         repo.path(),
-        ["pr", run.run_id.as_str(), "--provider", "github"],
+        ["pr", run.run_id.as_str(), "--provider", "github", "--draft"],
         &path_with_git_and(bin.path()),
     )
     .assert()
@@ -1336,10 +1395,12 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
     assert_eq!(metadata["pr_created"], true);
     assert_eq!(metadata["pr_provider"], "github");
     assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/42");
+    assert_eq!(metadata["pr"]["draft"], true);
 
     let report = read_run_artifact(&repo, &run.run_id, "report.md");
     assert!(report.contains("## PR/MR"));
     assert!(report.contains("https://github.com/owner/repo/pull/42"));
+    assert!(report.contains("Draft: `yes`"));
 
     let second = run_keel_output_with_path(
         repo.path(),
@@ -1377,7 +1438,7 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
 }
 
 #[test]
-fn pr_provider_gitlab_uses_glab_boundary() {
+fn pr_provider_gitlab_auto_create_is_not_supported_but_manual_plan_works() {
     let repo = create_temp_git_repo();
     git(
         repo.path(),
@@ -1389,28 +1450,38 @@ fn pr_provider_gitlab_uses_glab_boundary() {
         .assert()
         .success();
     mark_run_pushed(&repo, &run.run_id, "git@gitlab.com:owner/repo.git");
-    let bin = tempfile::tempdir().unwrap();
-    create_fake_provider_cli(
-        bin.path(),
-        "glab",
-        "https://gitlab.com/owner/repo/-/merge_requests/7",
-    );
 
-    let json = parse_json_object(&run_keel_output_with_path(
+    run_keel_with_path(
         repo.path(),
         ["pr", run.run_id.as_str(), "--provider", "gitlab", "--json"],
-        &path_with_git_and(bin.path()),
-        true,
+        &path_with_git_only(),
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "provider-backed PR/MR creation for GitLab is not implemented in v0.5c",
     ));
 
-    assert_eq!(json["provider"], "gitlab");
-    assert_eq!(json["request_kind"], "merge_request");
-    assert_eq!(json["provider_command"][0], "glab");
-    assert_eq!(
-        json["url"],
-        "https://gitlab.com/owner/repo/-/merge_requests/7"
-    );
-    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+    let manual = parse_json_object(&run_keel_output(
+        repo.path(),
+        [
+            "pr",
+            run.run_id.as_str(),
+            "--provider",
+            "gitlab",
+            "--manual",
+            "--dry-run",
+            "--json",
+        ],
+    ));
+    assert_eq!(manual["provider"], "gitlab");
+    assert_eq!(manual["request_kind"], "merge_request");
+    assert_eq!(manual["would_create_request"], false);
+    assert!(manual["web_url"]
+        .as_str()
+        .unwrap()
+        .contains("/-/merge_requests/new"));
+    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
 }
 
 #[test]
@@ -1425,21 +1496,6 @@ fn real_github_pr_smoke_is_opt_in() {
         auth_args: &["auth", "status"],
         remote_env: "KEEL_REAL_GITHUB_REMOTE",
         target_env: "KEEL_REAL_GITHUB_TARGET",
-    });
-}
-
-#[test]
-fn real_gitlab_pr_smoke_is_opt_in() {
-    if std::env::var("KEEL_REAL_GITLAB_PR_SMOKE").ok().as_deref() != Some("1") {
-        return;
-    }
-
-    run_real_provider_pr_smoke(RealPrSmokeProvider {
-        provider: "gitlab",
-        cli: "glab",
-        auth_args: &["auth", "status"],
-        remote_env: "KEEL_REAL_GITLAB_REMOTE",
-        target_env: "KEEL_REAL_GITLAB_TARGET",
     });
 }
 
@@ -1592,7 +1648,7 @@ fn run_real_provider_pr_smoke(provider: RealPrSmokeProvider) {
             run.run_id.as_str(),
             "--provider",
             provider.provider,
-            "--target",
+            "--base",
             target.as_str(),
         ],
     )

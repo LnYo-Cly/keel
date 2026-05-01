@@ -4,48 +4,36 @@ use anyhow::{bail, Result};
 use std::path::Path;
 
 pub(super) fn provider_command(plan: &PrPlan) -> Result<Vec<String>> {
-    let repository = repository_selector(&plan.remote_url).ok_or_else(|| {
-        anyhow::anyhow!(
-            "could not derive repository selector from remote `{}`; use manual PR/MR planning for this remote",
-            plan.remote_url
-        )
-    })?;
     match plan.provider {
-        PrProvider::Github => Ok(vec![
-            "gh".to_string(),
-            "pr".to_string(),
-            "create".to_string(),
-            "--repo".to_string(),
-            repository,
-            "--base".to_string(),
-            plan.target_branch.clone(),
-            "--head".to_string(),
-            plan.source_branch.clone(),
-            "--title".to_string(),
-            plan.title.clone(),
-            "--body".to_string(),
-            provider_body_arg(&plan.body),
-            "--draft".to_string(),
-        ]),
-        PrProvider::Gitlab => Ok(vec![
-            "glab".to_string(),
-            "mr".to_string(),
-            "create".to_string(),
-            "--repo".to_string(),
-            repository,
-            "--source-branch".to_string(),
-            plan.source_branch.clone(),
-            "--target-branch".to_string(),
-            plan.target_branch.clone(),
-            "--title".to_string(),
-            plan.title.clone(),
-            "--description".to_string(),
-            provider_body_arg(&plan.body),
-            "--draft".to_string(),
-            "--yes".to_string(),
-        ]),
-        PrProvider::Gitee | PrProvider::Gitea => bail!(
-            "provider-backed PR/MR creation for {} is not implemented yet; use `keel pr <run-id> --manual --dry-run --provider {}`",
+        PrProvider::Github => {
+            let repository = repository_selector(&plan.remote_url).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "could not derive GitHub repository selector from remote `{}`; use manual PR planning for this remote",
+                    plan.remote_url
+                )
+            })?;
+            let mut command = vec![
+                "gh".to_string(),
+                "pr".to_string(),
+                "create".to_string(),
+                "--repo".to_string(),
+                repository,
+                "--base".to_string(),
+                plan.target_branch.clone(),
+                "--head".to_string(),
+                plan.source_branch.clone(),
+                "--title".to_string(),
+                plan.title.clone(),
+                "--body".to_string(),
+                provider_body_arg(&plan.body),
+            ];
+            if plan.draft {
+                command.push("--draft".to_string());
+            }
+            Ok(command)
+        }
+        PrProvider::Gitlab | PrProvider::Gitee | PrProvider::Gitea => bail!(
+            "provider-backed PR/MR creation for {} is not implemented in v0.5c; use `keel pr <run-id> --manual --dry-run --provider {}`",
             plan.provider.display_name(),
             plan.provider
         ),
@@ -74,10 +62,7 @@ pub(super) fn run_provider_command(
     provider_output_url(plan.provider, &capture.stdout)
         .or_else(|| plan.web_url.clone())
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "{} command succeeded but no PR/MR URL was found in stdout",
-                provider_program(plan.provider)
-            )
+            anyhow::anyhow!("gh command succeeded but no GitHub PR URL was found in stdout")
         })
 }
 
@@ -131,15 +116,6 @@ fn repository_selector(remote_url: &str) -> Option<String> {
         Some(path.to_string())
     } else {
         Some(format!("{host}/{path}"))
-    }
-}
-
-fn provider_program(provider: PrProvider) -> &'static str {
-    match provider {
-        PrProvider::Github => "gh",
-        PrProvider::Gitlab => "glab",
-        PrProvider::Gitee => "gitee",
-        PrProvider::Gitea => "gitea",
     }
 }
 

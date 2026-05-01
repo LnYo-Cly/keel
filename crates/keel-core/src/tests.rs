@@ -61,7 +61,10 @@ fn pr_options(provider: Option<PrProvider>) -> PrOptions {
     PrOptions {
         manual: true,
         dry_run: true,
+        draft: false,
         provider,
+        base: None,
+        head: None,
         target: None,
         title: None,
     }

@@ -234,6 +234,11 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
     let target_branch = metadata.pr_target_branch.as_deref().unwrap_or("unknown");
     let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
     let created_at = metadata.pr_created_at.as_deref().unwrap_or("unknown");
+    let draft = metadata
+        .pr
+        .as_ref()
+        .map(|pr| if pr.draft { "yes" } else { "no" })
+        .unwrap_or("unknown");
 
     format!(
         "## PR/MR\n\n\
@@ -242,6 +247,7 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
          - Source branch: `{source_branch}`\n\
          - Target branch: `{target_branch}`\n\
          - Commit: `{commit_sha}`\n\
+         - Draft: `{draft}`\n\
          - Created at: `{created_at}`\n\n\
          ### Next\n\n\
          - Review this request on the provider before merging.\n\

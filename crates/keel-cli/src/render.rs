@@ -224,6 +224,7 @@ pub(crate) fn print_pr_plan(plan: &PrPlan) {
     println!("Target branch: {}", plan.target_branch);
     println!("Commit: {}", plan.commit_sha);
     println!("Title: {}", plan.title);
+    println!("Draft: {}", if plan.draft { "yes" } else { "no" });
     println!("Body:");
     println!("{}", plan.body);
     println!("Manual next steps:");
@@ -264,6 +265,7 @@ pub(crate) fn print_pr_result(result: &PrResult) {
         println!("Target branch: {}", result.target_branch);
         println!("Commit: {}", result.commit_sha);
         println!("Title: {}", result.title);
+        println!("Draft: {}", if result.draft { "yes" } else { "no" });
         println!("Would run: {}", result.provider_command.join(" "));
         println!("Keel would create a PR/MR through the provider CLI.");
         println!("Keel would not write pr.json during dry-run.");
@@ -279,6 +281,7 @@ pub(crate) fn print_pr_result(result: &PrResult) {
     println!("Source branch: {}", result.source_branch);
     println!("Target branch: {}", result.target_branch);
     println!("Commit: {}", result.commit_sha);
+    println!("Draft: {}", if result.draft { "yes" } else { "no" });
     if let Some(pr_path) = &result.pr_path {
         println!("PR/MR artifact: {pr_path}");
     }

@@ -19,7 +19,10 @@ use provider::{provider_command, provider_pr_web_url, repository_web_url, run_pr
 pub struct PrOptions {
     pub manual: bool,
     pub dry_run: bool,
+    pub draft: bool,
     pub provider: Option<PrProvider>,
+    pub base: Option<String>,
+    pub head: Option<String>,
     pub target: Option<String>,
     pub title: Option<String>,
 }
@@ -99,6 +102,7 @@ pub struct PrPlan {
     pub title: String,
     pub body: String,
     pub copyable_summary: String,
+    pub draft: bool,
     pub artifacts: PrArtifactPaths,
     pub manual_steps: Vec<String>,
     pub would_create_request: bool,
@@ -123,6 +127,8 @@ pub struct PrArtifact {
     pub title: String,
     pub url: String,
     pub created_at: String,
+    #[serde(default)]
+    pub draft: bool,
     pub dry_run: bool,
 }
 
@@ -142,6 +148,7 @@ pub struct PrResult {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    pub draft: bool,
     pub manual: bool,
     pub dry_run: bool,
     pub created: bool,
@@ -211,6 +218,7 @@ pub(crate) fn create_pr(
             commit_sha: plan.commit_sha,
             title: plan.title,
             url: plan.web_url,
+            draft: plan.draft,
             manual: false,
             dry_run: true,
             created: false,
@@ -240,6 +248,7 @@ pub(crate) fn create_pr(
         title: plan.title.clone(),
         url: url.clone(),
         created_at: created_at.clone(),
+        draft: plan.draft,
         dry_run: false,
     };
 
@@ -265,6 +274,7 @@ pub(crate) fn create_pr(
         commit_sha: plan.commit_sha,
         title: plan.title,
         url: Some(url),
+        draft: plan.draft,
         manual: false,
         dry_run: false,
         created: true,
@@ -300,11 +310,18 @@ fn build_pr_plan(
         })?,
     };
     let target_branch = options
-        .target
+        .base
         .as_deref()
-        .filter(|target| !target.trim().is_empty())
+        .or(options.target.as_deref())
+        .filter(|branch| !branch.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| default_target_branch(root));
+    let source_branch = options
+        .head
+        .as_deref()
+        .filter(|branch| !branch.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| push.branch.clone());
     let title = options
         .title
         .as_deref()
@@ -312,15 +329,21 @@ fn build_pr_plan(
         .map(str::to_string)
         .unwrap_or_else(|| default_commit_message(metadata));
     let artifacts = artifact_paths(metadata);
-    let body = default_body(metadata, &push, &target_branch, &commit_sha, &artifacts);
-    let copyable_summary = copyable_summary(metadata, &push, &target_branch, &commit_sha);
+    let body = default_body(
+        metadata,
+        &source_branch,
+        &target_branch,
+        &commit_sha,
+        &artifacts,
+    );
+    let copyable_summary = copyable_summary(metadata, &source_branch, &target_branch, &commit_sha);
     let repository_url = repository_web_url(&push.remote_url);
-    let web_url = repository_url
-        .as_deref()
-        .map(|url| provider_pr_web_url(provider, url, &push.branch, &target_branch, &title, &body));
+    let web_url = repository_url.as_deref().map(|url| {
+        provider_pr_web_url(provider, url, &source_branch, &target_branch, &title, &body)
+    });
     let manual_steps = manual_steps(
         provider,
-        &push,
+        &source_branch,
         &target_branch,
         repository_url.as_deref(),
         web_url.as_deref(),
@@ -337,12 +360,13 @@ fn build_pr_plan(
         remote_url: push.remote_url,
         repository_url,
         web_url,
-        source_branch: push.branch,
+        source_branch,
         target_branch,
         commit_sha,
         title,
         body,
         copyable_summary,
+        draft: options.draft,
         artifacts,
         manual_steps,
         would_create_request: !manual,
@@ -501,6 +525,7 @@ fn existing_pr(metadata: &RunMetadata, pr_path: &Path) -> Result<Option<PrArtifa
                     .unwrap_or_else(|| default_commit_message(metadata)),
                 url,
                 created_at,
+                draft: false,
                 dry_run: false,
             }));
         }
@@ -532,6 +557,7 @@ fn already_created_result(
         commit_sha: artifact.commit_sha,
         title: artifact.title,
         url: Some(artifact.url),
+        draft: artifact.draft,
         manual: false,
         dry_run,
         created: true,
@@ -588,7 +614,7 @@ fn artifact_paths(metadata: &RunMetadata) -> PrArtifactPaths {
 
 fn default_body(
     metadata: &RunMetadata,
-    push: &PushArtifact,
+    source_branch: &str,
     target_branch: &str,
     commit_sha: &str,
     artifacts: &PrArtifactPaths,
@@ -631,7 +657,7 @@ fn default_body(
         metadata.run_id,
         metadata.agent,
         markdown_inline(&metadata.task),
-        push.branch,
+        source_branch,
         target_branch,
         commit_sha,
         metadata.status,
@@ -650,7 +676,7 @@ fn default_body(
 
 fn copyable_summary(
     metadata: &RunMetadata,
-    push: &PushArtifact,
+    source_branch: &str,
     target_branch: &str,
     commit_sha: &str,
 ) -> String {
@@ -659,7 +685,7 @@ fn copyable_summary(
         metadata.run_id,
         metadata.agent,
         one_line(&metadata.task),
-        push.branch,
+        source_branch,
         target_branch,
         commit_sha
     )
@@ -696,7 +722,7 @@ fn one_line(value: &str) -> String {
 
 fn manual_steps(
     provider: PrProvider,
-    push: &PushArtifact,
+    source_branch: &str,
     target_branch: &str,
     repository_url: Option<&str>,
     web_url: Option<&str>,
@@ -713,7 +739,7 @@ fn manual_steps(
     }
     instructions.push(format!(
         "Create a {request_label} from `{}` into `{target_branch}`.",
-        push.branch
+        source_branch
     ));
     instructions.push("Keel did not call any provider API.".to_string());
     instructions.push("Keel did not merge anything.".to_string());

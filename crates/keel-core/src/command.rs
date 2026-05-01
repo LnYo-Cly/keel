@@ -255,7 +255,6 @@ fn missing_cli_error(program: &str) -> Option<String> {
         "codex" => "Codex",
         "claude" => "Claude Code",
         "gh" => "GitHub CLI",
-        "glab" => "GitLab CLI",
         "opencode" => "OpenCode",
         _ => return None,
     };

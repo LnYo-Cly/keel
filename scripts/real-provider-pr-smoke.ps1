@@ -1,12 +1,11 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet("github", "gitlab")]
-    [string]$Provider,
+    [ValidateSet("github")]
+    [string]$Provider = "github",
 
     [Parameter(Mandatory = $true)]
     [string]$Remote,
 
-    [string]$Target = "main",
+    [string]$Base = "main",
 
     [switch]$CloseRequest
 )
@@ -76,12 +75,10 @@ function Get-RunId {
     return ($line -replace "^Run created: ", "").Trim()
 }
 
-function Assert-ProviderReady {
-    param([string]$Provider)
-
-    $cli = if ($Provider -eq "github") { "gh" } else { "glab" }
+function Assert-GitHubReady {
+    $cli = "gh"
     if (-not (Get-Command $cli -ErrorAction SilentlyContinue)) {
-        throw "$cli CLI not found; install it and authenticate before running this smoke test"
+        throw "gh CLI not found; install GitHub CLI and authenticate before running this smoke test"
     }
 
     Invoke-Checked -FilePath $cli -Arguments @("auth", "status") | Out-Null
@@ -91,22 +88,15 @@ function Assert-ProviderReady {
 function Close-ProviderRequest {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Provider,
-        [Parameter(Mandatory = $true)]
         [string]$Cli,
         [Parameter(Mandatory = $true)]
         [string]$Url
     )
 
-    if ($Provider -eq "github") {
-        Invoke-Checked -FilePath $Cli -Arguments @("pr", "close", $Url, "--delete-branch=false") | Out-Null
-        return
-    }
-
-    Invoke-Checked -FilePath $Cli -Arguments @("mr", "close", $Url) | Out-Null
+    Invoke-Checked -FilePath $Cli -Arguments @("pr", "close", $Url, "--delete-branch=false") | Out-Null
 }
 
-$cli = Assert-ProviderReady $Provider
+$cli = Assert-GitHubReady
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $isWindows = [System.IO.Path]::DirectorySeparatorChar -eq "\"
 $keelBinary = if ($isWindows) { "keel.exe" } else { "keel" }
@@ -128,7 +118,7 @@ try {
 
     Invoke-Checked -FilePath $keelExe -Arguments @("commit", $runId) -WorkingDirectory $tempRoot | Out-Null
     Invoke-Checked -FilePath $keelExe -Arguments @("push", $runId) -WorkingDirectory $tempRoot | Out-Null
-    $prOutput = Invoke-Checked -FilePath $keelExe -Arguments @("pr", $runId, "--provider", $Provider, "--target", $Target) -WorkingDirectory $tempRoot
+    $prOutput = Invoke-Checked -FilePath $keelExe -Arguments @("pr", $runId, "--provider", "github", "--base", $Base) -WorkingDirectory $tempRoot
 
     $prPath = Join-Path $tempRoot ".keel\runs\$runId\pr.json"
     if (-not (Test-Path -LiteralPath $prPath)) {
@@ -144,7 +134,7 @@ try {
     Write-Output ($prOutput | Out-String).TrimEnd()
 
     if ($CloseRequest) {
-        Close-ProviderRequest -Provider $Provider -Cli $cli -Url $pr.url
+        Close-ProviderRequest -Cli $cli -Url $pr.url
         Write-Output "REAL_PROVIDER_PR_SMOKE_CLOSED provider=$Provider url=$($pr.url)"
     }
 }
