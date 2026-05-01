@@ -156,6 +156,15 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+fn git_file_url(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if normalized.starts_with('/') {
+        format!("file://{normalized}")
+    } else {
+        format!("file:///{normalized}")
+    }
+}
+
 fn assert_required_artifacts(run_dir: &Path) {
     assert!(run_dir.join(METADATA_FILE).exists());
     assert!(run_dir.join(LOG_FILE).exists());

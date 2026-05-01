@@ -123,6 +123,40 @@ fn push_success_writes_artifact_metadata_report_and_pushes_candidate_branch() {
 }
 
 #[test]
+fn push_records_configured_remote_url_when_git_rewrites_push_target() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    let github_remote = "git@github.com:owner/repo.git";
+    let rewrite_key = format!("url.{}.insteadOf", git_file_url(remote.path()));
+    git(temp.path(), &["config", &rewrite_key, github_remote]);
+    git(temp.path(), &["remote", "add", "origin", github_remote]);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("push configured url", "noop").unwrap();
+    let commit = project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let commit_sha = commit.commit_sha.unwrap();
+
+    let result = project.push(&metadata.run_id, push_options(false)).unwrap();
+
+    assert_eq!(result.remote_url, github_remote);
+    assert_eq!(
+        git_stdout(remote.path(), &["rev-parse", &metadata.branch]),
+        commit_sha
+    );
+    let updated = read_metadata(&temp, &metadata.run_id);
+    assert_eq!(updated.push_remote_url.as_deref(), Some(github_remote));
+    assert_eq!(updated.push.as_ref().unwrap().remote_url, github_remote);
+}
+
+#[test]
 fn push_is_idempotent() {
     let temp = git_repo();
     let remote = bare_git_repo();

@@ -195,6 +195,10 @@ fn committed_sha(metadata: &RunMetadata, commit_path: &Path) -> Result<String> {
 }
 
 fn remote_url(root: &Path, remote: &str) -> Result<String> {
+    if let Some(configured_url) = configured_remote_url(root, remote)? {
+        return Ok(configured_url);
+    }
+
     let capture = run_command(
         root,
         "git",
@@ -213,6 +217,28 @@ fn remote_url(root: &Path, remote: &str) -> Result<String> {
         bail!("git remote `{remote}` did not return a URL");
     }
     Ok(url)
+}
+
+fn configured_remote_url(root: &Path, remote: &str) -> Result<Option<String>> {
+    let capture = run_command(
+        root,
+        "git",
+        &[
+            "config".to_string(),
+            "--get".to_string(),
+            format!("remote.{remote}.url"),
+        ],
+    )?;
+    if !capture.status.success() {
+        return Ok(None);
+    }
+
+    let url = capture.stdout.trim().to_string();
+    if url.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(url))
+    }
 }
 
 fn validate_branch_head(root: &Path, branch: &str, commit_sha: &str) -> Result<()> {

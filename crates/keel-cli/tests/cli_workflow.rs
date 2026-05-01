@@ -1440,6 +1440,73 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
 }
 
 #[test]
+fn pr_workflow_runs_noop_commit_real_push_then_github_provider_boundary() {
+    let repo = create_temp_git_repo();
+    let remote = create_bare_git_repo();
+    let github_remote = "git@github.com:owner/repo.git";
+    let rewrite_key = format!("url.{}.insteadOf", git_file_url(remote.path()));
+    git(repo.path(), ["config", rewrite_key.as_str(), github_remote]);
+    git(repo.path(), ["remote", "add", "origin", github_remote]);
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr full workflow task");
+
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
+        .assert()
+        .success();
+
+    let pushed_metadata =
+        parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let branch = pushed_metadata["branch"].as_str().unwrap();
+    let commit_sha = pushed_metadata["commit_sha"].as_str().unwrap();
+    let remote_ref = format!("refs/heads/{branch}");
+    assert_eq!(
+        git_output(remote.path(), ["rev-parse", remote_ref.as_str()]).trim(),
+        commit_sha
+    );
+    assert_eq!(pushed_metadata["push_remote_url"], github_remote);
+    assert!(run_artifact_path(&repo, &run.run_id, "push.json").is_file());
+
+    let bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli(bin.path(), "gh", "https://github.com/owner/repo/pull/123");
+    let pr_json = parse_json_object(&run_keel_output_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github", "--json"],
+        &path_with_git_and(bin.path()),
+        true,
+    ));
+
+    assert_eq!(pr_json["created"], true);
+    assert_eq!(pr_json["already_created"], false);
+    assert_eq!(pr_json["reused_existing"], false);
+    assert_eq!(pr_json["url"], "https://github.com/owner/repo/pull/123");
+    assert_eq!(pr_json["would_push"], false);
+    assert_eq!(pr_json["would_merge"], false);
+    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+
+    let gh_calls = fs::read_to_string(bin.path().join("gh-args.txt")).unwrap();
+    assert!(gh_calls.contains("pr list"));
+    assert!(gh_calls.contains("pr create"));
+    assert!(gh_calls.contains("--repo owner/repo"));
+    assert!(!gh_calls.contains("git push"));
+    assert!(!gh_calls.contains("git merge"));
+
+    let report = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(report["push"]["remote_url"], github_remote);
+    assert_eq!(
+        report["pr"]["url"],
+        "https://github.com/owner/repo/pull/123"
+    );
+    assert_eq!(report["artifacts"]["push"]["exists"], true);
+    assert_eq!(report["artifacts"]["pr"]["exists"], true);
+}
+
+#[test]
 fn pr_provider_github_reuses_existing_open_pr_before_create() {
     let repo = create_temp_git_repo();
     git(
@@ -1972,6 +2039,15 @@ fn git_output<const N: usize>(repo: &Path, args: [&str; N]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn git_file_url(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if normalized.starts_with('/') {
+        format!("file://{normalized}")
+    } else {
+        format!("file:///{normalized}")
+    }
 }
 
 fn command_success(program: &str, args: &[&str], cwd: &Path) -> bool {
