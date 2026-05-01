@@ -962,6 +962,21 @@ mod tests {
     }
 
     #[test]
+    fn render_snapshot_covers_colored_diff_review() {
+        let mut app = empty_app();
+        let run = sample_run("run-diff", RunStatus::Ready, false, false, false);
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_artifacts(run));
+        app.next_tab();
+
+        insta::assert_snapshot!(
+            "tui_colored_diff_review",
+            crate::ui::render_to_string(&mut app, 120, 32)
+        );
+    }
+
+    #[test]
     fn render_snapshot_covers_filtered_empty_state() {
         let mut app = empty_app_with_filters(TuiFilters {
             agent: Some("codex".to_string()),
@@ -1080,7 +1095,17 @@ mod tests {
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
                 path: run_dir.join("diff.patch"),
-                content: "diff --git a/file b/file\n+changed\n".to_string(),
+                content: [
+                    "diff --git a/file b/file",
+                    "index 1111111..2222222 100644",
+                    "--- a/file",
+                    "+++ b/file",
+                    "@@ -1,2 +1,2 @@",
+                    "-old line",
+                    "+new line",
+                    " context",
+                ]
+                .join("\n"),
                 is_empty: false,
             }),
             log: Some(LogInfo {
@@ -1122,7 +1147,17 @@ mod tests {
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
                 path: run_dir.join("diff.patch"),
-                content: "diff --git a/file b/file\n+changed\n".to_string(),
+                content: [
+                    "diff --git a/file b/file",
+                    "index 1111111..2222222 100644",
+                    "--- a/file",
+                    "+++ b/file",
+                    "@@ -1,2 +1,2 @@",
+                    "-old line",
+                    "+new line",
+                    " context",
+                ]
+                .join("\n"),
                 is_empty: false,
             }),
             log: Some(LogInfo {

@@ -370,14 +370,14 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
 
     let constraints = if area.height < 24 {
         vec![
-            Constraint::Length(8),
-            Constraint::Length(6),
+            Constraint::Length(7),
+            Constraint::Length(7),
             Constraint::Length(4),
             Constraint::Min(3),
         ]
     } else {
         vec![
-            Constraint::Length(10),
+            Constraint::Length(8),
             Constraint::Length(8),
             Constraint::Length(6),
             Constraint::Min(5),
@@ -388,40 +388,13 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
         .constraints(constraints)
         .split(area);
 
-    let summary = vec![
-        Line::from(vec![label("Run ID"), Span::raw(metadata.run_id.clone())]),
-        Line::from(vec![
-            label("Status"),
-            Span::raw(metadata.status.to_string()),
-        ]),
-        Line::from(vec![
-            label("Failure"),
-            Span::raw(
-                metadata
-                    .failure_reason
-                    .as_ref()
-                    .map_or_else(|| "none".to_string(), ToString::to_string),
-            ),
-        ]),
-        Line::from(vec![
-            label("Ready"),
-            Span::raw(compact_reason(&metadata.readiness_reason)),
-        ]),
-        Line::from(vec![label("Agent"), Span::raw(metadata.agent.clone())]),
-        Line::from(vec![
-            label("Branch"),
-            Span::raw(compact_branch(&metadata.branch)),
-        ]),
-        Line::from(vec![
-            label("Base"),
-            Span::raw(short_commit(&metadata.base_commit)),
-        ]),
-        Line::from(vec![
-            label("Created"),
-            Span::raw(metadata.created_at.clone()),
-        ]),
-    ];
-    frame.render_widget(section("Run Metadata", summary), chunks[0]);
+    frame.render_widget(
+        section(
+            "Review Focus",
+            review_focus_lines(metadata, detail.checks.as_deref()),
+        ),
+        chunks[0],
+    );
 
     let checks = detail
         .checks
@@ -439,21 +412,7 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
 
 fn render_compact_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let metadata = &detail.report.metadata;
-    let mut lines = vec![
-        Line::from(vec![label("Run ID"), Span::raw(metadata.run_id.clone())]),
-        Line::from(vec![
-            label("Status"),
-            Span::styled(
-                metadata.status.to_string(),
-                Style::default().fg(status_color(&metadata.status)),
-            ),
-        ]),
-        Line::from(vec![label("Failure"), Span::raw(failure_label(metadata))]),
-        Line::from(vec![
-            label("Ready"),
-            Span::raw(compact_reason(&metadata.readiness_reason)),
-        ]),
-    ];
+    let mut lines = review_focus_lines(metadata, detail.checks.as_deref());
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Checks", theme::muted())));
@@ -495,10 +454,121 @@ fn warning_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
     }
 }
 
+fn review_focus_lines(
+    metadata: &RunMetadata,
+    checks: Option<&[CheckResult]>,
+) -> Vec<Line<'static>> {
+    let warning_count = metadata.warnings.len() + metadata.risk_warnings.len();
+    let failed_checks = checks
+        .unwrap_or_default()
+        .iter()
+        .filter(|check| check.status == CheckStatus::Failed)
+        .count();
+    let git = git_state(metadata);
+    let git_label = if git == "-" { "candidate" } else { &git };
+
+    vec![
+        Line::from(vec![
+            Span::styled(
+                status_label(&metadata.status),
+                Style::default()
+                    .fg(status_color(&metadata.status))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                review_verdict(metadata, failed_checks),
+                verdict_style(metadata),
+            ),
+        ]),
+        Line::from(vec![label("Task"), Span::raw(truncate(&metadata.task, 82))]),
+        Line::from(vec![
+            label("Risk"),
+            Span::styled(
+                risk_summary(warning_count),
+                Style::default().fg(if warning_count == 0 {
+                    theme::GREEN
+                } else {
+                    theme::AMBER
+                }),
+            ),
+            Span::styled("  Checks ", theme::muted()),
+            Span::styled(
+                check_summary(checks, failed_checks),
+                Style::default().fg(if failed_checks == 0 {
+                    theme::GREEN
+                } else {
+                    theme::RED
+                }),
+            ),
+            Span::styled("  Git ", theme::muted()),
+            Span::styled(git_label.to_string(), Style::default().fg(theme::CYAN)),
+        ]),
+        Line::from(vec![
+            label("Agent"),
+            Span::raw(metadata.agent.clone()),
+            Span::styled("  Branch ", theme::muted()),
+            Span::raw(compact_branch(&metadata.branch)),
+        ]),
+        Line::from(vec![
+            label("Ready"),
+            Span::raw(compact_reason(&metadata.readiness_reason)),
+        ]),
+        Line::from(vec![
+            label("Run"),
+            Span::raw(metadata.run_id.clone()),
+            Span::styled("  Base ", theme::muted()),
+            Span::raw(short_commit(&metadata.base_commit)),
+        ]),
+    ]
+}
+
+fn review_verdict(metadata: &RunMetadata, failed_checks: usize) -> &'static str {
+    match metadata.status {
+        RunStatus::Ready if failed_checks == 0 => "ready for human review",
+        RunStatus::Ready => "ready, but checks need attention",
+        RunStatus::NotReady => "not ready: inspect checks and logs",
+        RunStatus::Discarded => "discarded candidate",
+        RunStatus::Running => "agent still running",
+        RunStatus::Created => "run created, waiting for execution",
+    }
+}
+
+fn verdict_style(metadata: &RunMetadata) -> Style {
+    Style::default().fg(match metadata.status {
+        RunStatus::Ready => theme::GREEN,
+        RunStatus::NotReady => theme::AMBER,
+        RunStatus::Discarded => theme::RED,
+        RunStatus::Running | RunStatus::Created => theme::BLUE,
+    })
+}
+
+fn risk_summary(count: usize) -> String {
+    match count {
+        0 => "none".to_string(),
+        1 => "1 warning".to_string(),
+        count => format!("{count} warnings"),
+    }
+}
+
+fn check_summary(checks: Option<&[CheckResult]>, failed_checks: usize) -> String {
+    let Some(checks) = checks else {
+        return "missing".to_string();
+    };
+    if checks.is_empty() {
+        return "none recorded".to_string();
+    }
+    if failed_checks == 0 {
+        format!("{} passed", checks.len())
+    } else {
+        format!("{failed_checks}/{} failed", checks.len())
+    }
+}
+
 fn render_diff(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.diff {
         Some(diff) if diff.is_empty => ("Diff", vec![Line::from("diff.patch is empty")]),
-        Some(diff) => ("Diff", text_lines(&diff.content)),
+        Some(diff) => ("Diff", diff_lines(&diff.content)),
         None => ("Diff", vec![Line::from("diff.patch missing")]),
     };
     render_lines_panel(frame, area, title, lines, app);
@@ -1050,6 +1120,42 @@ fn text_lines(value: &str) -> Vec<Line<'static>> {
     }
 }
 
+fn diff_lines(value: &str) -> Vec<Line<'static>> {
+    let lines = value.lines().map(diff_line).collect::<Vec<_>>();
+    if lines.is_empty() {
+        vec![Line::from("(empty)")]
+    } else {
+        lines
+    }
+}
+
+fn diff_line(line: &str) -> Line<'static> {
+    let style = if line.starts_with("diff --git") {
+        Style::default()
+            .fg(theme::CYAN)
+            .add_modifier(Modifier::BOLD)
+    } else if line.starts_with("@@") {
+        Style::default().fg(theme::BLUE)
+    } else if line.starts_with("+++") || line.starts_with("---") {
+        Style::default().fg(theme::MUTED)
+    } else if line.starts_with('+') {
+        Style::default().fg(theme::GREEN)
+    } else if line.starts_with('-') {
+        Style::default().fg(theme::RED)
+    } else if line.starts_with("new file")
+        || line.starts_with("deleted file")
+        || line.starts_with("rename from")
+        || line.starts_with("rename to")
+        || line.starts_with("index ")
+    {
+        Style::default().fg(theme::AMBER)
+    } else {
+        Style::default().fg(theme::TEXT)
+    };
+
+    Line::from(Span::styled(line.to_string(), style))
+}
+
 fn truncate(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let mut out = chars.by_ref().take(max_chars).collect::<String>();
@@ -1089,6 +1195,19 @@ mod tests {
         assert!(rendered.contains("cargo test"));
         assert!(rendered.contains("failed"));
         assert!(rendered.contains("101"));
+    }
+
+    #[test]
+    fn diff_lines_style_git_diff_semantics() {
+        let lines = diff_lines("diff --git a/file b/file\n@@ -1 +1 @@\n-old\n+new\n context");
+
+        let rendered = format!("{:?}", lines);
+
+        assert!(rendered.contains("diff --git"));
+        assert!(rendered.contains("old"));
+        assert!(rendered.contains("new"));
+        assert!(rendered.contains("Rgb(238, 106, 106)"));
+        assert!(rendered.contains("Rgb(119, 214, 140)"));
     }
 
     #[test]

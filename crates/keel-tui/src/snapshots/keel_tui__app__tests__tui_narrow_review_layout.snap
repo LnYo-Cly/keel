@@ -1,6 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
-assertion_line: 756
+assertion_line: 911
 expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 ---
 "Keel  Ready 0  NotReady 1  Running 0  Git c0 p0 pr0                                         "
@@ -21,19 +21,19 @@ expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 " Report │ Diff │ Log │ Artifacts                                                            "
 "                                                                                            "
 "────────────────────────────────────────────────────────────────────────────────────────────"
-"┌Review Summary────────────────────────────────────────────────────────────────────────────┐"
-"│Run ID     run-narrow                                                                     │"
-"│Status     not_ready                                                                      │"
-"│Failure    check_failed                                                                   │"
+"┌Review Summary (1-12/13)──────────────────────────────────────────────────────────────────┐"
+"│not_ready  not ready: inspect checks and logs                                             │"
+"│Task       investigate failing narrow terminal review layout                              │"
+"│Risk       none  Checks 1/2 failed  Git candidate                                         │"
+"│Agent      noop  Branch keel/run/run-narrow                                               │"
 "│Ready      failed checks: cargo test                                                      │"
+"│Run        run-narrow  Base base                                                          │"
 "│                                                                                          │"
 "│Checks                                                                                    │"
 "│✗ cargo test  failed  exit 101                                                            │"
 "│✓ git status  passed  exit 0                                                              │"
 "│                                                                                          │"
 "│Warnings                                                                                  │"
-"│none                                                                                      │"
-"│                                                                                          │"
 "└──────────────────────────────────────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────────────────"
 "j/k Tab / ? PgUp/PgDn r q  REVIEW  filter: <none>                                           "

@@ -1,6 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
-assertion_line: 723
+assertion_line: 878
 expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 ---
 "Keel                    Ready       Not Ready       Running        Discarded        Committed       Pushed        PR    "
@@ -17,18 +17,18 @@ expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 "│                                                   │                                                                   "
 "│                                                   │───────────────────────────────────────────────────────────────────"
 "│                                                   │┌Review Summary───────────────────────────────────────────────────┐"
-"│                                                   ││Run ID     run-123                                               │"
-"│                                                   ││Status     ready                                                 │"
-"│                                                   ││Failure    none                                                  │"
+"│                                                   ││ready  ready for human review                                    │"
+"│                                                   ││Task       task                                                  │"
+"│                                                   ││Risk       none  Checks 1 passed  Git pushed                     │"
+"│                                                   ││Agent      noop  Branch keel/run/run-123                         │"
 "│                                                   ││Ready      n/a                                                   │"
+"│                                                   ││Run        run-123  Base base                                    │"
 "│                                                   ││                                                                 │"
 "│                                                   ││Checks                                                           │"
 "│                                                   ││✓ cargo test  passed  exit 0                                     │"
 "│                                                   ││                                                                 │"
 "│                                                   ││Warnings                                                         │"
 "│                                                   ││none                                                             │"
-"│                                                   ││                                                                 │"
-"│                                                   ││                                                                 │"
 "│                                                   ││                                                                 │"
 "│                                                   ││                                                                 │"
 "│                                                   ││                                                                 │"
