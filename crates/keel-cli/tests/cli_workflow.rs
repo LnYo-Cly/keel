@@ -1396,11 +1396,13 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
     assert_eq!(metadata["pr_provider"], "github");
     assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/42");
     assert_eq!(metadata["pr"]["draft"], true);
+    assert_eq!(metadata["pr"]["reused_existing"], false);
 
     let report = read_run_artifact(&repo, &run.run_id, "report.md");
     assert!(report.contains("## PR/MR"));
     assert!(report.contains("https://github.com/owner/repo/pull/42"));
     assert!(report.contains("Draft: `yes`"));
+    assert!(report.contains("Reused existing: `no`"));
 
     let second = run_keel_output_with_path(
         repo.path(),
@@ -1435,6 +1437,111 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
     ));
     assert_eq!(already_json["already_created"], true);
     assert_eq!(already_json["created"], true);
+}
+
+#[test]
+fn pr_provider_github_reuses_existing_open_pr_before_create() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr existing github task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
+    let bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli_with_existing_pr(
+        bin.path(),
+        "gh",
+        "https://github.com/owner/repo/pull/99",
+        "existing pr title",
+        true,
+    );
+
+    run_keel_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_and(bin.path()),
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Reused existing pull_request"))
+    .stdout(predicate::str::contains(
+        "https://github.com/owner/repo/pull/99",
+    ))
+    .stdout(predicate::str::contains(
+        "Keel did not create a duplicate PR/MR.",
+    ));
+
+    let calls = fs::read_to_string(bin.path().join("gh-calls.txt")).unwrap();
+    assert!(calls.contains("pr list"));
+    assert!(!calls.contains("pr create"));
+
+    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert_eq!(metadata["pr_created"], true);
+    assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/99");
+    assert_eq!(metadata["pr"]["title"], "existing pr title");
+    assert_eq!(metadata["pr"]["draft"], true);
+    assert_eq!(metadata["pr"]["reused_existing"], true);
+
+    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    assert!(report.contains("Reused existing: `yes`"));
+
+    let report_json = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_eq!(report_json["pr"]["reused_existing"], true);
+}
+
+#[test]
+fn pr_provider_github_normalizes_auth_and_permission_errors() {
+    let repo = create_temp_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli pr gh error task");
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
+
+    let auth_bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli_failure(
+        auth_bin.path(),
+        "gh",
+        "You are not logged into any GitHub hosts. Run gh auth login.",
+    );
+    run_keel_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_and(auth_bin.path()),
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("GitHub CLI is not authenticated"));
+
+    let permission_bin = tempfile::tempdir().unwrap();
+    create_fake_provider_cli_failure(
+        permission_bin.path(),
+        "gh",
+        "HTTP 403: Resource not accessible by integration",
+    );
+    run_keel_with_path(
+        repo.path(),
+        ["pr", run.run_id.as_str(), "--provider", "github"],
+        &path_with_git_and(permission_bin.path()),
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "GitHub CLI does not have permission",
+    ));
 }
 
 #[test]
@@ -1955,15 +2062,90 @@ fn create_fake_provider_cli(dir: &Path, name: &str, url: &str) {
     });
     let content = if cfg!(windows) {
         format!(
-            "@echo off\r\necho %* > \"{}\"\r\necho {}\r\nexit /B 0\r\n",
+            "@echo off\r\necho %* >> \"{}\"\r\nif \"%1 %2\"==\"pr list\" (\r\n  echo []\r\n  exit /B 0\r\n)\r\necho {}\r\nexit /B 0\r\n",
             dir.join(format!("{name}-args.txt")).display(),
             url
         )
     } else {
         format!(
-            "#!/bin/sh\necho \"$@\" > '{}'\necho '{}'\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" >> '{}'\nif [ \"$1 $2\" = \"pr list\" ]; then\n  echo '[]'\n  exit 0\nfi\necho '{}'\nexit 0\n",
             dir.join(format!("{name}-args.txt")).display(),
             url
+        )
+    };
+    fs::write(&path, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+    }
+}
+
+fn create_fake_provider_cli_with_existing_pr(
+    dir: &Path,
+    name: &str,
+    url: &str,
+    title: &str,
+    draft: bool,
+) {
+    let path = dir.join(if cfg!(windows) {
+        format!("{name}.cmd")
+    } else {
+        name.to_string()
+    });
+    let calls = dir.join(format!("{name}-calls.txt"));
+    let list_json = serde_json::json!([{
+        "url": url,
+        "title": title,
+        "isDraft": draft,
+    }])
+    .to_string();
+    let content = if cfg!(windows) {
+        format!(
+            "@echo off\r\necho %* >> \"{}\"\r\nif \"%1 %2\"==\"pr list\" (\r\n  echo {}\r\n  exit /B 0\r\n)\r\necho should-not-create\r\nexit /B 0\r\n",
+            calls.display(),
+            list_json
+        )
+    } else {
+        let list_json = serde_json::json!([{
+            "url": url,
+            "title": title,
+            "isDraft": draft,
+        }])
+        .to_string();
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nif [ \"$1 $2\" = \"pr list\" ]; then\n  printf '%s\\n' '{}'\n  exit 0\nfi\necho should-not-create\nexit 0\n",
+            calls.display(),
+            list_json.replace('\'', "'\\''")
+        )
+    };
+    fs::write(&path, content).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+    }
+}
+
+fn create_fake_provider_cli_failure(dir: &Path, name: &str, stderr: &str) {
+    let path = dir.join(if cfg!(windows) {
+        format!("{name}.cmd")
+    } else {
+        name.to_string()
+    });
+    let content = if cfg!(windows) {
+        format!(
+            "@echo off\r\necho {} 1>&2\r\nexit /B 1\r\n",
+            stderr.replace('"', "")
+        )
+    } else {
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' '{}' >&2\nexit 1\n",
+            stderr.replace('\'', "'\\''")
         )
     };
     fs::write(&path, content).unwrap();

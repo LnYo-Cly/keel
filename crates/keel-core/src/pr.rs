@@ -13,6 +13,7 @@ use std::str::FromStr;
 
 mod provider;
 pub use provider::infer_provider;
+use provider::{find_existing_provider_pr, ExistingProviderPr};
 use provider::{provider_command, provider_pr_web_url, repository_web_url, run_provider_command};
 
 #[derive(Debug, Clone)]
@@ -129,6 +130,8 @@ pub struct PrArtifact {
     pub created_at: String,
     #[serde(default)]
     pub draft: bool,
+    #[serde(default)]
+    pub reused_existing: bool,
     pub dry_run: bool,
 }
 
@@ -153,6 +156,7 @@ pub struct PrResult {
     pub dry_run: bool,
     pub created: bool,
     pub already_created: bool,
+    pub reused_existing: bool,
     pub would_create_request: bool,
     pub would_write_artifact: bool,
     pub would_push: bool,
@@ -223,6 +227,7 @@ pub(crate) fn create_pr(
             dry_run: true,
             created: false,
             already_created: false,
+            reused_existing: false,
             would_create_request: true,
             would_write_artifact: false,
             would_push: false,
@@ -230,6 +235,18 @@ pub(crate) fn create_pr(
             pr_path: None,
             provider_command,
         });
+    }
+
+    if let Some(existing) = find_existing_provider_pr(root, &plan)? {
+        let (artifact, result) = reused_existing_result(
+            &plan,
+            existing,
+            &created_at_now(),
+            &pr_path,
+            provider_command,
+        );
+        write_pr_artifact_and_metadata(&pr_path, metadata, &artifact)?;
+        return Ok(result);
     }
 
     let url = run_provider_command(root, &plan, &provider_command)?;
@@ -249,17 +266,11 @@ pub(crate) fn create_pr(
         url: url.clone(),
         created_at: created_at.clone(),
         draft: plan.draft,
+        reused_existing: false,
         dry_run: false,
     };
 
-    crate::json::write_json_pretty(&pr_path, &artifact)?;
-    metadata.pr_created = true;
-    metadata.pr_created_at = Some(created_at);
-    metadata.pr_provider = Some(plan.provider.to_string());
-    metadata.pr_url = Some(url.clone());
-    metadata.pr_target_branch = Some(plan.target_branch.clone());
-    metadata.pr_source_branch = Some(plan.source_branch.clone());
-    metadata.pr = Some(artifact);
+    write_pr_artifact_and_metadata(&pr_path, metadata, &artifact)?;
 
     Ok(PrResult {
         run_id: plan.run_id,
@@ -279,6 +290,7 @@ pub(crate) fn create_pr(
         dry_run: false,
         created: true,
         already_created: false,
+        reused_existing: false,
         would_create_request: false,
         would_write_artifact: false,
         would_push: false,
@@ -526,6 +538,7 @@ fn existing_pr(metadata: &RunMetadata, pr_path: &Path) -> Result<Option<PrArtifa
                 url,
                 created_at,
                 draft: false,
+                reused_existing: false,
                 dry_run: false,
             }));
         }
@@ -562,6 +575,7 @@ fn already_created_result(
         dry_run,
         created: true,
         already_created: true,
+        reused_existing: false,
         would_create_request: false,
         would_write_artifact: false,
         would_push: false,
@@ -569,6 +583,81 @@ fn already_created_result(
         pr_path: Some(pr_path.display().to_string()),
         provider_command: provider_command(plan).unwrap_or_default(),
     }
+}
+
+fn reused_existing_result(
+    plan: &PrPlan,
+    existing: ExistingProviderPr,
+    created_at: &str,
+    pr_path: &Path,
+    provider_command: Vec<String>,
+) -> (PrArtifact, PrResult) {
+    let title = existing.title.unwrap_or_else(|| plan.title.clone());
+    let artifact = PrArtifact {
+        run_id: plan.run_id.clone(),
+        provider: plan.provider,
+        provider_name: plan.provider_name.to_string(),
+        request_kind: plan.request_kind.to_string(),
+        remote: plan.remote.clone(),
+        remote_url: plan.remote_url.clone(),
+        repository_url: plan.repository_url.clone(),
+        source_branch: plan.source_branch.clone(),
+        target_branch: plan.target_branch.clone(),
+        commit_sha: plan.commit_sha.clone(),
+        title: title.clone(),
+        url: existing.url.clone(),
+        created_at: created_at.to_string(),
+        draft: existing.draft,
+        reused_existing: true,
+        dry_run: false,
+    };
+    let result = PrResult {
+        run_id: plan.run_id.clone(),
+        provider: plan.provider,
+        provider_name: plan.provider_name,
+        request_kind: plan.request_kind,
+        remote: plan.remote.clone(),
+        remote_url: plan.remote_url.clone(),
+        repository_url: plan.repository_url.clone(),
+        source_branch: plan.source_branch.clone(),
+        target_branch: plan.target_branch.clone(),
+        commit_sha: plan.commit_sha.clone(),
+        title,
+        url: Some(existing.url),
+        draft: existing.draft,
+        manual: false,
+        dry_run: false,
+        created: true,
+        already_created: false,
+        reused_existing: true,
+        would_create_request: false,
+        would_write_artifact: true,
+        would_push: false,
+        would_merge: false,
+        pr_path: Some(pr_path.display().to_string()),
+        provider_command,
+    };
+    (artifact, result)
+}
+
+fn write_pr_artifact_and_metadata(
+    pr_path: &Path,
+    metadata: &mut RunMetadata,
+    artifact: &PrArtifact,
+) -> Result<()> {
+    crate::json::write_json_pretty(pr_path, artifact)?;
+    metadata.pr_created = true;
+    metadata.pr_created_at = Some(artifact.created_at.clone());
+    metadata.pr_provider = Some(artifact.provider.to_string());
+    metadata.pr_url = Some(artifact.url.clone());
+    metadata.pr_target_branch = Some(artifact.target_branch.clone());
+    metadata.pr_source_branch = Some(artifact.source_branch.clone());
+    metadata.pr = Some(artifact.clone());
+    Ok(())
+}
+
+fn created_at_now() -> String {
+    now_timestamp()
 }
 
 fn default_target_branch(root: &Path) -> String {

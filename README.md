@@ -241,6 +241,9 @@ Provider-backed behavior:
 
 - Requires the run to be ready, committed, and pushed.
 - Uses `gh pr create` for GitHub.
+- Checks for an existing open GitHub PR with the same head/base before
+  creating a new one. If one exists, Keel reuses it, writes `pr.json`, and does
+  not create a duplicate request.
 - Supports `--draft` for creating a Draft PR.
 - Passes generated title/body with `--title` and `--body`.
 - Supports `--base <branch>` for the target branch.
@@ -251,6 +254,8 @@ Provider-backed behavior:
 - Writes `.keel/runs/<run-id>/pr.json` only after successful creation.
 - Updates `metadata.json` and `report.md` with the PR/MR URL.
 - Is idempotent when `pr.json` or PR metadata already exists.
+- Normalizes common `gh` authentication, permission, and inaccessible
+  repository errors into clearer CLI messages.
 - Does not call `git push`.
 - Does not call `git merge`.
 - Does not auto merge.

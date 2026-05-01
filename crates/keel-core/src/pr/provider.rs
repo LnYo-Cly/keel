@@ -1,7 +1,15 @@
 use super::{PrPlan, PrProvider};
 use crate::command::{format_command, run_command};
 use anyhow::{bail, Result};
+use serde::Deserialize;
 use std::path::Path;
+
+#[derive(Debug, Clone)]
+pub(super) struct ExistingProviderPr {
+    pub url: String,
+    pub title: Option<String>,
+    pub draft: bool,
+}
 
 pub(super) fn provider_command(plan: &PrPlan) -> Result<Vec<String>> {
     match plan.provider {
@@ -51,11 +59,14 @@ pub(super) fn run_provider_command(
     let capture = run_command(root, program, args)?;
     if !capture.status.success() {
         bail!(
-            "failed to create {} with `{}`\nstdout:\n{}\nstderr:\n{}",
-            request_label(plan.provider),
-            format_command(program, args),
-            capture.stdout.trim(),
-            capture.stderr.trim()
+            "{}",
+            format_provider_failure(
+                plan.provider,
+                "create",
+                command,
+                &capture.stdout,
+                &capture.stderr
+            )
         );
     }
 
@@ -64,6 +75,98 @@ pub(super) fn run_provider_command(
         .ok_or_else(|| {
             anyhow::anyhow!("gh command succeeded but no GitHub PR URL was found in stdout")
         })
+}
+
+pub(super) fn find_existing_provider_pr(
+    root: &Path,
+    plan: &PrPlan,
+) -> Result<Option<ExistingProviderPr>> {
+    if plan.provider != PrProvider::Github {
+        return Ok(None);
+    }
+
+    let command = existing_provider_pr_command(plan)?;
+    let (program, args) = command
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("provider command is empty"))?;
+    let capture = run_command(root, program, args)?;
+    if !capture.status.success() {
+        bail!(
+            "{}",
+            format_provider_failure(
+                plan.provider,
+                "inspect existing",
+                &command,
+                &capture.stdout,
+                &capture.stderr
+            )
+        );
+    }
+
+    Ok(parse_existing_provider_prs(&capture.stdout)?
+        .into_iter()
+        .next())
+}
+
+fn existing_provider_pr_command(plan: &PrPlan) -> Result<Vec<String>> {
+    let repository = repository_selector(&plan.remote_url).ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not derive GitHub repository selector from remote `{}`; use manual PR planning for this remote",
+            plan.remote_url
+        )
+    })?;
+
+    Ok(vec![
+        "gh".to_string(),
+        "pr".to_string(),
+        "list".to_string(),
+        "--repo".to_string(),
+        repository,
+        "--head".to_string(),
+        plan.source_branch.clone(),
+        "--base".to_string(),
+        plan.target_branch.clone(),
+        "--state".to_string(),
+        "open".to_string(),
+        "--json".to_string(),
+        "url,title,isDraft".to_string(),
+        "--limit".to_string(),
+        "1".to_string(),
+    ])
+}
+
+fn parse_existing_provider_prs(output: &str) -> Result<Vec<ExistingProviderPr>> {
+    let items: Vec<GithubPrListItem> = serde_json::from_str(output.trim()).map_err(|error| {
+        anyhow::anyhow!(
+            "gh command succeeded but existing GitHub PR JSON could not be parsed: {error}"
+        )
+    })?;
+
+    Ok(items
+        .into_iter()
+        .filter_map(|item| {
+            let url = item.url?.trim().to_string();
+            if url.is_empty() {
+                return None;
+            }
+            Some(ExistingProviderPr {
+                url,
+                title: item
+                    .title
+                    .map(|title| title.trim().to_string())
+                    .filter(|title| !title.is_empty()),
+                draft: item.is_draft,
+            })
+        })
+        .collect())
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubPrListItem {
+    url: Option<String>,
+    title: Option<String>,
+    #[serde(default, rename = "isDraft")]
+    is_draft: bool,
 }
 
 fn provider_output_url(provider: PrProvider, output: &str) -> Option<String> {
@@ -124,6 +227,72 @@ fn request_label(provider: PrProvider) -> &'static str {
         PrProvider::Gitlab => "Merge Request",
         PrProvider::Github | PrProvider::Gitee | PrProvider::Gitea => "Pull Request",
     }
+}
+
+fn format_provider_failure(
+    provider: PrProvider,
+    action: &str,
+    command: &[String],
+    stdout: &str,
+    stderr: &str,
+) -> String {
+    let command_text = format_provider_command(command);
+    let combined = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+    let hint = if is_auth_failure(&combined) {
+        Some("GitHub CLI is not authenticated; run `gh auth login` or set a valid GITHUB_TOKEN.")
+    } else if is_permission_failure(&combined) {
+        Some("GitHub CLI does not have permission to create or inspect this Pull Request; verify repository access and token scopes.")
+    } else if is_not_found_failure(&combined) {
+        Some("GitHub repository was not found or is inaccessible; verify the pushed remote and repository permissions.")
+    } else {
+        None
+    };
+
+    let mut message = format!(
+        "failed to {action} {} with `{command_text}`",
+        request_label(provider)
+    );
+    if let Some(hint) = hint {
+        message.push('\n');
+        message.push_str(hint);
+    }
+    message.push_str("\nstdout:\n");
+    message.push_str(stdout.trim());
+    message.push_str("\nstderr:\n");
+    message.push_str(stderr.trim());
+    message
+}
+
+fn format_provider_command(command: &[String]) -> String {
+    command
+        .split_first()
+        .map(|(program, args)| format_command(program, args))
+        .unwrap_or_else(|| "<empty provider command>".to_string())
+}
+
+fn is_auth_failure(value: &str) -> bool {
+    value.contains("not logged in")
+        || value.contains("not authenticated")
+        || value.contains("authentication required")
+        || value.contains("gh auth login")
+        || value.contains("bad credentials")
+        || value.contains("requires authentication")
+}
+
+fn is_permission_failure(value: &str) -> bool {
+    value.contains("http 403")
+        || value.contains("resource not accessible")
+        || value.contains("insufficient")
+        || value.contains("forbidden")
+        || value.contains("not authorized")
+        || value.contains("permission")
+}
+
+fn is_not_found_failure(value: &str) -> bool {
+    value.contains("http 404")
+        || value.contains("could not resolve to a repository")
+        || value.contains("repository not found")
+        || value.contains("not found")
 }
 
 fn provider_body_arg(body: &str) -> String {
@@ -339,6 +508,52 @@ mod tests {
             .as_deref(),
             Some("https://gitlab.com/owner/repo/-/merge_requests/7")
         );
+    }
+
+    #[test]
+    fn parses_existing_github_pr_list_output() {
+        let existing = parse_existing_provider_prs(
+            r#"[{"url":"https://github.com/owner/repo/pull/99","title":"existing","isDraft":true}]"#,
+        )
+        .unwrap();
+
+        assert_eq!(existing.len(), 1);
+        assert_eq!(existing[0].url, "https://github.com/owner/repo/pull/99");
+        assert_eq!(existing[0].title.as_deref(), Some("existing"));
+        assert!(existing[0].draft);
+        assert!(parse_existing_provider_prs("[]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn formats_common_gh_failures_with_actionable_hints() {
+        let command = vec!["gh".to_string(), "pr".to_string(), "create".to_string()];
+
+        let auth = format_provider_failure(
+            PrProvider::Github,
+            "create",
+            &command,
+            "",
+            "You are not logged into any GitHub hosts",
+        );
+        assert!(auth.contains("GitHub CLI is not authenticated"));
+
+        let permission = format_provider_failure(
+            PrProvider::Github,
+            "create",
+            &command,
+            "",
+            "HTTP 403: Resource not accessible by integration",
+        );
+        assert!(permission.contains("does not have permission"));
+
+        let not_found = format_provider_failure(
+            PrProvider::Github,
+            "create",
+            &command,
+            "",
+            "HTTP 404: Repository not found",
+        );
+        assert!(not_found.contains("repository was not found or is inaccessible"));
     }
 
     #[test]

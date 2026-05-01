@@ -93,6 +93,9 @@ pub(crate) fn print_report(report: ReportInfo) {
         println!("- Source branch: {}", pr.source_branch);
         println!("- Target branch: {}", pr.target_branch);
         println!("- Created at: {}", pr.created_at);
+        if pr.reused_existing {
+            println!("- Reused existing: yes");
+        }
     } else if report.metadata.pr_created {
         println!("PR/MR:");
         println!(
@@ -245,6 +248,27 @@ pub(crate) fn print_pr_result(result: &PrResult) {
         println!("Provider: {}", result.provider_name);
         println!("Source branch: {}", result.source_branch);
         println!("Target branch: {}", result.target_branch);
+        return;
+    }
+
+    if result.reused_existing {
+        println!(
+            "Reused existing {} for run {}",
+            result.request_kind, result.run_id
+        );
+        println!("Provider: {}", result.provider_name);
+        if let Some(url) = &result.url {
+            println!("URL: {url}");
+        }
+        println!("Source branch: {}", result.source_branch);
+        println!("Target branch: {}", result.target_branch);
+        println!("Commit: {}", result.commit_sha);
+        println!("Draft: {}", if result.draft { "yes" } else { "no" });
+        if let Some(pr_path) = &result.pr_path {
+            println!("PR/MR artifact: {pr_path}");
+        }
+        println!("Keel did not create a duplicate PR/MR.");
+        println!("Keel did not merge anything.");
         return;
     }
 

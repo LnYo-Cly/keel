@@ -239,6 +239,11 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
         .as_ref()
         .map(|pr| if pr.draft { "yes" } else { "no" })
         .unwrap_or("unknown");
+    let reused_existing = metadata
+        .pr
+        .as_ref()
+        .map(|pr| if pr.reused_existing { "yes" } else { "no" })
+        .unwrap_or("unknown");
 
     format!(
         "## PR/MR\n\n\
@@ -248,6 +253,7 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
          - Target branch: `{target_branch}`\n\
          - Commit: `{commit_sha}`\n\
          - Draft: `{draft}`\n\
+         - Reused existing: `{reused_existing}`\n\
          - Created at: `{created_at}`\n\n\
          ### Next\n\n\
          - Review this request on the provider before merging.\n\

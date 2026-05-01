@@ -199,6 +199,7 @@ fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
             url: metadata.pr_url.clone()?,
             created_at: metadata.pr_created_at.clone()?,
             draft: false,
+            reused_existing: false,
             dry_run: false,
         })
     })
