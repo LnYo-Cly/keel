@@ -946,6 +946,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn render_snapshot_covers_artifact_groups() {
+        let mut app = empty_app();
+        let run = sample_run("run-123", RunStatus::Ready, true, false, false);
+        app.runs = vec![run.clone()];
+        app.rebuild_visible(None);
+        app.detail = Some(sample_artifacts(run));
+        app.previous_tab();
+
+        insta::assert_snapshot!(
+            "tui_artifact_groups",
+            crate::ui::render_to_string(&mut app, 120, 32)
+        );
+    }
+
+    #[test]
+    fn render_snapshot_covers_filtered_empty_state() {
+        let mut app = empty_app_with_filters(TuiFilters {
+            agent: Some("codex".to_string()),
+            status: Some(RunStatus::Ready),
+            ..TuiFilters::default()
+        });
+        app.runs = vec![sample_run_with_agent(
+            "run-filtered",
+            "noop",
+            RunStatus::NotReady,
+        )];
+        app.rebuild_visible(None);
+
+        insta::assert_snapshot!(
+            "tui_filtered_empty_state",
+            crate::ui::render_to_string(&mut app, 120, 26)
+        );
+    }
+
     fn sample_run(
         run_id: &str,
         status: RunStatus,

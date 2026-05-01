@@ -1,7 +1,8 @@
 use crate::app::{App, DetailTab};
 use crate::theme;
 use keel_core::{
-    CheckResult, CheckStatus, RiskWarning, RiskWarningKind, RunArtifacts, RunMetadata, RunStatus,
+    ArtifactInfo, CheckResult, CheckStatus, RiskWarning, RiskWarningKind, RunArtifacts,
+    RunMetadata, RunStatus,
 };
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -221,15 +222,16 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     frame.render_widget(table, area);
 
     if app.visible_count() == 0 {
-        render_empty(
-            frame,
-            area,
-            if app.total_count() == 0 {
-                "No runs found. Run `keel run \"task\" --agent noop` first."
-            } else {
-                "No runs match the current filter."
-            },
-        );
+        let message = if app.total_count() == 0 {
+            "No runs found. Run `keel run \"task\" --agent noop` first.".to_string()
+        } else {
+            format!(
+                "No runs match filter: {}",
+                app.active_filter_label()
+                    .unwrap_or_else(|| "<unknown>".to_string())
+            )
+        };
+        render_empty(frame, area, &message);
     }
 }
 
@@ -512,32 +514,54 @@ fn render_log(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area:
 }
 
 fn render_artifacts(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
-    let lines = detail
-        .report
-        .artifacts
-        .iter()
-        .map(|artifact| {
-            let state = if artifact.exists {
-                "present"
-            } else {
-                "missing"
-            };
-            let state_style = if artifact.exists {
-                Style::default().fg(theme::GREEN)
-            } else {
-                Style::default().fg(theme::RED)
-            };
-            Line::from(vec![
-                Span::styled(
-                    format!("{:<10}", artifact.label),
-                    Style::default().fg(theme::CYAN),
-                ),
-                Span::styled(format!("{:<8}", state), state_style),
-                Span::raw(compact_path(&artifact.path.display().to_string())),
-            ])
-        })
-        .collect::<Vec<_>>();
+    let artifacts = detail.report.artifacts.iter().collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![Span::styled(
+        "Review artifacts",
+        theme::muted(),
+    )]));
+    lines.extend(
+        artifacts
+            .iter()
+            .filter(|artifact| is_required_artifact(artifact.label))
+            .map(|artifact| artifact_line(artifact)),
+    );
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "Git artifacts",
+        theme::muted(),
+    )]));
+    lines.extend(
+        artifacts
+            .iter()
+            .filter(|artifact| !is_required_artifact(artifact.label))
+            .map(|artifact| artifact_line(artifact)),
+    );
+
     render_lines_panel(frame, area, "Artifacts", lines, app);
+}
+
+fn artifact_line(artifact: &ArtifactInfo) -> Line<'static> {
+    let required = is_required_artifact(artifact.label);
+    let (state, color) = match (artifact.exists, required) {
+        (true, _) => ("present", theme::GREEN),
+        (false, true) => ("missing", theme::RED),
+        (false, false) => ("not yet", theme::MUTED),
+    };
+
+    Line::from(vec![
+        Span::styled(
+            format!("{:<10}", artifact.label),
+            Style::default().fg(theme::CYAN),
+        ),
+        Span::styled(format!("{state:<8}"), Style::default().fg(color)),
+        Span::raw(compact_path(&artifact.path.display().to_string())),
+    ])
+}
+
+fn is_required_artifact(label: &str) -> bool {
+    matches!(label, "Metadata" | "Log" | "Diff" | "Checks" | "Report")
 }
 
 fn render_lines_panel(
@@ -794,6 +818,7 @@ fn scroll_title(title: &str, start: usize, visible_height: usize, content_len: u
 }
 
 fn render_empty(frame: &mut Frame<'_>, area: Rect, message: &str) {
+    frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(message)
             .alignment(Alignment::Center)
