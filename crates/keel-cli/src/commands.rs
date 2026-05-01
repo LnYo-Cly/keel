@@ -40,8 +40,8 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             println!("Config: {}", result.config_path.display());
             println!("Runs: {}", result.runs_dir.display());
         }
-        Commands::Tui => {
-            keel_tui::run_tui(project)?;
+        Commands::Tui { filter } => {
+            keel_tui::run_tui_with_filter(project, filter)?;
         }
         Commands::Run { task, agent } => {
             let metadata = project.run(&task, &agent)?;

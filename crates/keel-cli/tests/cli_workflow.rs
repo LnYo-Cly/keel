@@ -402,7 +402,8 @@ fn tui_command_is_exposed_as_read_only_review_ui() {
         .success()
         .stdout(predicate::str::contains(
             "Open the read-only terminal review UI",
-        ));
+        ))
+        .stdout(predicate::str::contains("--filter"));
 }
 
 #[test]

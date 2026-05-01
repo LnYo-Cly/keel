@@ -45,6 +45,10 @@ pub struct RunCounts {
 
 impl App {
     pub fn load(project: KeelProject) -> Result<Self> {
+        Self::load_with_filter(project, None)
+    }
+
+    pub fn load_with_filter(project: KeelProject, filter: Option<String>) -> Result<Self> {
         let mut app = Self {
             project,
             runs: Vec::new(),
@@ -54,7 +58,7 @@ impl App {
             tab: DetailTab::Report,
             detail: None,
             message: None,
-            filter: String::new(),
+            filter: filter.unwrap_or_default(),
             filter_mode: false,
             help_visible: false,
             report_scroll: 0,
@@ -163,6 +167,14 @@ impl App {
 
     pub fn filter_mode(&self) -> bool {
         self.filter_mode
+    }
+
+    pub fn apply_filter(&mut self, filter: impl Into<String>) {
+        self.filter = filter.into();
+        self.filter_mode = false;
+        self.rebuild_visible(self.selected_run().map(|run| run.run_id.clone()));
+        self.reload_detail();
+        self.message = Some(self.filter_message());
     }
 
     pub fn help_visible(&self) -> bool {
@@ -597,6 +609,23 @@ mod tests {
 
         assert!(app.filter_mode());
         assert!(!app.help_visible());
+    }
+
+    #[test]
+    fn initial_filter_uses_existing_filter_matching() {
+        let mut app = empty_app();
+        app.runs = vec![
+            sample_run("run-auth", RunStatus::Ready, false, false, false),
+            sample_run("run-docs", RunStatus::Ready, false, false, false),
+        ];
+        app.runs[0].task = "fix auth flow".to_string();
+        app.runs[1].task = "update docs".to_string();
+
+        app.apply_filter("auth");
+
+        assert_eq!(app.filter(), "auth");
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-auth");
     }
 
     #[test]

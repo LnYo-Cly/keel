@@ -13,7 +13,11 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 pub fn run_tui(project: KeelProject) -> Result<()> {
-    let mut app = App::load(project)?;
+    run_tui_with_filter(project, None)
+}
+
+pub fn run_tui_with_filter(project: KeelProject, filter: Option<String>) -> Result<()> {
+    let mut app = App::load_with_filter(project, filter)?;
     let mut terminal = setup_terminal()?;
     let result = run_event_loop(&mut terminal, &mut app);
     restore_terminal(&mut terminal)?;

@@ -121,6 +121,7 @@ It is built with `ratatui` and Crossterm.
 
 ```bash
 keel tui
+keel tui --filter not_ready
 ```
 
 The TUI is review-only. Write actions stay in the CLI so the terminal UI cannot
@@ -131,6 +132,7 @@ Current TUI behavior:
 - Lists runs newest first.
 - Keeps the selected run visible when the run list is longer than the terminal.
 - Shows run position in the list title, for example `Runs (3/12, newest first)`.
+- Supports `--filter <text>` at startup to open directly on matching runs.
 - Shows status counts for ready, not ready, running, discarded, committed,
   pushed, and PR/MR-created runs.
 - Shows the selected run's report summary, checks, warnings, suggested next
