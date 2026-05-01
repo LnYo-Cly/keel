@@ -354,6 +354,12 @@ metadata, logs, diff, checks, and report artifacts when possible.
   - `keel pr --provider github`: create a GitHub PR through `gh`.
   - Future provider-backed GitLab/Gitee/Gitea support.
 - v0.6: TUI for reviewing candidate runs.
+  - Planned stack: `ratatui` with the Crossterm backend.
+  - First slice: read-only review UI for runs, reports, diffs, and logs.
+  - Deferred: agent execution controls, commit, push, PR creation, merge, and
+    destructive actions.
+  - The TUI should consume existing `keel-core` models instead of duplicating
+    CLI parsing or artifact logic.
 
 ## Development Smoke Tests
 
