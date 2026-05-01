@@ -364,6 +364,9 @@ Provider-backed GitHub PR regression has two evidence levels:
   without network access.
 - Real smoke tests are opt-in and must use the real GitHub CLI,
   authentication, network access, and a writable test repository.
+- Keel does not store GitHub tokens. Authentication is delegated to `gh`.
+- Do not paste Personal Access Tokens into chat, shell history, issue trackers,
+  or test logs. If a token is exposed, revoke it and create a new one.
 
 Run a real GitHub PR smoke with a disposable writable repository:
 
@@ -384,6 +387,18 @@ These real smoke tests intentionally create a candidate branch and a GitHub
 Pull Request. Use only disposable test repositories. The PowerShell helper
 leaves the request open by default; pass `-CloseRequest` to close the request
 after verifying `pr.json`.
+
+Real smoke authentication notes:
+
+- For `keel pr --provider github`, the token or `gh` login needs enough
+  permission to create a branch and PR in the test repository.
+- If the smoke creates a disposable repository that should be deleted
+  automatically afterward, the token must also include GitHub's `delete_repo`
+  scope.
+- A token with repository admin permission but without `delete_repo` can create
+  and close the PR but cannot delete the repository.
+- Prefer `gh auth login` or a short-lived environment variable over placing
+  tokens directly in commands.
 
 Real Codex smoke tests are opt-in because they depend on local Codex
 installation, authentication, network access, and external model behavior:
