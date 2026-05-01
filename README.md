@@ -123,6 +123,9 @@ It is built with `ratatui` and Crossterm.
 keel tui
 ```
 
+The TUI is review-only. Write actions stay in the CLI so the terminal UI cannot
+commit, push, create a PR/MR, discard a run, merge, or rewrite artifacts.
+
 Current TUI behavior:
 
 - Lists runs newest first.
@@ -132,15 +135,22 @@ Current TUI behavior:
   pushed, and PR/MR-created runs.
 - Shows the selected run's report summary, checks, warnings, suggested next
   actions, diff, log, and artifact paths.
-- Supports `j/k` or arrow keys to move through runs.
-- Supports `Tab` and `Shift+Tab` to switch between Report, Diff, Log, and
-  Artifacts.
-- Supports `/` to filter runs by run id, task, agent, status, branch, warning,
-  commit, push, or PR metadata.
-- Supports `PgUp/PgDn`, `Home`, and `End` for detail scrolling.
 - Shows scroll position in long detail panels, for example `Diff (16-30/120)`.
-- Supports `?` for a read-only help overlay.
-- Supports `r` to refresh and `q`/`Esc`/`Ctrl-C` to quit.
+
+TUI shortcuts:
+
+| Shortcut | Action |
+| --- | --- |
+| `j` / `Down` | Select next run |
+| `k` / `Up` | Select previous run |
+| `Tab` | Switch to the next detail tab |
+| `Shift+Tab` | Switch to the previous detail tab |
+| `PgUp` / `PgDn` | Scroll the current detail tab |
+| `Home` / `End` | Jump to top or bottom of the current detail tab |
+| `/` | Filter runs by id, task, agent, status, branch, warning, commit, push, or PR metadata |
+| `r` | Refresh run list and selected artifacts |
+| `?` | Show the read-only help overlay |
+| `q` / `Esc` / `Ctrl-C` | Quit |
 
 TUI safety boundary:
 
