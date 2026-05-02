@@ -140,8 +140,13 @@ Current TUI behavior:
   startup to open directly on matching runs. These filters can be combined.
 - Shows status counts for ready, not ready, running, discarded, committed,
   pushed, and PR/MR-created runs.
+- Uses a review inbox layout with a compact `Decision` column so the next human
+  action is visible before lower-level status details.
 - Shows the selected run's report summary, checks, warnings, suggested next
   actions, diff, log, and artifact paths.
+- Marks diff/log tabs as present, empty, or missing, and marks artifacts when
+  required review files are missing.
+- Colors git diff file headers, hunks, additions, deletions, and metadata lines.
 - Shows scroll position in long detail panels, for example `Diff (16-30/120)`.
 
 TUI shortcuts:
@@ -150,6 +155,8 @@ TUI shortcuts:
 | --- | --- |
 | `j` / `Down` | Select next run |
 | `k` / `Up` | Select previous run |
+| `g` / `G` | Jump to first or last visible run |
+| `1` / `2` / `3` / `4` | Open report, diff, log, or artifacts |
 | `Tab` | Switch to the next detail tab |
 | `Shift+Tab` | Switch to the previous detail tab |
 | `PgUp` / `PgDn` | Scroll the current detail tab |

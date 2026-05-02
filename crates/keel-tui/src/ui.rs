@@ -251,7 +251,7 @@ fn render_detail(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .split(area);
 
     render_run_header(frame, run, chunks[0]);
-    render_tabs(frame, app.tab(), chunks[1]);
+    render_tabs(frame, app.tab(), app.detail(), chunks[1]);
     render_tab_body(frame, app, chunks[2]);
 }
 
@@ -306,7 +306,12 @@ fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
     );
 }
 
-fn render_tabs(frame: &mut Frame<'_>, active: DetailTab, area: Rect) {
+fn render_tabs(
+    frame: &mut Frame<'_>,
+    active: DetailTab,
+    detail: Option<&RunArtifacts>,
+    area: Rect,
+) {
     let tabs = [
         DetailTab::Report,
         DetailTab::Diff,
@@ -316,7 +321,7 @@ fn render_tabs(frame: &mut Frame<'_>, active: DetailTab, area: Rect) {
     let selected = tabs.iter().position(|tab| *tab == active).unwrap_or(0);
     let labels = tabs
         .iter()
-        .map(|tab| Line::from(tab.title()))
+        .map(|tab| tab_label(*tab, detail))
         .collect::<Vec<_>>();
     frame.render_widget(
         Tabs::new(labels)
@@ -335,6 +340,40 @@ fn render_tabs(frame: &mut Frame<'_>, active: DetailTab, area: Rect) {
             ),
         area,
     );
+}
+
+fn tab_label(tab: DetailTab, detail: Option<&RunArtifacts>) -> Line<'static> {
+    let Some((marker, color)) = detail.and_then(|detail| tab_state_marker(tab, detail)) else {
+        return Line::from(tab.title());
+    };
+
+    Line::from(vec![
+        Span::raw(tab.title()),
+        Span::raw(" "),
+        Span::styled(
+            marker,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+    ])
+}
+
+fn tab_state_marker(tab: DetailTab, detail: &RunArtifacts) -> Option<(&'static str, Color)> {
+    match tab {
+        DetailTab::Report if !artifact_exists(detail, "Report") => Some(("missing", theme::RED)),
+        DetailTab::Report => None,
+        DetailTab::Diff => match &detail.diff {
+            Some(diff) if diff.is_empty => Some(("empty", theme::AMBER)),
+            Some(_) => Some(("+", theme::GREEN)),
+            None => Some(("missing", theme::RED)),
+        },
+        DetailTab::Log => match &detail.log {
+            Some(log) if log.is_empty => Some(("empty", theme::AMBER)),
+            Some(_) => Some(("+", theme::GREEN)),
+            None => Some(("missing", theme::RED)),
+        },
+        DetailTab::Artifacts if has_missing_required_artifact(detail) => Some(("!", theme::RED)),
+        DetailTab::Artifacts => None,
+    }
 }
 
 fn render_tab_body(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
@@ -563,18 +602,18 @@ fn check_summary(checks: Option<&[CheckResult]>, failed_checks: usize) -> String
 
 fn render_diff(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.diff {
-        Some(diff) if diff.is_empty => ("Diff", vec![Line::from("diff.patch is empty")]),
+        Some(diff) if diff.is_empty => ("Diff", empty_artifact_lines("diff.patch")),
         Some(diff) => ("Diff Review", diff_lines(&diff.content)),
-        None => ("Diff", vec![Line::from("diff.patch missing")]),
+        None => ("Diff", missing_artifact_lines("diff.patch")),
     };
     render_lines_panel(frame, area, title, lines, app);
 }
 
 fn render_log(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.log {
-        Some(log) if log.is_empty => ("Log", vec![Line::from("log.txt is empty")]),
+        Some(log) if log.is_empty => ("Log", empty_artifact_lines("log.txt")),
         Some(log) => ("Log", text_lines(&log.content)),
-        None => ("Log", vec![Line::from("log.txt missing")]),
+        None => ("Log", missing_artifact_lines("log.txt")),
     };
     render_lines_panel(frame, area, title, lines, app);
 }
@@ -628,6 +667,43 @@ fn artifact_line(artifact: &ArtifactInfo) -> Line<'static> {
 
 fn is_required_artifact(label: &str) -> bool {
     matches!(label, "Metadata" | "Log" | "Diff" | "Checks" | "Report")
+}
+
+fn artifact_exists(detail: &RunArtifacts, label: &str) -> bool {
+    detail
+        .report
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.label == label && artifact.exists)
+}
+
+fn has_missing_required_artifact(detail: &RunArtifacts) -> bool {
+    detail
+        .report
+        .artifacts
+        .iter()
+        .any(|artifact| is_required_artifact(artifact.label) && !artifact.exists)
+}
+
+fn missing_artifact_lines(file: &'static str) -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled("missing ", Style::default().fg(theme::RED)),
+            Span::raw(file),
+        ]),
+        Line::from("This run artifact was not found in .keel/runs/<run-id>/."),
+        Line::from("Use the Artifacts tab to inspect which files are present."),
+    ]
+}
+
+fn empty_artifact_lines(file: &'static str) -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled("empty ", Style::default().fg(theme::AMBER)),
+            Span::raw(file),
+        ]),
+        Line::from("The artifact exists but has no reviewable content."),
+    ]
 }
 
 fn render_lines_panel(
@@ -685,8 +761,24 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         "REVIEW"
     };
-    if area.width < 180 {
-        let line = Line::from(vec![
+    let line = if area.width < 96 {
+        Line::from(vec![
+            Span::styled("j/k", key_style()),
+            Span::raw(" move "),
+            Span::styled("1-4", key_style()),
+            Span::raw(" tabs "),
+            Span::styled("Pg", key_style()),
+            Span::raw(" scroll "),
+            Span::styled("/", key_style()),
+            Span::raw(" filter "),
+            Span::styled("?", key_style()),
+            Span::raw(" help "),
+            Span::styled("q", key_style()),
+            Span::raw(" quit "),
+            Span::styled(mode, Style::default().fg(theme::AMBER)),
+        ])
+    } else if area.width < 180 {
+        Line::from(vec![
             Span::styled("j/k", key_style()),
             Span::raw(" "),
             Span::styled("g/G", key_style()),
@@ -707,39 +799,37 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Span::raw("  "),
             Span::styled(mode, Style::default().fg(theme::AMBER)),
             Span::raw("  "),
-            Span::styled(truncate(&filter, 20), Style::default().fg(theme::MUTED)),
-        ]);
-        render_footer_line(frame, area, line);
-        return;
-    }
-
-    let line = Line::from(vec![
-        Span::styled("j/k", key_style()),
-        Span::raw(" move  "),
-        Span::styled("g/G", key_style()),
-        Span::raw(" first/last  "),
-        Span::styled("1-4", key_style()),
-        Span::raw(" tabs  "),
-        Span::styled("Tab", key_style()),
-        Span::raw(" next tab  "),
-        Span::styled("Shift+Tab", key_style()),
-        Span::raw(" prev tab  "),
-        Span::styled("r", key_style()),
-        Span::raw(" refresh  "),
-        Span::styled("/", key_style()),
-        Span::raw(" filter  "),
-        Span::styled("?", key_style()),
-        Span::raw(" help  "),
-        Span::styled("PgUp/PgDn", key_style()),
-        Span::raw(" detail scroll  "),
-        Span::styled("q", key_style()),
-        Span::raw(" quit  "),
-        Span::styled(mode, Style::default().fg(theme::AMBER)),
-        Span::raw("  "),
-        Span::styled(filter, Style::default().fg(theme::MUTED)),
-        Span::raw("  "),
-        Span::styled(status, Style::default().fg(theme::MUTED)),
-    ]);
+            Span::styled(truncate(&filter, 28), Style::default().fg(theme::MUTED)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("j/k", key_style()),
+            Span::raw(" move  "),
+            Span::styled("g/G", key_style()),
+            Span::raw(" first/last  "),
+            Span::styled("1-4", key_style()),
+            Span::raw(" tabs  "),
+            Span::styled("Tab", key_style()),
+            Span::raw(" next tab  "),
+            Span::styled("Shift+Tab", key_style()),
+            Span::raw(" prev tab  "),
+            Span::styled("r", key_style()),
+            Span::raw(" refresh  "),
+            Span::styled("/", key_style()),
+            Span::raw(" filter  "),
+            Span::styled("?", key_style()),
+            Span::raw(" help  "),
+            Span::styled("PgUp/PgDn", key_style()),
+            Span::raw(" detail scroll  "),
+            Span::styled("q", key_style()),
+            Span::raw(" quit  "),
+            Span::styled(mode, Style::default().fg(theme::AMBER)),
+            Span::raw("  "),
+            Span::styled(filter, Style::default().fg(theme::MUTED)),
+            Span::raw("  "),
+            Span::styled(status, Style::default().fg(theme::MUTED)),
+        ])
+    };
     render_footer_line(frame, area, line);
 }
 
@@ -1214,6 +1304,8 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use keel_core::{ArtifactInfo, DiffInfo, ReportInfo, RunArtifacts};
+    use std::path::PathBuf;
 
     #[test]
     fn git_state_prefers_pr_over_push_over_commit() {
@@ -1239,6 +1331,36 @@ mod tests {
 
         run.warnings.push("dependency manifest changed".to_string());
         assert_eq!(decision_label(&run), "blocked risk:1");
+    }
+
+    #[test]
+    fn tab_labels_surface_artifact_state() {
+        let run = sample_run();
+        let mut detail = sample_artifacts(run);
+
+        let present = format!("{:?}", tab_label(DetailTab::Diff, Some(&detail)));
+        assert!(present.contains("Diff"));
+        assert!(present.contains("\"+\""));
+
+        detail.diff.as_mut().unwrap().is_empty = true;
+        assert!(format!("{:?}", tab_label(DetailTab::Diff, Some(&detail))).contains("empty"));
+
+        detail.diff = None;
+        assert!(format!("{:?}", tab_label(DetailTab::Diff, Some(&detail))).contains("missing"));
+
+        detail.report.artifacts[0].exists = false;
+        assert!(format!("{:?}", tab_label(DetailTab::Artifacts, Some(&detail))).contains("!"));
+    }
+
+    #[test]
+    fn artifact_empty_and_missing_messages_are_actionable() {
+        let missing = format!("{:?}", missing_artifact_lines("diff.patch"));
+        let empty = format!("{:?}", empty_artifact_lines("log.txt"));
+
+        assert!(missing.contains("missing"));
+        assert!(missing.contains("Artifacts tab"));
+        assert!(empty.contains("empty"));
+        assert!(empty.contains("no reviewable content"));
     }
 
     #[test]
@@ -1291,6 +1413,44 @@ mod tests {
             exit_code,
             stdout: String::new(),
             stderr: String::new(),
+        }
+    }
+
+    fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
+        RunArtifacts {
+            report: ReportInfo {
+                metadata,
+                path: PathBuf::from(".keel/runs/run-1/report.md"),
+                summary: String::new(),
+                artifacts: vec![
+                    artifact("Metadata", true),
+                    artifact("Log", true),
+                    artifact("Diff", true),
+                    artifact("Checks", true),
+                    artifact("Report", true),
+                    artifact("Commit", false),
+                    artifact("Push", false),
+                    artifact("PR/MR", false),
+                ],
+                next_actions: Vec::new(),
+                is_discarded: false,
+            },
+            report_content: Some(String::new()),
+            diff: Some(DiffInfo {
+                path: PathBuf::from(".keel/runs/run-1/diff.patch"),
+                content: "diff --git a/file b/file".to_string(),
+                is_empty: false,
+            }),
+            log: None,
+            checks: None,
+        }
+    }
+
+    fn artifact(label: &'static str, exists: bool) -> ArtifactInfo {
+        ArtifactInfo {
+            label,
+            path: PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
+            exists,
         }
     }
 
