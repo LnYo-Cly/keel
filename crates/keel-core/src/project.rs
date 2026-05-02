@@ -14,6 +14,10 @@ use crate::git::{
     prepare_untracked_for_diff,
 };
 use crate::json::{read_json, write_json_pretty};
+use crate::ledger::{
+    add_checkpoint, add_evidence, add_note, handoff, review, start_task, LedgerHandoff,
+    LedgerReview, LedgerTask,
+};
 use crate::model::{
     ArtifactInfo, CheckResult, DiffInfo, InitResult, LogInfo, ReportInfo, RunArtifacts,
     RunMetadata, RunStatus,
@@ -373,6 +377,36 @@ impl KeelProject {
         }
 
         Ok(result)
+    }
+
+    pub fn start_ledger_task(&self, title: &str) -> Result<LedgerTask> {
+        self.ensure_initialized()?;
+        start_task(&self.root, title)
+    }
+
+    pub fn checkpoint(&self, message: &str) -> Result<LedgerTask> {
+        self.ensure_initialized()?;
+        add_checkpoint(&self.root, message)
+    }
+
+    pub fn note(&self, message: &str) -> Result<LedgerTask> {
+        self.ensure_initialized()?;
+        add_note(&self.root, message)
+    }
+
+    pub fn evidence(&self, command: &str) -> Result<LedgerTask> {
+        self.ensure_initialized()?;
+        add_evidence(&self.root, command)
+    }
+
+    pub fn ledger_review(&self) -> Result<LedgerReview> {
+        self.ensure_initialized()?;
+        review(&self.root)
+    }
+
+    pub fn handoff(&self) -> Result<LedgerHandoff> {
+        self.ensure_initialized()?;
+        handoff(&self.root)
     }
 
     pub fn diff(&self, run_id: &str) -> Result<DiffInfo> {

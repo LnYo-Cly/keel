@@ -1,7 +1,8 @@
 use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
-    DoctorStatus, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
+    DoctorStatus, LedgerHandoff, LedgerReview, LedgerTask, LogInfo, PrPlan, PrResult, PushResult,
+    ReportInfo, RunMetadata,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -330,6 +331,166 @@ pub(crate) fn print_discarded_run(metadata: &RunMetadata) {
     println!("Discarded run: {}", metadata.run_id);
     println!("Status: {}", metadata.status);
     println!("History preserved at: {}", metadata.run_dir);
+}
+
+pub(crate) fn print_ledger_task_started(task: &LedgerTask) {
+    println!("Started Keel task: {}", task.task_id);
+    println!("Title: {}", task.title);
+    println!("Status: {}", task.status);
+    println!("Ledger: .keel/ledger/tasks/{}/task.json", task.task_id);
+}
+
+pub(crate) fn print_ledger_checkpoint(task: &LedgerTask) {
+    let checkpoint = task
+        .checkpoints
+        .last()
+        .expect("checkpoint command returned task without checkpoint");
+    println!("Checkpoint recorded: {}", checkpoint.checkpoint_id);
+    println!("Task: {}", task.title);
+    println!("Message: {}", checkpoint.message);
+}
+
+pub(crate) fn print_ledger_note(task: &LedgerTask) {
+    let note = task
+        .notes
+        .last()
+        .expect("note command returned task without note");
+    println!("Note recorded: {}", note.note_id);
+    println!("Task: {}", task.title);
+    println!("Message: {}", note.message);
+}
+
+pub(crate) fn print_ledger_evidence(task: &LedgerTask) {
+    let evidence = task
+        .evidence
+        .last()
+        .expect("evidence command returned task without evidence");
+    println!("Evidence recorded: {}", evidence.evidence_id);
+    println!("Task: {}", task.title);
+    println!("Command: {}", evidence.command);
+    println!("Status: {}", evidence.status);
+    println!("Exit code: {}", evidence.exit_code.unwrap_or_default());
+    println!("Duration: {} ms", evidence.duration_ms);
+    if !evidence.stdout.trim().is_empty() {
+        println!("Stdout:");
+        println!("{}", evidence.stdout.trim_end());
+        if evidence.stdout_truncated {
+            println!("Stdout was truncated to the most recent output.");
+        }
+    }
+    if !evidence.stderr.trim().is_empty() {
+        println!("Stderr:");
+        println!("{}", evidence.stderr.trim_end());
+        if evidence.stderr_truncated {
+            println!("Stderr was truncated to the most recent output.");
+        }
+    }
+}
+
+pub(crate) fn print_ledger_verify(review: &LedgerReview) {
+    println!("Keel verify");
+    println!("Task: {}", review.task.title);
+    println!(
+        "Evidence: {} passed, {} failed, {} total",
+        review.summary.evidence_passed, review.summary.evidence_failed, review.summary.evidence
+    );
+    println!(
+        "Decision: {}",
+        if review.decision.ready {
+            "ready"
+        } else {
+            "not ready"
+        }
+    );
+    println!("Reason: {}", review.decision.reason);
+}
+
+pub(crate) fn print_ledger_review(review: &LedgerReview) {
+    println!("Keel review");
+    println!("Task: {}", review.task.title);
+    println!("Task ID: {}", review.task.task_id);
+    println!("Status: {}", review.task.status);
+    println!(
+        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed)",
+        review.summary.checkpoints,
+        review.summary.notes,
+        review.summary.evidence,
+        review.summary.evidence_passed,
+        review.summary.evidence_failed
+    );
+    println!(
+        "Decision: {}",
+        if review.decision.ready {
+            "ready"
+        } else {
+            "not ready"
+        }
+    );
+    println!("Reason: {}", review.decision.reason);
+    if !review.task.checkpoints.is_empty() {
+        println!("Checkpoints:");
+        for checkpoint in &review.task.checkpoints {
+            println!("- {}: {}", checkpoint.created_at, checkpoint.message);
+        }
+    }
+    if !review.task.evidence.is_empty() {
+        println!("Evidence:");
+        for evidence in &review.task.evidence {
+            println!(
+                "- {}: {} ({}, exit {})",
+                evidence.started_at,
+                evidence.command,
+                evidence.status,
+                evidence.exit_code.unwrap_or_default()
+            );
+        }
+    }
+    if !review.next_actions.is_empty() {
+        println!("Next actions:");
+        for action in &review.next_actions {
+            println!("- {action}");
+        }
+    }
+}
+
+pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
+    println!("Keel handoff");
+    println!("Task: {}", handoff.task.title);
+    println!("Task ID: {}", handoff.task.task_id);
+    println!(
+        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed)",
+        handoff.summary.checkpoints,
+        handoff.summary.notes,
+        handoff.summary.evidence,
+        handoff.summary.evidence_passed,
+        handoff.summary.evidence_failed
+    );
+    match &handoff.last_checkpoint {
+        Some(checkpoint) => println!("Last checkpoint: {}", checkpoint.message),
+        None => println!("Last checkpoint: none"),
+    }
+    if !handoff.recent_notes.is_empty() {
+        println!("Recent notes:");
+        for note in &handoff.recent_notes {
+            println!("- {}: {}", note.created_at, note.message);
+        }
+    }
+    if !handoff.recent_evidence.is_empty() {
+        println!("Recent evidence:");
+        for evidence in &handoff.recent_evidence {
+            println!(
+                "- {}: {} ({}, exit {})",
+                evidence.started_at,
+                evidence.command,
+                evidence.status,
+                evidence.exit_code.unwrap_or_default()
+            );
+        }
+    }
+    println!("Next actions:");
+    for action in &handoff.next_actions {
+        println!("- {action}");
+    }
 }
 
 pub(crate) fn print_warning_summary(warnings: &[String]) {

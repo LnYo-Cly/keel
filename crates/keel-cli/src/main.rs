@@ -32,6 +32,50 @@ enum Commands {
     },
     /// Initialize local Keel state in the current git repository.
     Init,
+    /// Manage the current workspace task ledger.
+    Task {
+        #[command(subcommand)]
+        command: TaskCommands,
+    },
+    /// Record a checkpoint on the active workspace task.
+    Checkpoint {
+        /// Checkpoint message.
+        message: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Record a note on the active workspace task.
+    Note {
+        /// Note message.
+        message: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Record command evidence on the active workspace task.
+    Evidence {
+        #[command(subcommand)]
+        command: EvidenceCommands,
+    },
+    /// Verify whether the active workspace task has passing evidence.
+    Verify {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a handoff packet for the active workspace task.
+    Handoff {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a review packet for the active workspace task.
+    Review {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Open the read-only terminal review UI.
     Tui {
         /// Focus the review UI on a specific run id.
@@ -164,6 +208,31 @@ enum Commands {
 enum ConfigCommands {
     /// Validate .keel/config.toml without modifying it.
     Validate {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TaskCommands {
+    /// Start or replace the active workspace task ledger.
+    Start {
+        /// Task title.
+        title: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum EvidenceCommands {
+    /// Execute a command and record its output as evidence.
+    Add {
+        /// Command to execute from the repository root.
+        #[arg(long)]
+        cmd: String,
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,

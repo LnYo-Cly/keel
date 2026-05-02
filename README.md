@@ -25,6 +25,11 @@ Run Keel inside an existing git repository with at least one commit.
 
 ```bash
 keel init
+keel task start "implement review workflow"
+keel checkpoint "planned CLI changes"
+keel evidence add --cmd "cargo test --workspace"
+keel review
+keel handoff
 keel run "fix login bug" --agent noop
 keel status
 keel report <run-id>
@@ -48,6 +53,9 @@ Useful review commands:
 keel doctor
 keel config validate
 keel config validate --json
+keel verify
+keel review --json
+keel handoff --json
 keel status --agent noop
 keel status --status ready
 keel status --limit 5
@@ -71,6 +79,13 @@ CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 and basic value sanity, including risk warning settings. It does not rewrite the
 file.
 
+`keel task start`, `keel checkpoint`, `keel note`, `keel evidence add`,
+`keel verify`, `keel review`, and `keel handoff` provide a lightweight
+workspace ledger for long-running agent sessions. This mode does not start a new
+agent and does not create a worktree; it lets the current Codex or Claude Code
+session record checkpoints, evidence, handoff state, and review readiness while
+working in the current repository.
+
 `keel` opens a read-only terminal review UI for browsing runs and artifacts.
 `keel tui` is the explicit form of the same UI. It does not commit, push,
 discard, create PRs, merge, or modify run history.
@@ -88,6 +103,8 @@ on `PATH`.
 ## Safety Model
 
 - Every run executes in its own isolated git worktree under `.keel/worktrees/`.
+- The workspace ledger records current-session task progress under
+  `.keel/ledger/` and does not modify source files.
 - `keel commit <run-id>` commits only inside the candidate worktree on the
   candidate branch.
 - Local commit does not require a remote, GitHub, GitLab, or Gitee.
@@ -118,6 +135,32 @@ Each run stores review artifacts under `.keel/runs/<run-id>/`:
 
 Discarding a run removes only the candidate worktree and keeps these artifacts
 for later review.
+
+Workspace ledger tasks store current-session records under
+`.keel/ledger/tasks/<task-id>/task.json`:
+
+- task title and status
+- checkpoints
+- notes
+- evidence command results with exit code and captured output
+- review and handoff summaries generated from the task ledger
+
+The ledger is intended for agent self-management. A long-running Codex or Claude
+Code session can call these commands while it works:
+
+```bash
+keel task start "implement Keel self-dogfood ledger"
+keel checkpoint "core model added"
+keel note "risk: CLI output changed"
+keel evidence add --cmd "cargo fmt --all --check"
+keel evidence add --cmd "cargo test --workspace"
+keel verify
+keel review
+keel handoff
+```
+
+`keel verify` exits non-zero if the active task has no evidence or any recorded
+evidence failed. It does not merge, push, or mutate source files.
 
 ## Terminal Review UI
 
@@ -433,7 +476,15 @@ metadata, logs, diff, checks, and report artifacts when possible.
     API calls.
   - `keel pr --provider github`: create a GitHub PR through `gh`.
   - Future provider-backed GitLab/Gitee/Gitea support.
-- v0.6: read-only TUI for reviewing candidate runs.
+- v0.6: self-dogfood ledger for long-running agent sessions.
+  - `keel task start`: start a current-workspace task ledger.
+  - `keel checkpoint`: record meaningful implementation milestones.
+  - `keel note`: record decisions, risks, and unresolved context.
+  - `keel evidence add --cmd`: run verification commands and capture evidence.
+  - `keel verify`: fail when evidence is missing or any recorded evidence failed.
+  - `keel review`: summarize current task readiness and evidence.
+  - `keel handoff`: produce a recovery packet for future sessions.
+- v0.6.x: read-only TUI for reviewing candidate runs.
   - Current stack: `ratatui` with the Crossterm backend.
   - Current slice: run list, report, diff, log, artifacts, filtering, and
     diff/log scrolling.

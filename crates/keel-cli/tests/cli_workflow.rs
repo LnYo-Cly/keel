@@ -394,6 +394,105 @@ fn init_and_noop_run_create_run_artifacts() {
 }
 
 #[test]
+fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel(repo.path(), ["task", "start", "self dogfood ledger"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Started Keel task"));
+
+    let active_task = repo
+        .path()
+        .join(".keel")
+        .join("ledger")
+        .join("active_task.json");
+    assert!(active_task.is_file());
+
+    let task = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "start", "self dogfood json", "--json"],
+    ));
+    let task_id = task["task_id"].as_str().unwrap().to_string();
+    assert_eq!(task["title"], "self dogfood json");
+    assert!(repo
+        .path()
+        .join(".keel")
+        .join("ledger")
+        .join("tasks")
+        .join(&task_id)
+        .join("task.json")
+        .is_file());
+
+    run_keel(repo.path(), ["checkpoint", "core ledger model added"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Checkpoint recorded"));
+    run_keel(repo.path(), ["note", "risk: CLI output changed"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Note recorded"));
+    run_keel(
+        repo.path(),
+        ["evidence", "add", "--cmd", "git status --short"],
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Evidence recorded"))
+    .stdout(predicate::str::contains("Status: passed"));
+
+    let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
+    assert_eq!(review["task"]["task_id"], task_id);
+    assert_eq!(review["summary"]["checkpoints"], 1);
+    assert_eq!(review["summary"]["notes"], 1);
+    assert_eq!(review["summary"]["evidence_passed"], 1);
+    assert_eq!(review["decision"]["ready"], true);
+
+    run_keel(repo.path(), ["verify"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Decision: ready"));
+
+    run_keel(repo.path(), ["handoff"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel handoff"))
+        .stdout(predicate::str::contains(
+            "Last checkpoint: core ledger model added",
+        ));
+}
+
+#[test]
+fn ledger_failed_evidence_makes_verify_fail() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    run_keel(repo.path(), ["task", "start", "failed evidence task"])
+        .assert()
+        .success();
+
+    run_keel(
+        repo.path(),
+        ["evidence", "add", "--cmd", "definitely-not-a-keel-command"],
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Status: failed"));
+
+    run_keel(repo.path(), ["verify"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Decision: not ready"))
+        .stdout(predicate::str::contains(
+            "one or more evidence commands failed",
+        ));
+
+    let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
+    assert_eq!(review["decision"]["ready"], false);
+    assert_eq!(review["summary"]["evidence_failed"], 1);
+}
+
+#[test]
 fn tui_command_is_exposed_as_read_only_review_ui() {
     Command::cargo_bin("keel")
         .unwrap()
@@ -404,7 +503,12 @@ fn tui_command_is_exposed_as_read_only_review_ui() {
             "Local-first control layer for AI-generated code",
         ))
         .stdout(predicate::str::contains("--run"))
-        .stdout(predicate::str::contains("tui"));
+        .stdout(predicate::str::contains("tui"))
+        .stdout(predicate::str::contains("task"))
+        .stdout(predicate::str::contains("checkpoint"))
+        .stdout(predicate::str::contains("evidence"))
+        .stdout(predicate::str::contains("handoff"))
+        .stdout(predicate::str::contains("review"));
 
     Command::cargo_bin("keel")
         .unwrap()

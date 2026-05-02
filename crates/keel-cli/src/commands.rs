@@ -5,7 +5,7 @@ use keel_core::{
 };
 use std::process::ExitCode;
 
-use super::{render, Cli, Commands, ConfigCommands, StatusFilter};
+use super::{render, Cli, Commands, ConfigCommands, EvidenceCommands, StatusFilter, TaskCommands};
 
 pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
     if let Some(Commands::Doctor { json }) = cli.command.as_ref() {
@@ -48,6 +48,71 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             println!("Initialized Keel at {}", result.keel_dir.display());
             println!("Config: {}", result.config_path.display());
             println!("Runs: {}", result.runs_dir.display());
+        }
+        Some(Commands::Task {
+            command: TaskCommands::Start { title, json },
+        }) => {
+            let task = project.start_ledger_task(&title)?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_task_started(&task);
+            }
+        }
+        Some(Commands::Checkpoint { message, json }) => {
+            let task = project.checkpoint(&message)?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_checkpoint(&task);
+            }
+        }
+        Some(Commands::Note { message, json }) => {
+            let task = project.note(&message)?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_note(&task);
+            }
+        }
+        Some(Commands::Evidence {
+            command: EvidenceCommands::Add { cmd, json },
+        }) => {
+            let task = project.evidence(&cmd)?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_evidence(&task);
+            }
+        }
+        Some(Commands::Verify { json }) => {
+            let review = project.ledger_review()?;
+            if json {
+                render::print_json(&review)?;
+            } else {
+                render::print_ledger_verify(&review);
+            }
+            return Ok(if review.decision.ready {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            });
+        }
+        Some(Commands::Handoff { json }) => {
+            let handoff = project.handoff()?;
+            if json {
+                render::print_json(&handoff)?;
+            } else {
+                render::print_ledger_handoff(&handoff);
+            }
+        }
+        Some(Commands::Review { json }) => {
+            let review = project.ledger_review()?;
+            if json {
+                render::print_json(&review)?;
+            } else {
+                render::print_ledger_review(&review);
+            }
         }
         Some(Commands::Tui {
             run,

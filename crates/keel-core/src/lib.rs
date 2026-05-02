@@ -7,6 +7,7 @@ mod constants;
 mod doctor;
 mod git;
 mod json;
+mod ledger;
 mod model;
 mod pr;
 mod project;
@@ -25,6 +26,10 @@ pub use config::{
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use json::{
     report_json, status_json, ArtifactJson, ArtifactSetJson, ReportJson, RunSummaryJson,
+};
+pub use ledger::{
+    LedgerCheckpoint, LedgerDecision, LedgerEvidence, LedgerEvidenceStatus, LedgerHandoff,
+    LedgerNote, LedgerReview, LedgerSummary, LedgerTask, LedgerTaskStatus,
 };
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
