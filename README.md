@@ -30,7 +30,7 @@ keel status
 keel report <run-id>
 keel diff <run-id>
 keel log <run-id>
-keel tui
+keel
 keel commit <run-id> --dry-run
 keel commit <run-id>
 keel push <run-id> --dry-run
@@ -53,6 +53,7 @@ keel status --status ready
 keel status --limit 5
 keel status --json
 keel report <run-id> --json
+keel
 keel tui
 keel tui --agent noop --status ready
 keel commit <run-id> --json
@@ -68,8 +69,9 @@ CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 and basic value sanity, including risk warning settings. It does not rewrite the
 file.
 
-`keel tui` opens a read-only terminal review UI for browsing runs and artifacts.
-It does not commit, push, discard, create PRs, merge, or modify run history.
+`keel` opens a read-only terminal review UI for browsing runs and artifacts.
+`keel tui` is the explicit form of the same UI. It does not commit, push,
+discard, create PRs, merge, or modify run history.
 
 ## Supported Agents
 
@@ -117,10 +119,12 @@ for later review.
 
 ## Terminal Review UI
 
-`keel tui` provides a local read-only review view over existing run artifacts.
-It is built with `ratatui` and Crossterm.
+`keel` provides a local read-only review view over existing run artifacts. The
+explicit `keel tui` command opens the same UI. It is built with `ratatui` and
+Crossterm.
 
 ```bash
+keel
 keel tui
 keel tui --filter not_ready
 keel tui --agent noop

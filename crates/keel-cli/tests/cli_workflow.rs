@@ -397,6 +397,16 @@ fn init_and_noop_run_create_run_artifacts() {
 fn tui_command_is_exposed_as_read_only_review_ui() {
     Command::cargo_bin("keel")
         .unwrap()
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Local-first control layer for AI-generated code",
+        ))
+        .stdout(predicate::str::contains("tui"));
+
+    Command::cargo_bin("keel")
+        .unwrap()
         .args(["tui", "--help"])
         .assert()
         .success()

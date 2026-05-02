@@ -8,10 +8,10 @@ use std::process::ExitCode;
 use super::{render, Cli, Commands, ConfigCommands, StatusFilter};
 
 pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
-    if let Commands::Doctor { json } = cli.command {
+    if let Some(Commands::Doctor { json }) = cli.command.as_ref() {
         let cwd = std::env::current_dir()?;
         let report = run_doctor(&cwd);
-        if json {
+        if *json {
             render::print_json(&report)?;
         } else {
             render::print_doctor(&report);
@@ -22,10 +22,15 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
     let project = KeelProject::discover_from_current_dir()?;
 
     match cli.command {
-        Commands::Doctor { .. } => unreachable!("doctor is handled before project discovery"),
-        Commands::Config {
+        None => {
+            keel_tui::run_tui(project)?;
+        }
+        Some(Commands::Doctor { .. }) => {
+            unreachable!("doctor is handled before project discovery")
+        }
+        Some(Commands::Config {
             command: ConfigCommands::Validate { json },
-        } => {
+        }) => {
             let report = validate_config(project.root());
             if json {
                 render::print_json(&report)?;
@@ -34,17 +39,17 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             }
             return Ok(render::exit_code_for_config_report(&report));
         }
-        Commands::Init => {
+        Some(Commands::Init) => {
             let result = project.init()?;
             println!("Initialized Keel at {}", result.keel_dir.display());
             println!("Config: {}", result.config_path.display());
             println!("Runs: {}", result.runs_dir.display());
         }
-        Commands::Tui {
+        Some(Commands::Tui {
             filter,
             agent,
             status,
-        } => {
+        }) => {
             keel_tui::run_tui_with_filters(
                 project,
                 keel_tui::TuiFilters {
@@ -54,16 +59,16 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 },
             )?;
         }
-        Commands::Run { task, agent } => {
+        Some(Commands::Run { task, agent }) => {
             let metadata = project.run(&task, &agent)?;
             render::print_run_created("Run created", &metadata);
         }
-        Commands::Status {
+        Some(Commands::Status {
             agent,
             status,
             limit,
             json,
-        } => {
+        }) => {
             let runs = filtered_runs(project.list_runs()?, agent.as_deref(), status, limit);
             if json {
                 render::print_json(&status_json(&runs))?;
@@ -71,7 +76,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_status(&runs, agent.as_deref().is_some() || status.is_some());
             }
         }
-        Commands::Report { run_id, json } => {
+        Some(Commands::Report { run_id, json }) => {
             let report = project.report(&run_id)?;
             if json {
                 render::print_json(&report_json(&report))?;
@@ -79,12 +84,12 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_report(report);
             }
         }
-        Commands::Commit {
+        Some(Commands::Commit {
             run_id,
             dry_run,
             json,
             message,
-        } => {
+        }) => {
             let result = project.commit(&run_id, CommitOptions { dry_run, message })?;
             if json {
                 render::print_json(&result)?;
@@ -92,12 +97,12 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_commit_result(&result);
             }
         }
-        Commands::Push {
+        Some(Commands::Push {
             run_id,
             remote,
             dry_run,
             json,
-        } => {
+        }) => {
             let result = project.push(&run_id, PushOptions { remote, dry_run })?;
             if json {
                 render::print_json(&result)?;
@@ -105,7 +110,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_push_result(&result);
             }
         }
-        Commands::Pr {
+        Some(Commands::Pr {
             run_id,
             manual,
             dry_run,
@@ -116,7 +121,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             head,
             target,
             title,
-        } => {
+        }) => {
             let options = PrOptions {
                 manual,
                 dry_run,
@@ -143,15 +148,15 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 }
             }
         }
-        Commands::Diff { run_id } => {
+        Some(Commands::Diff { run_id }) => {
             let diff = project.diff(&run_id)?;
             render::print_diff(&run_id, &diff);
         }
-        Commands::Log { run_id } => {
+        Some(Commands::Log { run_id }) => {
             let log = project.log(&run_id)?;
             render::print_log(&run_id, &log);
         }
-        Commands::Rerun { run_id } => {
+        Some(Commands::Rerun { run_id }) => {
             let metadata = project.rerun(&run_id)?;
             render::print_run_created("Rerun created", &metadata);
             println!(
@@ -159,7 +164,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 metadata.parent_run_id.as_deref().unwrap_or("none")
             );
         }
-        Commands::Discard { run_id } => {
+        Some(Commands::Discard { run_id }) => {
             let metadata = project.discard(&run_id)?;
             render::print_discarded_run(&metadata);
         }
@@ -216,11 +221,18 @@ mod tests {
         let cli = Cli::parse_from(["keel", "status", "--status", "not_ready"]);
 
         match cli.command {
-            Commands::Status { status, .. } => {
+            Some(Commands::Status { status, .. }) => {
                 assert!(matches!(status, Some(StatusFilter::NotReady)));
             }
             _ => panic!("expected status command"),
         }
+    }
+
+    #[test]
+    fn root_command_without_subcommand_defaults_to_tui() {
+        let cli = Cli::parse_from(["keel"]);
+
+        assert!(cli.command.is_none());
     }
 
     #[test]

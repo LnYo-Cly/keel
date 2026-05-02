@@ -11,7 +11,7 @@ mod render;
 #[command(about = "Local-first control layer for AI-generated code")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]
