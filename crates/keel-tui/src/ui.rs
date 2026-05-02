@@ -22,7 +22,7 @@ const NARROW_WIDTH: u16 = 110;
 pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     let root = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), root);
-    let header_height = if root.width < NARROW_WIDTH { 2 } else { 5 };
+    let header_height = 2;
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -72,13 +72,11 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
         .split(area);
 
-    let title = Paragraph::new(vec![
-        Line::from(Span::styled("Keel", theme::title())),
-        Line::from(Span::styled(
-            "local AI code review",
-            Style::default().fg(theme::MUTED).bg(theme::BG),
-        )),
-    ])
+    let title = Paragraph::new(Line::from(vec![
+        Span::styled("Keel", theme::title()),
+        Span::raw("  "),
+        Span::styled("review", Style::default().fg(theme::MUTED).bg(theme::BG)),
+    ]))
     .block(
         Block::default()
             .borders(Borders::BOTTOM)
@@ -144,13 +142,14 @@ fn render_compact_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn render_stat(frame: &mut Frame<'_>, area: Rect, label: &str, value: usize, color: Color) {
-    let paragraph = Paragraph::new(vec![
-        Line::from(Span::styled(label, Style::default().fg(theme::MUTED))),
-        Line::from(Span::styled(
+    let paragraph = Paragraph::new(Line::from(vec![
+        Span::styled(label, Style::default().fg(theme::MUTED)),
+        Span::raw(" "),
+        Span::styled(
             value.to_string(),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )),
-    ])
+        ),
+    ]))
     .alignment(Alignment::Center)
     .block(
         Block::default()
@@ -405,17 +404,17 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
 
     let constraints = if area.height < 24 {
         vec![
-            Constraint::Length(7),
-            Constraint::Length(7),
+            Constraint::Length(8),
+            Constraint::Length(6),
             Constraint::Length(4),
             Constraint::Min(3),
         ]
     } else {
         vec![
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(6),
-            Constraint::Min(5),
+            Constraint::Length(9),
+            Constraint::Length(7),
+            Constraint::Length(5),
+            Constraint::Min(3),
         ]
     };
     let chunks = Layout::default()
@@ -549,13 +548,18 @@ fn review_focus_lines(
             label("Ready"),
             Span::raw(compact_reason(&metadata.readiness_reason)),
         ]),
-        Line::from(vec![
-            label("Run"),
-            Span::raw(metadata.run_id.clone()),
-            Span::styled("  Base ", theme::muted()),
-            Span::raw(short_commit(&metadata.base_commit)),
-        ]),
+        Line::from(vec![label("Inspect"), Span::raw(inspect_hint(metadata))]),
     ]
+}
+
+fn inspect_hint(metadata: &RunMetadata) -> &'static str {
+    match metadata.status {
+        RunStatus::Ready => "diff, warnings, then commit/push from CLI if accepted",
+        RunStatus::NotReady => "checks and log first; candidate is blocked",
+        RunStatus::Discarded => "history only; worktree was discarded",
+        RunStatus::Running => "refresh until agent finishes",
+        RunStatus::Created => "waiting for execution artifacts",
+    }
 }
 
 fn review_verdict(metadata: &RunMetadata, failed_checks: usize) -> &'static str {
@@ -763,66 +767,86 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     let line = if area.width < 96 {
         Line::from(vec![
+            Span::styled("Move ", theme::muted()),
             Span::styled("j/k", key_style()),
-            Span::raw(" move "),
+            Span::raw("  "),
+            Span::styled("Tabs ", theme::muted()),
             Span::styled("1-4", key_style()),
-            Span::raw(" tabs "),
-            Span::styled("Pg", key_style()),
-            Span::raw(" scroll "),
+            Span::raw("  "),
+            Span::styled("Scroll ", theme::muted()),
+            Span::styled("PgUp/PgDn", key_style()),
+            Span::raw("  "),
+            Span::styled("Filter ", theme::muted()),
             Span::styled("/", key_style()),
-            Span::raw(" filter "),
+            Span::raw("  "),
+            Span::styled("Help ", theme::muted()),
             Span::styled("?", key_style()),
-            Span::raw(" help "),
+            Span::raw("  "),
+            Span::styled("Quit ", theme::muted()),
             Span::styled("q", key_style()),
-            Span::raw(" quit "),
+            Span::raw("  "),
             Span::styled(mode, Style::default().fg(theme::AMBER)),
         ])
     } else if area.width < 180 {
         Line::from(vec![
+            Span::styled("Move ", theme::muted()),
             Span::styled("j/k", key_style()),
             Span::raw(" "),
             Span::styled("g/G", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Tabs ", theme::muted()),
             Span::styled("1-4", key_style()),
             Span::raw(" "),
             Span::styled("Tab", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Filter ", theme::muted()),
             Span::styled("/", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Help ", theme::muted()),
             Span::styled("?", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Scroll ", theme::muted()),
             Span::styled("PgUp/PgDn", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Refresh ", theme::muted()),
             Span::styled("r", key_style()),
-            Span::raw(" "),
+            Span::raw("  "),
+            Span::styled("Quit ", theme::muted()),
             Span::styled("q", key_style()),
             Span::raw("  "),
             Span::styled(mode, Style::default().fg(theme::AMBER)),
             Span::raw("  "),
-            Span::styled(truncate(&filter, 28), Style::default().fg(theme::MUTED)),
+            Span::styled(truncate(&filter, 24), Style::default().fg(theme::MUTED)),
         ])
     } else {
         Line::from(vec![
+            Span::styled("Move ", theme::muted()),
             Span::styled("j/k", key_style()),
-            Span::raw(" move  "),
+            Span::raw(" next/prev  "),
             Span::styled("g/G", key_style()),
             Span::raw(" first/last  "),
+            Span::styled("Tabs ", theme::muted()),
             Span::styled("1-4", key_style()),
-            Span::raw(" tabs  "),
+            Span::raw(" direct  "),
             Span::styled("Tab", key_style()),
-            Span::raw(" next tab  "),
+            Span::raw(" next  "),
             Span::styled("Shift+Tab", key_style()),
-            Span::raw(" prev tab  "),
-            Span::styled("r", key_style()),
-            Span::raw(" refresh  "),
+            Span::raw(" prev  "),
+            Span::styled("Filter ", theme::muted()),
             Span::styled("/", key_style()),
-            Span::raw(" filter  "),
+            Span::raw("  "),
+            Span::styled("Help ", theme::muted()),
             Span::styled("?", key_style()),
-            Span::raw(" help  "),
+            Span::raw("  "),
+            Span::styled("Scroll ", theme::muted()),
             Span::styled("PgUp/PgDn", key_style()),
-            Span::raw(" detail scroll  "),
+            Span::raw(" detail  "),
+            Span::styled("Refresh ", theme::muted()),
+            Span::styled("r", key_style()),
+            Span::raw("  "),
+            Span::styled("Quit ", theme::muted()),
             Span::styled("q", key_style()),
-            Span::raw(" quit  "),
+            Span::raw("  "),
             Span::styled(mode, Style::default().fg(theme::AMBER)),
             Span::raw("  "),
             Span::styled(filter, Style::default().fg(theme::MUTED)),
@@ -1186,10 +1210,6 @@ fn status_color(status: &RunStatus) -> Color {
 }
 
 fn short_id(value: &str) -> String {
-    truncate(value, 12)
-}
-
-fn short_commit(value: &str) -> String {
     truncate(value, 12)
 }
 
