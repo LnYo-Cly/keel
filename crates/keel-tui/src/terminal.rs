@@ -34,6 +34,16 @@ pub fn run_tui_with_filters(project: KeelProject, filters: TuiFilters) -> Result
     result
 }
 
+pub fn run_tui_for_run(project: KeelProject, run_id: String) -> Result<()> {
+    run_tui_with_filters(
+        project,
+        TuiFilters {
+            run_id: Some(run_id),
+            ..TuiFilters::default()
+        },
+    )
+}
+
 type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 fn setup_terminal() -> Result<TuiTerminal> {

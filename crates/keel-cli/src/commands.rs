@@ -23,7 +23,11 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
 
     match cli.command {
         None => {
-            keel_tui::run_tui(project)?;
+            if let Some(run_id) = cli.run {
+                keel_tui::run_tui_for_run(project, run_id)?;
+            } else {
+                keel_tui::run_tui(project)?;
+            }
         }
         Some(Commands::Doctor { .. }) => {
             unreachable!("doctor is handled before project discovery")
@@ -46,6 +50,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             println!("Runs: {}", result.runs_dir.display());
         }
         Some(Commands::Tui {
+            run,
             filter,
             agent,
             status,
@@ -56,6 +61,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                     text: filter.unwrap_or_default(),
                     agent,
                     status: status.map(StatusFilter::to_run_status),
+                    run_id: run,
                 },
             )?;
         }
@@ -233,6 +239,26 @@ mod tests {
         let cli = Cli::parse_from(["keel"]);
 
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn root_command_accepts_run_focus_for_default_tui() {
+        let cli = Cli::parse_from(["keel", "--run", "run-123"]);
+
+        assert!(cli.command.is_none());
+        assert_eq!(cli.run.as_deref(), Some("run-123"));
+    }
+
+    #[test]
+    fn tui_command_accepts_run_focus() {
+        let cli = Cli::parse_from(["keel", "tui", "--run", "run-123"]);
+
+        match cli.command {
+            Some(Commands::Tui { run, .. }) => {
+                assert_eq!(run.as_deref(), Some("run-123"));
+            }
+            _ => panic!("expected tui command"),
+        }
     }
 
     #[test]

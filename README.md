@@ -54,7 +54,9 @@ keel status --limit 5
 keel status --json
 keel report <run-id> --json
 keel
+keel --run <run-id>
 keel tui
+keel tui --run <run-id>
 keel tui --agent noop --status ready
 keel commit <run-id> --json
 keel push <run-id> --json
@@ -125,7 +127,9 @@ Crossterm.
 
 ```bash
 keel
+keel --run <run-id>
 keel tui
+keel tui --run <run-id>
 keel tui --filter not_ready
 keel tui --agent noop
 keel tui --status not_ready

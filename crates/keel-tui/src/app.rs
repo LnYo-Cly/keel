@@ -6,6 +6,7 @@ pub struct TuiFilters {
     pub text: String,
     pub agent: Option<String>,
     pub status: Option<RunStatus>,
+    pub run_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -463,6 +464,12 @@ impl App {
     }
 
     fn run_matches_filter(&self, run: &RunMetadata) -> bool {
+        if let Some(run_id) = self.filters.run_id.as_deref() {
+            if run.run_id != run_id {
+                return false;
+            }
+        }
+
         if let Some(agent) = self.filters.agent.as_deref() {
             if run.agent != agent {
                 return false;
@@ -568,6 +575,9 @@ impl TuiFilters {
         }
         if let Some(status) = self.status.as_ref() {
             parts.push(format!("status: {status}"));
+        }
+        if let Some(run_id) = self.run_id.as_deref() {
+            parts.push(format!("run: {run_id}"));
         }
         (!parts.is_empty()).then(|| parts.join(", "))
     }
@@ -744,11 +754,30 @@ mod tests {
     }
 
     #[test]
+    fn startup_run_filter_focuses_exact_run_id() {
+        let mut app = empty_app_with_filters(TuiFilters {
+            run_id: Some("run-target".to_string()),
+            ..TuiFilters::default()
+        });
+        app.runs = vec![
+            sample_run("run-other", RunStatus::Ready, false, false, false),
+            sample_run("run-target", RunStatus::Ready, false, false, false),
+            sample_run("run-target-extra", RunStatus::Ready, false, false, false),
+        ];
+        app.rebuild_visible(None);
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-target");
+        assert_eq!(app.active_filter_label().unwrap(), "run: run-target");
+    }
+
+    #[test]
     fn startup_filters_combine_with_text_filter() {
         let mut app = empty_app_with_filters(TuiFilters {
             text: "auth".to_string(),
             agent: Some("noop".to_string()),
             status: Some(RunStatus::Ready),
+            ..TuiFilters::default()
         });
         app.runs = vec![
             sample_run_with_task("run-auth-ready", "noop", RunStatus::Ready, "fix auth"),
@@ -772,6 +801,7 @@ mod tests {
             text: "auth".to_string(),
             agent: Some("noop".to_string()),
             status: Some(RunStatus::Ready),
+            ..TuiFilters::default()
         });
         app.runs = vec![
             sample_run_with_task("run-auth-ready", "noop", RunStatus::Ready, "fix auth"),

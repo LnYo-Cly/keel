@@ -403,6 +403,7 @@ fn tui_command_is_exposed_as_read_only_review_ui() {
         .stdout(predicate::str::contains(
             "Local-first control layer for AI-generated code",
         ))
+        .stdout(predicate::str::contains("--run"))
         .stdout(predicate::str::contains("tui"));
 
     Command::cargo_bin("keel")
@@ -414,6 +415,7 @@ fn tui_command_is_exposed_as_read_only_review_ui() {
             "Open the read-only terminal review UI",
         ))
         .stdout(predicate::str::contains("--filter"))
+        .stdout(predicate::str::contains("--run"))
         .stdout(predicate::str::contains("--agent"))
         .stdout(predicate::str::contains("--status"));
 }

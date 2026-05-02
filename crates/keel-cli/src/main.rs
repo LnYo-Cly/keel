@@ -10,6 +10,9 @@ mod render;
 #[command(name = "keel")]
 #[command(about = "Local-first control layer for AI-generated code")]
 struct Cli {
+    /// Open the default review UI focused on this run id.
+    #[arg(long)]
+    run: Option<String>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -31,6 +34,9 @@ enum Commands {
     Init,
     /// Open the read-only terminal review UI.
     Tui {
+        /// Focus the review UI on a specific run id.
+        #[arg(long)]
+        run: Option<String>,
         /// Start with a fuzzy text filter applied.
         #[arg(long)]
         filter: Option<String>,
