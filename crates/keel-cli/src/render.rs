@@ -435,6 +435,7 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
         }
     );
     println!("Reason: {}", review.decision.reason);
+    print_ledger_packet("Review packet", &review.packet);
     print_workspace_context(&review.workspace);
     if !review.task.checkpoints.is_empty() {
         println!("Checkpoints:");
@@ -476,6 +477,7 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
         handoff.summary.current_evidence_passed,
         handoff.summary.current_evidence_failed
     );
+    print_ledger_packet("Review packet", &handoff.packet);
     print_workspace_context(&handoff.workspace);
     match &handoff.last_checkpoint {
         Some(checkpoint) => println!("Last checkpoint: {}", checkpoint.message),
@@ -502,6 +504,64 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     println!("Next actions:");
     for action in &handoff.next_actions {
         println!("- {action}");
+    }
+}
+
+fn print_ledger_packet(label: &str, packet: &keel_core::LedgerReviewPacket) {
+    println!("{label}:");
+    println!("- Headline: {}", packet.headline);
+    print_changed_file_groups(&packet.changed_file_groups);
+    print_evidence_packet(&packet.evidence);
+    print_suggested_packet_commands(&packet.suggested_commands);
+}
+
+fn print_changed_file_groups(groups: &[keel_core::ChangedFileGroup]) {
+    if groups.is_empty() {
+        println!("- Changed files: none");
+        return;
+    }
+    println!("- Changed file groups:");
+    for group in groups {
+        println!("  - {}:", group.name);
+        for file in &group.files {
+            println!("    - {file}");
+        }
+    }
+}
+
+fn print_evidence_packet(packet: &keel_core::LedgerEvidencePacket) {
+    match &packet.latest {
+        Some(evidence) => println!(
+            "- Latest evidence: {} ({}, exit {})",
+            evidence.command,
+            evidence.status,
+            evidence.exit_code.unwrap_or_default()
+        ),
+        None => println!("- Latest evidence: none"),
+    }
+    if packet.recovered_after_failure {
+        println!("- Evidence recovery: passing evidence recorded after earlier failures");
+    }
+    if !packet.failed.is_empty() {
+        println!("- Failed evidence history:");
+        for evidence in &packet.failed {
+            println!(
+                "  - {} ({}, exit {})",
+                evidence.command,
+                evidence.status,
+                evidence.exit_code.unwrap_or_default()
+            );
+        }
+    }
+}
+
+fn print_suggested_packet_commands(commands: &[String]) {
+    if commands.is_empty() {
+        return;
+    }
+    println!("- Suggested commands:");
+    for command in commands {
+        println!("  - {command}");
     }
 }
 

@@ -471,10 +471,30 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .unwrap()
         .iter()
         .any(|file| file == "README.md"));
+    assert!(review["packet"]["headline"]
+        .as_str()
+        .unwrap()
+        .contains("ready"));
+    assert!(review["packet"]["changed_file_groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|group| group["name"] == "docs"
+            && group["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|file| file == "README.md")));
+    assert!(review["packet"]["evidence"]["latest"]["command"]
+        .as_str()
+        .unwrap()
+        .contains("echo"));
 
     run_keel(repo.path(), ["review"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("Review packet:"))
+        .stdout(predicate::str::contains("Changed file groups:"))
         .stdout(predicate::str::contains("Workspace:"))
         .stdout(predicate::str::contains("Dirty: yes"))
         .stdout(predicate::str::contains("README.md"));
@@ -519,6 +539,11 @@ fn ledger_failed_evidence_makes_verify_fail() {
     assert_eq!(review["decision"]["ready"], false);
     assert_eq!(review["summary"]["evidence_failed"], 1);
     assert_eq!(review["summary"]["current_evidence_failed"], 0);
+    assert!(review["packet"]["evidence"]["failed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|evidence| evidence["command"] == "definitely-not-a-keel-command"));
 }
 
 #[test]

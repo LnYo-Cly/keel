@@ -167,8 +167,10 @@ directories, temporary caches, or other deterministic verification settings.
 `keel verify` exits non-zero if the active task has no evidence or if the latest
 evidence window is still failing. Historical failed evidence stays in the ledger,
 but later passing evidence can restore readiness after a fix. `keel review` and
-`keel handoff` also show whether the current workspace is dirty and list changed
-files. These commands do not merge, push, or mutate source files.
+`keel handoff` also include a review packet with a readiness headline, changed
+files grouped by source/tests/docs/config/other, latest and failed evidence, and
+suggested closeout commands. These commands do not merge, push, or mutate source
+files.
 
 ## Terminal Review UI
 

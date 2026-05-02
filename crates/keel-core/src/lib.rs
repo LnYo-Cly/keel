@@ -28,8 +28,9 @@ pub use json::{
     report_json, status_json, ArtifactJson, ArtifactSetJson, ReportJson, RunSummaryJson,
 };
 pub use ledger::{
-    LedgerCheckpoint, LedgerDecision, LedgerEvidence, LedgerEvidenceEnv, LedgerEvidenceStatus,
-    LedgerHandoff, LedgerNote, LedgerReview, LedgerSummary, LedgerTask, LedgerTaskStatus,
+    ChangedFileGroup, LedgerCheckpoint, LedgerDecision, LedgerEvidence, LedgerEvidenceBrief,
+    LedgerEvidenceEnv, LedgerEvidencePacket, LedgerEvidenceStatus, LedgerHandoff, LedgerNote,
+    LedgerReview, LedgerReviewPacket, LedgerSummary, LedgerTask, LedgerTaskStatus,
     WorkspaceContext,
 };
 pub use model::{

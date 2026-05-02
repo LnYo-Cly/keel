@@ -106,6 +106,7 @@ pub struct LedgerReview {
     pub summary: LedgerSummary,
     pub decision: LedgerDecision,
     pub workspace: WorkspaceContext,
+    pub packet: LedgerReviewPacket,
     pub next_actions: Vec<String>,
 }
 
@@ -132,6 +133,7 @@ pub struct LedgerHandoff {
     pub task: LedgerTask,
     pub summary: LedgerSummary,
     pub workspace: WorkspaceContext,
+    pub packet: LedgerReviewPacket,
     pub last_checkpoint: Option<LedgerCheckpoint>,
     pub recent_notes: Vec<LedgerNote>,
     pub recent_evidence: Vec<LedgerEvidence>,
@@ -146,6 +148,36 @@ pub struct WorkspaceContext {
     pub git_diff_stat: String,
     pub git_status_error: Option<String>,
     pub git_diff_stat_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LedgerReviewPacket {
+    pub headline: String,
+    pub changed_file_groups: Vec<ChangedFileGroup>,
+    pub evidence: LedgerEvidencePacket,
+    pub suggested_commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangedFileGroup {
+    pub name: String,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LedgerEvidencePacket {
+    pub latest: Option<LedgerEvidenceBrief>,
+    pub current_window: Vec<LedgerEvidenceBrief>,
+    pub failed: Vec<LedgerEvidenceBrief>,
+    pub recovered_after_failure: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LedgerEvidenceBrief {
+    pub command: String,
+    pub status: LedgerEvidenceStatus,
+    pub exit_code: Option<i32>,
+    pub started_at: String,
 }
 
 pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
@@ -217,11 +249,14 @@ pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
     let task = read_active_task(root)?;
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
+    let workspace = workspace_context(root);
+    let packet = review_packet(&task, &summary, &decision, &workspace);
     Ok(LedgerReview {
         task,
         summary,
         decision,
-        workspace: workspace_context(root),
+        workspace,
+        packet,
         next_actions: review_next_actions(),
     })
 }
@@ -229,13 +264,17 @@ pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
 pub(crate) fn handoff(root: &Path) -> Result<LedgerHandoff> {
     let task = read_active_task(root)?;
     let summary = summarize_task(&task);
+    let decision = decision_for_summary(&summary);
+    let workspace = workspace_context(root);
+    let packet = review_packet(&task, &summary, &decision, &workspace);
     let last_checkpoint = task.checkpoints.last().cloned();
     let recent_notes = tail_items(&task.notes, 5);
     let recent_evidence = tail_items(&task.evidence, 5);
     Ok(LedgerHandoff {
         task,
         summary,
-        workspace: workspace_context(root),
+        workspace,
+        packet,
         last_checkpoint,
         recent_notes,
         recent_evidence,
@@ -430,6 +469,143 @@ fn decision_for_summary(summary: &LedgerSummary) -> LedgerDecision {
     }
 }
 
+fn review_packet(
+    task: &LedgerTask,
+    summary: &LedgerSummary,
+    decision: &LedgerDecision,
+    workspace: &WorkspaceContext,
+) -> LedgerReviewPacket {
+    LedgerReviewPacket {
+        headline: review_headline(decision, workspace),
+        changed_file_groups: group_changed_files(&workspace.changed_files),
+        evidence: evidence_packet(task, summary),
+        suggested_commands: suggested_packet_commands(decision, workspace),
+    }
+}
+
+fn review_headline(decision: &LedgerDecision, workspace: &WorkspaceContext) -> String {
+    let verdict = if decision.ready { "ready" } else { "not ready" };
+    let dirty = if workspace.dirty {
+        "workspace has changes"
+    } else {
+        "workspace is clean"
+    };
+    format!("{verdict}: {dirty}; {}", decision.reason)
+}
+
+fn group_changed_files(files: &[String]) -> Vec<ChangedFileGroup> {
+    let mut groups = [
+        ChangedFileGroup {
+            name: "source".to_string(),
+            files: Vec::new(),
+        },
+        ChangedFileGroup {
+            name: "tests".to_string(),
+            files: Vec::new(),
+        },
+        ChangedFileGroup {
+            name: "docs".to_string(),
+            files: Vec::new(),
+        },
+        ChangedFileGroup {
+            name: "config".to_string(),
+            files: Vec::new(),
+        },
+        ChangedFileGroup {
+            name: "other".to_string(),
+            files: Vec::new(),
+        },
+    ];
+
+    for file in files {
+        let index = changed_file_group_index(file);
+        groups[index].files.push(file.clone());
+    }
+
+    groups
+        .into_iter()
+        .filter(|group| !group.files.is_empty())
+        .collect()
+}
+
+fn changed_file_group_index(path: &str) -> usize {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    if lower.contains("/tests/")
+        || lower.ends_with("_test.rs")
+        || lower.ends_with("_tests.rs")
+        || lower.contains("/snapshots/")
+        || lower.starts_with("tests/")
+    {
+        return 1;
+    }
+    if lower == "readme.md" || lower.starts_with("docs/") || lower.ends_with(".md") {
+        return 2;
+    }
+    if lower == "cargo.toml"
+        || lower == "cargo.lock"
+        || lower.ends_with(".toml")
+        || lower.starts_with(".github/")
+        || lower.starts_with("scripts/")
+    {
+        return 3;
+    }
+    if lower.contains("/src/") || lower.starts_with("src/") || lower.ends_with(".rs") {
+        return 0;
+    }
+    4
+}
+
+fn evidence_packet(task: &LedgerTask, summary: &LedgerSummary) -> LedgerEvidencePacket {
+    let current_start = task.evidence.len().saturating_sub(summary.current_evidence);
+    LedgerEvidencePacket {
+        latest: task.evidence.last().map(evidence_brief),
+        current_window: task.evidence[current_start..]
+            .iter()
+            .map(evidence_brief)
+            .collect(),
+        failed: task
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.status == LedgerEvidenceStatus::Failed)
+            .map(evidence_brief)
+            .collect(),
+        recovered_after_failure: summary.evidence_failed > 0
+            && summary.current_evidence_failed == 0,
+    }
+}
+
+fn evidence_brief(evidence: &LedgerEvidence) -> LedgerEvidenceBrief {
+    LedgerEvidenceBrief {
+        command: evidence.command.clone(),
+        status: evidence.status,
+        exit_code: evidence.exit_code,
+        started_at: evidence.started_at.clone(),
+    }
+}
+
+fn suggested_packet_commands(
+    decision: &LedgerDecision,
+    workspace: &WorkspaceContext,
+) -> Vec<String> {
+    let mut commands = Vec::new();
+    if !decision.ready {
+        commands.push("fix the failed or missing evidence".to_string());
+        commands.push("keel evidence add --cmd \"cargo test --workspace\"".to_string());
+        commands.push("keel verify".to_string());
+        return commands;
+    }
+    if workspace.dirty {
+        commands.push("git diff --stat".to_string());
+        commands.push("git diff --check".to_string());
+        commands.push("keel evidence add --cmd \"cargo test --workspace\"".to_string());
+    } else {
+        commands.push("keel handoff".to_string());
+    }
+    commands.push("keel review".to_string());
+    commands
+}
+
 fn current_evidence_window(evidence: &[LedgerEvidence]) -> &[LedgerEvidence] {
     let start = evidence
         .iter()
@@ -576,5 +752,27 @@ mod tests {
                 "new.rs".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn review_packet_groups_changed_files_for_closeout() {
+        let groups = group_changed_files(&[
+            "README.md".to_string(),
+            "crates/keel-core/src/ledger.rs".to_string(),
+            "crates/keel-cli/tests/cli_workflow.rs".to_string(),
+            "Cargo.toml".to_string(),
+        ]);
+
+        assert!(groups
+            .iter()
+            .any(|group| group.name == "docs" && group.files == ["README.md"]));
+        assert!(groups.iter().any(
+            |group| group.name == "source" && group.files == ["crates/keel-core/src/ledger.rs"]
+        ));
+        assert!(groups.iter().any(|group| group.name == "tests"
+            && group.files == ["crates/keel-cli/tests/cli_workflow.rs"]));
+        assert!(groups
+            .iter()
+            .any(|group| group.name == "config" && group.files == ["Cargo.toml"]));
     }
 }
