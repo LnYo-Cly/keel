@@ -404,16 +404,16 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
 
     let constraints = if area.height < 24 {
         vec![
-            Constraint::Length(8),
+            Constraint::Length(7),
             Constraint::Length(6),
-            Constraint::Length(4),
-            Constraint::Min(3),
+            Constraint::Length(5),
+            Constraint::Length(3),
         ]
     } else {
         vec![
-            Constraint::Length(9),
-            Constraint::Length(7),
-            Constraint::Length(5),
+            Constraint::Length(8),
+            Constraint::Length(6),
+            Constraint::Length(6),
             Constraint::Min(3),
         ]
     };
@@ -430,23 +430,29 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
         chunks[0],
     );
 
+    frame.render_widget(
+        section("Review Progress", review_progress_lines(metadata)),
+        chunks[1],
+    );
+
     let checks = detail
         .checks
         .as_deref()
         .map(check_lines)
         .unwrap_or_else(|| vec![Line::from("checks.json missing")]);
-    frame.render_widget(section("Checks", checks), chunks[1]);
+    frame.render_widget(section("Checks", checks), chunks[2]);
 
     let warnings = warning_lines(metadata);
-    frame.render_widget(section("Risk Warnings", warnings), chunks[2]);
-
-    let next = next_action_lines(metadata);
-    frame.render_widget(section("Suggested Next Actions", next), chunks[3]);
+    frame.render_widget(section("Risk Warnings", warnings), chunks[3]);
 }
 
 fn render_compact_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let metadata = &detail.report.metadata;
     let mut lines = review_focus_lines(metadata, detail.checks.as_deref());
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Progress", theme::muted())));
+    lines.extend(compact_review_progress_lines(metadata));
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Checks", theme::muted())));
@@ -548,18 +554,7 @@ fn review_focus_lines(
             label("Ready"),
             Span::raw(compact_reason(&metadata.readiness_reason)),
         ]),
-        Line::from(vec![label("Inspect"), Span::raw(inspect_hint(metadata))]),
     ]
-}
-
-fn inspect_hint(metadata: &RunMetadata) -> &'static str {
-    match metadata.status {
-        RunStatus::Ready => "diff, warnings, then commit/push from CLI if accepted",
-        RunStatus::NotReady => "checks and log first; candidate is blocked",
-        RunStatus::Discarded => "history only; worktree was discarded",
-        RunStatus::Running => "refresh until agent finishes",
-        RunStatus::Created => "waiting for execution artifacts",
-    }
 }
 
 fn review_verdict(metadata: &RunMetadata, failed_checks: usize) -> &'static str {
@@ -1042,6 +1037,140 @@ fn label(value: &'static str) -> Span<'static> {
     Span::styled(format!("{value:<10} "), Style::default().fg(theme::MUTED))
 }
 
+fn review_progress_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
+    vec![
+        progress_line(
+            "Commit",
+            metadata.committed,
+            committed_detail(metadata),
+            "not committed",
+        ),
+        progress_line(
+            "Push",
+            metadata.pushed,
+            pushed_detail(metadata),
+            "not pushed",
+        ),
+        progress_line(
+            "PR/MR",
+            metadata.pr_created,
+            pr_detail(metadata),
+            "not created",
+        ),
+        Line::from(vec![
+            label("Next"),
+            Span::styled(
+                review_next_action_text(metadata),
+                next_action_style(metadata),
+            ),
+        ]),
+    ]
+}
+
+fn compact_review_progress_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            label("Git"),
+            progress_chip("commit", metadata.committed),
+            Span::raw("  "),
+            progress_chip("push", metadata.pushed),
+            Span::raw("  "),
+            progress_chip("pr", metadata.pr_created),
+        ]),
+        Line::from(vec![
+            label("Next"),
+            Span::styled(
+                review_next_action_text(metadata),
+                next_action_style(metadata),
+            ),
+        ]),
+    ]
+}
+
+fn progress_chip(label: &'static str, done: bool) -> Span<'static> {
+    let (marker, color) = if done {
+        ("yes", theme::GREEN)
+    } else {
+        ("no", theme::MUTED)
+    };
+    Span::styled(format!("{label}:{marker}"), Style::default().fg(color))
+}
+
+fn progress_line(
+    label_text: &'static str,
+    done: bool,
+    done_detail: String,
+    pending_detail: &'static str,
+) -> Line<'static> {
+    let (state, color, detail) = if done {
+        ("yes", theme::GREEN, done_detail)
+    } else {
+        ("no ", theme::MUTED, pending_detail.to_string())
+    };
+
+    Line::from(vec![
+        label(label_text),
+        Span::styled(
+            state,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::raw(detail),
+    ])
+}
+
+fn committed_detail(metadata: &RunMetadata) -> String {
+    metadata
+        .commit_sha
+        .as_deref()
+        .map(short_sha)
+        .unwrap_or_else(|| "local commit recorded".to_string())
+}
+
+fn pushed_detail(metadata: &RunMetadata) -> String {
+    let remote = metadata.push_remote.as_deref().unwrap_or("remote");
+    let branch = metadata
+        .pushed_branch
+        .as_deref()
+        .unwrap_or(metadata.branch.as_str());
+    format!("{remote} {}", compact_branch(branch))
+}
+
+fn pr_detail(metadata: &RunMetadata) -> String {
+    if let Some(url) = metadata.pr_url.as_deref() {
+        return compact_path(url);
+    }
+    metadata
+        .pr_provider
+        .as_deref()
+        .map(|provider| format!("{provider} request created"))
+        .unwrap_or_else(|| "request artifact recorded".to_string())
+}
+
+fn review_next_action_text(metadata: &RunMetadata) -> String {
+    match metadata.status {
+        RunStatus::Ready if !metadata.committed => format!("CLI: keel commit {}", metadata.run_id),
+        RunStatus::Ready if !metadata.pushed => format!("CLI: keel push {}", metadata.run_id),
+        RunStatus::Ready if !metadata.pr_created => {
+            format!("CLI: keel pr {} --manual --dry-run", metadata.run_id)
+        }
+        RunStatus::Ready => "review provider request; Keel will not merge".to_string(),
+        RunStatus::NotReady => "fix or rerun; commit/push are blocked".to_string(),
+        RunStatus::Discarded => "history only; no write action suggested".to_string(),
+        RunStatus::Running => "wait, then refresh with r".to_string(),
+        RunStatus::Created => "waiting for run artifacts".to_string(),
+    }
+}
+
+fn next_action_style(metadata: &RunMetadata) -> Style {
+    Style::default().fg(match metadata.status {
+        RunStatus::Ready => theme::CYAN,
+        RunStatus::NotReady => theme::AMBER,
+        RunStatus::Discarded => theme::RED,
+        RunStatus::Running | RunStatus::Created => theme::BLUE,
+    })
+}
+
 fn check_lines(checks: &[CheckResult]) -> Vec<Line<'static>> {
     if checks.is_empty() {
         return vec![Line::from("no checks recorded")];
@@ -1087,32 +1216,6 @@ fn check_marker(status: &CheckStatus) -> &'static str {
         CheckStatus::Failed => "✗ ",
         CheckStatus::Skipped => "- ",
     }
-}
-
-fn next_action_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from("Review report, diff, log, checks, and warnings before merging."),
-        Line::from("Human decides merge. Keel does not auto merge."),
-    ];
-    if metadata.committed {
-        lines.push(Line::from("Local commit exists on the candidate branch."));
-    } else if metadata.status == RunStatus::Ready {
-        lines.push(Line::from(format!("CLI: keel commit {}", metadata.run_id)));
-    }
-    if metadata.pushed {
-        lines.push(Line::from("Candidate branch has been pushed."));
-    } else if metadata.committed && metadata.status == RunStatus::Ready {
-        lines.push(Line::from(format!("CLI: keel push {}", metadata.run_id)));
-    }
-    if metadata.pr_created {
-        lines.push(Line::from("PR/MR artifact exists."));
-    } else if metadata.pushed && metadata.status == RunStatus::Ready {
-        lines.push(Line::from(format!(
-            "CLI: keel pr {} --manual --dry-run",
-            metadata.run_id
-        )));
-    }
-    lines
 }
 
 fn git_state(run: &RunMetadata) -> String {
@@ -1210,6 +1313,10 @@ fn status_color(status: &RunStatus) -> Color {
 }
 
 fn short_id(value: &str) -> String {
+    truncate(value, 12)
+}
+
+fn short_sha(value: &str) -> String {
     truncate(value, 12)
 }
 
@@ -1370,6 +1477,34 @@ mod tests {
 
         detail.report.artifacts[0].exists = false;
         assert!(format!("{:?}", tab_label(DetailTab::Artifacts, Some(&detail))).contains("!"));
+    }
+
+    #[test]
+    fn review_progress_surfaces_next_cli_action() {
+        let mut run = sample_run();
+
+        let uncommitted = format!("{:?}", review_progress_lines(&run));
+        assert!(uncommitted.contains("Commit"));
+        assert!(uncommitted.contains("keel commit run-1"));
+
+        run.committed = true;
+        run.commit_sha = Some("1234567890abcdef".to_string());
+        let committed = format!("{:?}", review_progress_lines(&run));
+        assert!(committed.contains("1234567890ab"));
+        assert!(committed.contains("keel push run-1"));
+
+        run.pushed = true;
+        run.push_remote = Some("origin".to_string());
+        run.pushed_branch = Some("keel/run/run-1".to_string());
+        let pushed = format!("{:?}", review_progress_lines(&run));
+        assert!(pushed.contains("origin keel/run/run-1"));
+        assert!(pushed.contains("keel pr run-1 --manual --dry-run"));
+
+        run.pr_created = true;
+        run.pr_url = Some("https://github.com/example/repo/pull/1".to_string());
+        let pr = format!("{:?}", review_progress_lines(&run));
+        assert!(pr.contains("github.com/example/repo/pull/1"));
+        assert!(pr.contains("review provider request"));
     }
 
     #[test]

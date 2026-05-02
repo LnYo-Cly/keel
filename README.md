@@ -142,8 +142,10 @@ Current TUI behavior:
   pushed, and PR/MR-created runs.
 - Uses a review inbox layout with a compact `Decision` column so the next human
   action is visible before lower-level status details.
-- Shows the selected run's report summary, checks, warnings, suggested next
-  actions, diff, log, and artifact paths.
+- Shows the selected run's report summary, review progress, checks, warnings,
+  suggested next CLI action, diff, log, and artifact paths.
+- Separates review progress into commit, push, and PR/MR state so the TUI shows
+  what has happened without executing write actions.
 - Marks diff/log tabs as present, empty, or missing, and marks artifacts when
   required review files are missing.
 - Colors git diff file headers, hunks, additions, deletions, and metadata lines.
