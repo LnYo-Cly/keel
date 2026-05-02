@@ -459,8 +459,15 @@ impl App {
                     .iter()
                     .position(|index| self.runs[*index].run_id == run_id)
             })
+            .or_else(|| self.preferred_review_selection())
             .unwrap_or(0);
         self.clamp_selection();
+    }
+
+    fn preferred_review_selection(&self) -> Option<usize> {
+        self.visible
+            .iter()
+            .position(|index| self.runs[*index].status == RunStatus::Ready)
     }
 
     fn run_matches_filter(&self, run: &RunMetadata) -> bool {
@@ -561,7 +568,10 @@ impl App {
 
 impl TuiFilters {
     fn has_active(&self) -> bool {
-        !self.text.trim().is_empty() || self.agent.is_some() || self.status.is_some()
+        !self.text.trim().is_empty()
+            || self.agent.is_some()
+            || self.status.is_some()
+            || self.run_id.is_some()
     }
 
     fn label(&self) -> Option<String> {
@@ -768,7 +778,28 @@ mod tests {
 
         assert_eq!(app.visible_count(), 1);
         assert_eq!(app.selected_run().unwrap().run_id, "run-target");
+        assert!(app.has_active_filters());
         assert_eq!(app.active_filter_label().unwrap(), "run: run-target");
+    }
+
+    #[test]
+    fn default_selection_prefers_newest_ready_run() {
+        let mut app = empty_app();
+        app.runs = vec![
+            sample_run(
+                "run-newest-blocked",
+                RunStatus::NotReady,
+                false,
+                false,
+                false,
+            ),
+            sample_run("run-newest-ready", RunStatus::Ready, false, false, false),
+            sample_run("run-older-ready", RunStatus::Ready, false, false, false),
+        ];
+        app.rebuild_visible(None);
+
+        assert_eq!(app.visible_count(), 3);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-newest-ready");
     }
 
     #[test]

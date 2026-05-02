@@ -10,11 +10,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap};
 use ratatui::Frame;
 
-const RUN_TABLE_WIDTHS: [Constraint; 4] = [
-    Constraint::Length(12),
+const RUN_TABLE_WIDTHS: [Constraint; 3] = [
     Constraint::Length(14),
-    Constraint::Min(16),
-    Constraint::Length(12),
+    Constraint::Length(14),
+    Constraint::Min(8),
 ];
 const NARROW_WIDTH: u16 = 110;
 
@@ -71,11 +70,10 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
         .split(area);
 
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled("Keel", theme::title()),
-        Span::raw("  "),
-        Span::styled("review", Style::default().fg(theme::MUTED).bg(theme::BG)),
-    ]))
+    let title = Paragraph::new(Line::from(vec![Span::styled(
+        "Keel review",
+        theme::title(),
+    )]))
     .block(
         Block::default()
             .borders(Borders::BOTTOM)
@@ -108,7 +106,7 @@ fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
 fn render_compact_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let counts = app.counts();
     let line = Line::from(vec![
-        Span::styled("Keel", theme::title()),
+        Span::styled("Keel review", theme::title()),
         Span::raw("  "),
         Span::styled("Ready ", Style::default().fg(theme::MUTED)),
         Span::styled(counts.ready.to_string(), Style::default().fg(theme::GREEN)),
@@ -173,7 +171,7 @@ fn render_body(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(44), Constraint::Percentage(56)])
+        .constraints([Constraint::Percentage(36), Constraint::Percentage(64)])
         .split(area);
 
     render_runs(frame, app, chunks[0]);
@@ -194,9 +192,8 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 status_row_style(&run.status)
             };
             Row::new(vec![
-                Cell::from(short_id(&run.run_id)),
-                Cell::from(run_queue_label(run)),
-                Cell::from(truncate(&run.task, 34)),
+                Cell::from(short_run_id_for_width(&run.run_id, 14)),
+                Cell::from(truncate(&review_state_label(run), 13)),
                 Cell::from(next_step_label(run)),
             ])
             .style(style)
@@ -205,12 +202,12 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let table = Table::new(rows, RUN_TABLE_WIDTHS)
         .header(
-            Row::new(vec!["Run", "Queue", "Task", "Next"])
+            Row::new(vec!["Run", "State", "Action"])
                 .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
         )
         .block(
             Block::default()
-                .title(run_list_title(app))
+                .title(review_queue_title(app))
                 .borders(Borders::ALL)
                 .border_style(theme::border())
                 .style(Style::default().bg(theme::PANEL)),
@@ -253,19 +250,18 @@ fn render_detail(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 }
 
 fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
-    let state_color = status_color(&run.status);
     let lines = if area.width < NARROW_WIDTH {
         vec![
             Line::from(vec![
-                Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
+                Span::styled(short_run_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(decision_label(run), decision_style(run)),
+                Span::styled(review_state_label(run), decision_style(run)),
                 Span::raw("  "),
                 Span::raw(truncate(&run.task, 48)),
             ]),
             Line::from(vec![
-                Span::styled("Next: ", theme::muted()),
-                Span::styled(review_verdict(run, 0), Style::default().fg(state_color)),
+                Span::styled("Action: ", theme::muted()),
+                Span::styled(next_step_text(run), next_action_style(run)),
                 Span::styled("  Agent ", theme::muted()),
                 Span::raw(run.agent.clone()),
             ]),
@@ -273,15 +269,15 @@ fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
     } else {
         vec![
             Line::from(vec![
-                Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
+                Span::styled(short_run_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(decision_label(run), decision_style(run)),
+                Span::styled(review_state_label(run), decision_style(run)),
                 Span::raw("  "),
                 Span::raw(truncate(&run.task, 80)),
             ]),
             Line::from(vec![
-                Span::styled("Next: ", theme::muted()),
-                Span::styled(review_verdict(run, 0), Style::default().fg(state_color)),
+                Span::styled("Action: ", theme::muted()),
+                Span::styled(next_step_text(run), next_action_style(run)),
                 Span::styled("  Agent ", theme::muted()),
                 Span::raw(run.agent.clone()),
                 Span::styled("  Git ", theme::muted()),
@@ -404,7 +400,7 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
         vec![
             Constraint::Length(7),
             Constraint::Length(6),
-            Constraint::Length(5),
+            Constraint::Length(6),
             Constraint::Length(3),
         ]
     } else {
@@ -422,14 +418,14 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
 
     frame.render_widget(
         section(
-            "Review Focus",
+            "Current Decision",
             review_focus_lines(metadata, detail.checks.as_deref()),
         ),
         chunks[0],
     );
 
     frame.render_widget(
-        section("Review Progress", review_progress_lines(metadata)),
+        section("Next CLI Step", review_progress_lines(metadata)),
         chunks[1],
     );
 
@@ -502,9 +498,6 @@ fn review_focus_lines(
         .iter()
         .filter(|check| check.status == CheckStatus::Failed)
         .count();
-    let git = git_state(metadata);
-    let git_label = if git == "-" { "candidate" } else { &git };
-
     vec![
         Line::from(vec![
             Span::styled(
@@ -521,7 +514,7 @@ fn review_focus_lines(
         ]),
         Line::from(vec![label("Task"), Span::raw(truncate(&metadata.task, 82))]),
         Line::from(vec![
-            label("Risk"),
+            label("Evidence"),
             Span::styled(
                 risk_summary(warning_count),
                 Style::default().fg(if warning_count == 0 {
@@ -539,8 +532,6 @@ fn review_focus_lines(
                     theme::RED
                 }),
             ),
-            Span::styled("  Git ", theme::muted()),
-            Span::styled(git_label.to_string(), Style::default().fg(theme::CYAN)),
         ]),
         Line::from(vec![
             label("Agent"),
@@ -977,16 +968,16 @@ fn key_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-fn run_list_title(app: &App) -> String {
+fn review_queue_title(app: &App) -> String {
     let position = app
         .selected_position()
         .map(|(selected, total)| format!("{selected}/{total}"))
         .unwrap_or_else(|| "0/0".to_string());
     if !app.has_active_filters() {
-        format!("Runs ({position}, newest first)")
+        format!("Review queue ({position}, newest first)")
     } else {
         format!(
-            "Runs ({position}, {} of {}, filter: {})",
+            "Review queue ({position}, {} of {}, filter: {})",
             app.visible_count(),
             app.total_count(),
             app.active_filter_label().unwrap_or_default()
@@ -1262,7 +1253,7 @@ fn status_label(status: &RunStatus) -> &'static str {
     }
 }
 
-fn decision_label(run: &RunMetadata) -> String {
+fn review_state_label(run: &RunMetadata) -> String {
     let risk_count = run.warnings.len() + run.risk_warnings.len();
     let base = match run.status {
         RunStatus::Ready => "review",
@@ -1280,27 +1271,6 @@ fn decision_label(run: &RunMetadata) -> String {
     }
 }
 
-fn run_queue_label(run: &RunMetadata) -> String {
-    truncate(&queue_label(run), 14)
-}
-
-fn queue_label(run: &RunMetadata) -> String {
-    let risk_count = run.warnings.len() + run.risk_warnings.len();
-    let prefix = match run.status {
-        RunStatus::Ready => "review",
-        RunStatus::NotReady => "blocked",
-        RunStatus::Running => "running",
-        RunStatus::Discarded => "discarded",
-        RunStatus::Created => "created",
-    };
-
-    if risk_count == 0 {
-        prefix.to_string()
-    } else {
-        format!("{prefix} !{risk_count}")
-    }
-}
-
 fn next_step_label(run: &RunMetadata) -> String {
     let label = match run.status {
         RunStatus::Ready if !run.committed => "commit",
@@ -1313,6 +1283,10 @@ fn next_step_label(run: &RunMetadata) -> String {
         RunStatus::Created => "wait",
     };
     label.to_string()
+}
+
+fn next_step_text(run: &RunMetadata) -> String {
+    review_next_action_text(run)
 }
 
 fn decision_style(run: &RunMetadata) -> Style {
@@ -1333,6 +1307,23 @@ fn status_color(status: &RunStatus) -> Color {
 
 fn short_id(value: &str) -> String {
     truncate(value, 12)
+}
+
+fn short_run_id(value: &str) -> String {
+    short_run_id_for_width(value, 16)
+}
+
+fn short_run_id_for_width(value: &str, max_chars: usize) -> String {
+    let Some(suffix) = value.rsplit('-').next() else {
+        return truncate(value, max_chars);
+    };
+
+    let compact = if value.starts_with("run-") && suffix.len() < value.len() {
+        format!("run-...{suffix}")
+    } else {
+        value.to_string()
+    };
+    truncate(&compact, max_chars)
 }
 
 fn short_sha(value: &str) -> String {
@@ -1467,21 +1458,18 @@ mod tests {
     }
 
     #[test]
-    fn decision_label_keeps_review_signal_short() {
+    fn review_state_label_keeps_review_signal_short() {
         let mut run = sample_run();
 
-        assert_eq!(decision_label(&run), "review");
-        assert_eq!(queue_label(&run), "review");
+        assert_eq!(review_state_label(&run), "review");
         assert_eq!(next_step_label(&run), "commit");
 
         run.status = RunStatus::NotReady;
-        assert_eq!(decision_label(&run), "blocked");
-        assert_eq!(queue_label(&run), "blocked");
+        assert_eq!(review_state_label(&run), "blocked");
         assert_eq!(next_step_label(&run), "fix/rerun");
 
         run.warnings.push("dependency manifest changed".to_string());
-        assert_eq!(decision_label(&run), "blocked risk:1");
-        assert_eq!(queue_label(&run), "blocked !1");
+        assert_eq!(review_state_label(&run), "blocked risk:1");
     }
 
     #[test]
@@ -1598,6 +1586,16 @@ mod tests {
             compact_branch("keel/run/run-1777642077378-46484"),
             "keel/run/run-17776420…"
         );
+    }
+
+    #[test]
+    fn short_run_id_keeps_unique_suffix_visible() {
+        assert_eq!(short_run_id("run-1777715825094-49196"), "run-...49196");
+        assert_eq!(
+            short_run_id_for_width("run-1777715825094-49196", 12),
+            "run-...49196"
+        );
+        assert_eq!(short_run_id("manual"), "manual");
     }
 
     fn check(name: &str, status: CheckStatus, exit_code: Option<i32>) -> CheckResult {
