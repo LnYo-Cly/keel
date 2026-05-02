@@ -69,6 +69,14 @@ pub struct LedgerEvidence {
     pub stderr: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<LedgerEvidenceEnv>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerEvidenceEnv {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,6 +105,7 @@ pub struct LedgerReview {
     pub task: LedgerTask,
     pub summary: LedgerSummary,
     pub decision: LedgerDecision,
+    pub workspace: WorkspaceContext,
     pub next_actions: Vec<String>,
 }
 
@@ -107,6 +116,9 @@ pub struct LedgerSummary {
     pub evidence: usize,
     pub evidence_passed: usize,
     pub evidence_failed: usize,
+    pub current_evidence: usize,
+    pub current_evidence_passed: usize,
+    pub current_evidence_failed: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,10 +131,21 @@ pub struct LedgerDecision {
 pub struct LedgerHandoff {
     pub task: LedgerTask,
     pub summary: LedgerSummary,
+    pub workspace: WorkspaceContext,
     pub last_checkpoint: Option<LedgerCheckpoint>,
     pub recent_notes: Vec<LedgerNote>,
     pub recent_evidence: Vec<LedgerEvidence>,
     pub next_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceContext {
+    pub dirty: bool,
+    pub changed_files: Vec<String>,
+    pub git_status_short: String,
+    pub git_diff_stat: String,
+    pub git_status_error: Option<String>,
+    pub git_diff_stat_error: Option<String>,
 }
 
 pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
@@ -178,10 +201,14 @@ pub(crate) fn add_note(root: &Path, message: &str) -> Result<LedgerTask> {
     touch_and_write(root, task)
 }
 
-pub(crate) fn add_evidence(root: &Path, command: &str) -> Result<LedgerTask> {
+pub(crate) fn add_evidence(
+    root: &Path,
+    command: &str,
+    env: Vec<LedgerEvidenceEnv>,
+) -> Result<LedgerTask> {
     let command = normalized_message(command, "evidence command")?;
     let mut task = read_active_task(root)?;
-    let evidence = run_evidence_command(root, &command, task.evidence.len() + 1)?;
+    let evidence = run_evidence_command(root, &command, env, task.evidence.len() + 1)?;
     task.evidence.push(evidence);
     touch_and_write(root, task)
 }
@@ -194,6 +221,7 @@ pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
         task,
         summary,
         decision,
+        workspace: workspace_context(root),
         next_actions: review_next_actions(),
     })
 }
@@ -207,6 +235,7 @@ pub(crate) fn handoff(root: &Path) -> Result<LedgerHandoff> {
     Ok(LedgerHandoff {
         task,
         summary,
+        workspace: workspace_context(root),
         last_checkpoint,
         recent_notes,
         recent_evidence,
@@ -238,11 +267,20 @@ fn touch_and_write(root: &Path, mut task: LedgerTask) -> Result<LedgerTask> {
     Ok(task)
 }
 
-fn run_evidence_command(root: &Path, command: &str, sequence: usize) -> Result<LedgerEvidence> {
+fn run_evidence_command(
+    root: &Path,
+    command: &str,
+    env: Vec<LedgerEvidenceEnv>,
+    sequence: usize,
+) -> Result<LedgerEvidence> {
     let started_at = now_timestamp();
     let start = Instant::now();
-    let output = shell_command(command)
-        .current_dir(root)
+    let mut shell = shell_command(command);
+    shell.current_dir(root);
+    for variable in &env {
+        shell.env(&variable.key, &variable.value);
+    }
+    let output = shell
         .output()
         .with_context(|| format!("failed to execute evidence command `{command}`"))?;
     let duration_ms = start.elapsed().as_millis();
@@ -267,6 +305,7 @@ fn run_evidence_command(root: &Path, command: &str, sequence: usize) -> Result<L
         stderr,
         stdout_truncated,
         stderr_truncated,
+        env,
     })
 }
 
@@ -293,32 +332,110 @@ fn summarize_task(task: &LedgerTask) -> LedgerSummary {
         .filter(|evidence| evidence.status == LedgerEvidenceStatus::Passed)
         .count();
     let evidence_failed = task.evidence.len().saturating_sub(evidence_passed);
+    let current_evidence = current_evidence_window(&task.evidence);
+    let current_evidence_passed = current_evidence
+        .iter()
+        .filter(|evidence| evidence.status == LedgerEvidenceStatus::Passed)
+        .count();
+    let current_evidence_failed = current_evidence
+        .len()
+        .saturating_sub(current_evidence_passed);
     LedgerSummary {
         checkpoints: task.checkpoints.len(),
         notes: task.notes.len(),
         evidence: task.evidence.len(),
         evidence_passed,
         evidence_failed,
+        current_evidence: current_evidence.len(),
+        current_evidence_passed,
+        current_evidence_failed,
     }
 }
 
-fn decision_for_summary(summary: &LedgerSummary) -> LedgerDecision {
-    if summary.evidence_failed > 0 {
-        return LedgerDecision {
-            ready: false,
-            reason: "one or more evidence commands failed".to_string(),
-        };
+fn workspace_context(root: &Path) -> WorkspaceContext {
+    let status = capture_git(root, ["status", "--short"]);
+    let diff_stat = capture_git(root, ["diff", "--stat"]);
+    let git_status_short = status.output.unwrap_or_default();
+    let changed_files = parse_changed_files(&git_status_short);
+    WorkspaceContext {
+        dirty: !git_status_short.trim().is_empty(),
+        changed_files,
+        git_status_short,
+        git_diff_stat: diff_stat.output.unwrap_or_default(),
+        git_status_error: status.error,
+        git_diff_stat_error: diff_stat.error,
     }
+}
+
+struct GitCapture {
+    output: Option<String>,
+    error: Option<String>,
+}
+
+fn capture_git<const N: usize>(root: &Path, args: [&str; N]) -> GitCapture {
+    match Command::new("git").args(args).current_dir(root).output() {
+        Ok(output) if output.status.success() => GitCapture {
+            output: Some(String::from_utf8_lossy(&output.stdout).to_string()),
+            error: None,
+        },
+        Ok(output) => GitCapture {
+            output: None,
+            error: Some(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+        },
+        Err(error) => GitCapture {
+            output: None,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn parse_changed_files(status_short: &str) -> Vec<String> {
+    status_short.lines().filter_map(parse_status_path).collect()
+}
+
+fn parse_status_path(line: &str) -> Option<String> {
+    let path = line.get(3..)?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    path.rsplit(" -> ")
+        .next()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+}
+
+fn decision_for_summary(summary: &LedgerSummary) -> LedgerDecision {
     if summary.evidence == 0 {
         return LedgerDecision {
             ready: false,
             reason: "no evidence has been recorded".to_string(),
         };
     }
+    if summary.current_evidence == 0 || summary.current_evidence_failed > 0 {
+        return LedgerDecision {
+            ready: false,
+            reason: "latest evidence command failed".to_string(),
+        };
+    }
+    if summary.evidence_failed > 0 {
+        return LedgerDecision {
+            ready: true,
+            reason: "all evidence since the most recent failure passed".to_string(),
+        };
+    }
     LedgerDecision {
         ready: true,
         reason: "all recorded evidence passed".to_string(),
     }
+}
+
+fn current_evidence_window(evidence: &[LedgerEvidence]) -> &[LedgerEvidence] {
+    let start = evidence
+        .iter()
+        .rposition(|evidence| evidence.status == LedgerEvidenceStatus::Failed)
+        .map_or(0, |index| index + 1);
+    &evidence[start..]
 }
 
 fn review_next_actions() -> Vec<String> {
@@ -410,10 +527,54 @@ mod tests {
         let temp = TempDir::new().unwrap();
 
         start_task(temp.path(), "self dogfood").unwrap();
-        add_evidence(temp.path(), "definitely-not-a-keel-test-command").unwrap();
+        add_evidence(
+            temp.path(),
+            "definitely-not-a-keel-test-command",
+            Vec::new(),
+        )
+        .unwrap();
         let review = review(temp.path()).unwrap();
 
         assert!(!review.decision.ready);
         assert_eq!(review.summary.evidence_failed, 1);
+    }
+
+    #[test]
+    fn passing_evidence_after_failure_restores_ready_decision() {
+        let temp = TempDir::new().unwrap();
+
+        start_task(temp.path(), "self dogfood").unwrap();
+        add_evidence(
+            temp.path(),
+            "definitely-not-a-keel-test-command",
+            Vec::new(),
+        )
+        .unwrap();
+        add_evidence(temp.path(), "git --version", Vec::new()).unwrap();
+        let review = review(temp.path()).unwrap();
+
+        assert!(review.decision.ready);
+        assert_eq!(review.summary.evidence_failed, 1);
+        assert_eq!(review.summary.current_evidence, 1);
+        assert_eq!(
+            review.decision.reason,
+            "all evidence since the most recent failure passed"
+        );
+    }
+
+    #[test]
+    fn workspace_context_extracts_changed_files_from_git_status() {
+        let changed = parse_changed_files(
+            " M README.md\nA  crates/keel-core/src/ledger.rs\nR  old.rs -> new.rs\n",
+        );
+
+        assert_eq!(
+            changed,
+            vec![
+                "README.md".to_string(),
+                "crates/keel-core/src/ledger.rs".to_string(),
+                "new.rs".to_string()
+            ]
+        );
     }
 }

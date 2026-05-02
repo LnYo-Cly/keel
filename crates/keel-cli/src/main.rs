@@ -233,6 +233,9 @@ enum EvidenceCommands {
         /// Command to execute from the repository root.
         #[arg(long)]
         cmd: String,
+        /// Environment variable to set for the command, formatted as KEY=VALUE.
+        #[arg(long = "env", value_parser = parse_key_value)]
+        env: Vec<(String, String)>,
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
@@ -303,4 +306,14 @@ fn parse_pr_provider(value: &str) -> std::result::Result<PrProvider, String> {
     value
         .parse::<PrProvider>()
         .map_err(|error: anyhow::Error| error.to_string())
+}
+
+fn parse_key_value(value: &str) -> std::result::Result<(String, String), String> {
+    let (key, value) = value
+        .split_once('=')
+        .ok_or_else(|| "expected KEY=VALUE".to_string())?;
+    if key.trim().is_empty() {
+        return Err("environment variable key cannot be empty".to_string());
+    }
+    Ok((key.trim().to_string(), value.to_string()))
 }

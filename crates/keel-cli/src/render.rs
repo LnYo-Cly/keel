@@ -2,7 +2,7 @@ use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
     DoctorStatus, LedgerHandoff, LedgerReview, LedgerTask, LogInfo, PrPlan, PrResult, PushResult,
-    ReportInfo, RunMetadata,
+    ReportInfo, RunMetadata, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -395,6 +395,12 @@ pub(crate) fn print_ledger_verify(review: &LedgerReview) {
         review.summary.evidence_passed, review.summary.evidence_failed, review.summary.evidence
     );
     println!(
+        "Current evidence window: {} passed, {} failed, {} total",
+        review.summary.current_evidence_passed,
+        review.summary.current_evidence_failed,
+        review.summary.current_evidence
+    );
+    println!(
         "Decision: {}",
         if review.decision.ready {
             "ready"
@@ -411,12 +417,14 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
     println!("Task ID: {}", review.task.task_id);
     println!("Status: {}", review.task.status);
     println!(
-        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed)",
+        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed; current window {} passed, {} failed)",
         review.summary.checkpoints,
         review.summary.notes,
         review.summary.evidence,
         review.summary.evidence_passed,
-        review.summary.evidence_failed
+        review.summary.evidence_failed,
+        review.summary.current_evidence_passed,
+        review.summary.current_evidence_failed
     );
     println!(
         "Decision: {}",
@@ -427,6 +435,7 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
         }
     );
     println!("Reason: {}", review.decision.reason);
+    print_workspace_context(&review.workspace);
     if !review.task.checkpoints.is_empty() {
         println!("Checkpoints:");
         for checkpoint in &review.task.checkpoints {
@@ -458,13 +467,16 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     println!("Task: {}", handoff.task.title);
     println!("Task ID: {}", handoff.task.task_id);
     println!(
-        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed)",
+        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed; current window {} passed, {} failed)",
         handoff.summary.checkpoints,
         handoff.summary.notes,
         handoff.summary.evidence,
         handoff.summary.evidence_passed,
-        handoff.summary.evidence_failed
+        handoff.summary.evidence_failed,
+        handoff.summary.current_evidence_passed,
+        handoff.summary.current_evidence_failed
     );
+    print_workspace_context(&handoff.workspace);
     match &handoff.last_checkpoint {
         Some(checkpoint) => println!("Last checkpoint: {}", checkpoint.message),
         None => println!("Last checkpoint: none"),
@@ -490,6 +502,29 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     println!("Next actions:");
     for action in &handoff.next_actions {
         println!("- {action}");
+    }
+}
+
+fn print_workspace_context(workspace: &WorkspaceContext) {
+    println!("Workspace:");
+    println!("- Dirty: {}", if workspace.dirty { "yes" } else { "no" });
+    if !workspace.changed_files.is_empty() {
+        println!("- Changed files:");
+        for path in &workspace.changed_files {
+            println!("  - {path}");
+        }
+    }
+    if !workspace.git_diff_stat.trim().is_empty() {
+        println!("- Diff stat:");
+        for line in workspace.git_diff_stat.trim_end().lines() {
+            println!("  {line}");
+        }
+    }
+    if let Some(error) = &workspace.git_status_error {
+        println!("- git status error: {error}");
+    }
+    if let Some(error) = &workspace.git_diff_stat_error {
+        println!("- git diff --stat error: {error}");
     }
 }
 

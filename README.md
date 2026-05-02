@@ -144,6 +144,7 @@ Workspace ledger tasks store current-session records under
 - notes
 - evidence command results with exit code and captured output
 - review and handoff summaries generated from the task ledger
+- workspace context from `git status --short` and `git diff --stat`
 
 The ledger is intended for agent self-management. A long-running Codex or Claude
 Code session can call these commands while it works:
@@ -153,14 +154,21 @@ keel task start "implement Keel self-dogfood ledger"
 keel checkpoint "core model added"
 keel note "risk: CLI output changed"
 keel evidence add --cmd "cargo fmt --all --check"
-keel evidence add --cmd "cargo test --workspace"
+keel evidence add --env CARGO_TARGET_DIR=target/keel-evidence --cmd "cargo test --workspace"
 keel verify
 keel review
 keel handoff
 ```
 
-`keel verify` exits non-zero if the active task has no evidence or any recorded
-evidence failed. It does not merge, push, or mutate source files.
+`keel evidence add --env KEY=VALUE --cmd "<command>"` sets environment variables
+only for that evidence command. This is useful for isolated Rust target
+directories, temporary caches, or other deterministic verification settings.
+
+`keel verify` exits non-zero if the active task has no evidence or if the latest
+evidence window is still failing. Historical failed evidence stays in the ledger,
+but later passing evidence can restore readiness after a fix. `keel review` and
+`keel handoff` also show whether the current workspace is dirty and list changed
+files. These commands do not merge, push, or mutate source files.
 
 ## Terminal Review UI
 

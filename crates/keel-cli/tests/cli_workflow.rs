@@ -441,13 +441,43 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
     .success()
     .stdout(predicate::str::contains("Evidence recorded"))
     .stdout(predicate::str::contains("Status: passed"));
+    let env_echo = env_echo_command("KEEL_LEDGER_TEST");
+    let env_review = parse_json_object(&run_keel_output(
+        repo.path(),
+        [
+            "evidence",
+            "add",
+            "--env",
+            "KEEL_LEDGER_TEST=ok",
+            "--cmd",
+            env_echo.as_str(),
+            "--json",
+        ],
+    ));
+    let last_evidence = env_review["evidence"].as_array().unwrap().last().unwrap();
+    assert_eq!(last_evidence["env"][0]["key"], "KEEL_LEDGER_TEST");
+    assert!(last_evidence["stdout"].as_str().unwrap().contains("ok"));
+    fs::write(repo.path().join("README.md"), "# test repo\n\nchanged\n").unwrap();
 
     let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
     assert_eq!(review["task"]["task_id"], task_id);
     assert_eq!(review["summary"]["checkpoints"], 1);
     assert_eq!(review["summary"]["notes"], 1);
-    assert_eq!(review["summary"]["evidence_passed"], 1);
+    assert_eq!(review["summary"]["evidence_passed"], 2);
     assert_eq!(review["decision"]["ready"], true);
+    assert_eq!(review["workspace"]["dirty"], true);
+    assert!(review["workspace"]["changed_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file == "README.md"));
+
+    run_keel(repo.path(), ["review"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Workspace:"))
+        .stdout(predicate::str::contains("Dirty: yes"))
+        .stdout(predicate::str::contains("README.md"));
 
     run_keel(repo.path(), ["verify"])
         .assert()
@@ -483,13 +513,12 @@ fn ledger_failed_evidence_makes_verify_fail() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("Decision: not ready"))
-        .stdout(predicate::str::contains(
-            "one or more evidence commands failed",
-        ));
+        .stdout(predicate::str::contains("latest evidence command failed"));
 
     let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
     assert_eq!(review["decision"]["ready"], false);
     assert_eq!(review["summary"]["evidence_failed"], 1);
+    assert_eq!(review["summary"]["current_evidence_failed"], 0);
 }
 
 #[test]
@@ -2217,6 +2246,14 @@ fn path_with_git_and(extra_dir: &Path) -> String {
 
 fn path_for_test(path: &str) -> String {
     path.to_string()
+}
+
+fn env_echo_command(key: &str) -> String {
+    if cfg!(windows) {
+        format!("echo %{key}%")
+    } else {
+        format!("printf '%s\\n' \"${key}\"")
+    }
 }
 
 fn git_executable() -> PathBuf {

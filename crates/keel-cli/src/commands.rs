@@ -1,7 +1,7 @@
 use anyhow::Result;
 use keel_core::{
-    report_json, run_doctor, status_json, validate_config, CommitOptions, KeelProject, PrOptions,
-    PushOptions, RunMetadata,
+    report_json, run_doctor, status_json, validate_config, CommitOptions, KeelProject,
+    LedgerEvidenceEnv, PrOptions, PushOptions, RunMetadata,
 };
 use std::process::ExitCode;
 
@@ -76,9 +76,13 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             }
         }
         Some(Commands::Evidence {
-            command: EvidenceCommands::Add { cmd, json },
+            command: EvidenceCommands::Add { cmd, env, json },
         }) => {
-            let task = project.evidence(&cmd)?;
+            let env = env
+                .into_iter()
+                .map(|(key, value)| LedgerEvidenceEnv { key, value })
+                .collect();
+            let task = project.evidence(&cmd, env)?;
             if json {
                 render::print_json(&task)?;
             } else {
