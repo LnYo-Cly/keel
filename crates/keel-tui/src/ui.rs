@@ -12,8 +12,8 @@ use ratatui::Frame;
 
 const RUN_TABLE_WIDTHS: [Constraint; 5] = [
     Constraint::Length(12),
-    Constraint::Length(10),
     Constraint::Length(14),
+    Constraint::Length(10),
     Constraint::Min(16),
     Constraint::Length(7),
 ];
@@ -197,8 +197,8 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             };
             Row::new(vec![
                 Cell::from(short_id(&run.run_id)),
+                Cell::from(run_decision_label(run)),
                 Cell::from(status_short_label(&run.status)),
-                Cell::from(run_review_label(run)),
                 Cell::from(truncate(&run.task, 34)),
                 Cell::from(git_state(run)),
             ])
@@ -208,7 +208,7 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let table = Table::new(rows, RUN_TABLE_WIDTHS)
         .header(
-            Row::new(vec!["Run", "State", "Review", "Task", "Git"])
+            Row::new(vec!["Run", "Decision", "State", "Task", "Git"])
                 .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
         )
         .block(
@@ -257,24 +257,20 @@ fn render_detail(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
     let state_color = status_color(&run.status);
-    let verdict = review_verdict(run, 0);
     let lines = if area.width < NARROW_WIDTH {
         vec![
             Line::from(vec![
                 Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(
-                    status_label(&run.status),
-                    Style::default()
-                        .fg(status_color(&run.status))
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(decision_label(run), decision_style(run)),
                 Span::raw("  "),
                 Span::raw(truncate(&run.task, 48)),
             ]),
             Line::from(vec![
                 Span::styled("Next: ", theme::muted()),
-                Span::styled(verdict, Style::default().fg(state_color)),
+                Span::styled(review_verdict(run, 0), Style::default().fg(state_color)),
+                Span::styled("  Agent ", theme::muted()),
+                Span::raw(run.agent.clone()),
             ]),
         ]
     } else {
@@ -282,21 +278,18 @@ fn render_run_header(frame: &mut Frame<'_>, run: &RunMetadata, area: Rect) {
             Line::from(vec![
                 Span::styled(short_id(&run.run_id), Style::default().fg(theme::CYAN)),
                 Span::raw("  "),
-                Span::styled(
-                    status_label(&run.status),
-                    Style::default()
-                        .fg(state_color)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(decision_label(run), decision_style(run)),
                 Span::raw("  "),
                 Span::raw(truncate(&run.task, 80)),
             ]),
             Line::from(vec![
                 Span::styled("Next: ", theme::muted()),
-                Span::styled(verdict, Style::default().fg(state_color)),
-                Span::styled("  Failure: ", theme::muted()),
-                Span::raw(failure_label(run)),
-                Span::styled("  Branch: ", theme::muted()),
+                Span::styled(review_verdict(run, 0), Style::default().fg(state_color)),
+                Span::styled("  Agent ", theme::muted()),
+                Span::raw(run.agent.clone()),
+                Span::styled("  Git ", theme::muted()),
+                Span::raw(git_state(run)),
+                Span::styled("  Branch ", theme::muted()),
                 Span::raw(compact_branch(&run.branch)),
             ]),
         ]
@@ -571,7 +564,7 @@ fn check_summary(checks: Option<&[CheckResult]>, failed_checks: usize) -> String
 fn render_diff(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.diff {
         Some(diff) if diff.is_empty => ("Diff", vec![Line::from("diff.patch is empty")]),
-        Some(diff) => ("Diff", diff_lines(&diff.content)),
+        Some(diff) => ("Diff Review", diff_lines(&diff.content)),
         None => ("Diff", vec![Line::from("diff.patch missing")]),
     };
     render_lines_panel(frame, area, title, lines, app);
@@ -1044,12 +1037,6 @@ fn risk_warning_line(warning: &RiskWarning) -> Line<'static> {
     ])
 }
 
-fn failure_label(run: &RunMetadata) -> String {
-    run.failure_reason
-        .as_ref()
-        .map_or_else(|| "none".to_string(), ToString::to_string)
-}
-
 fn status_label(status: &RunStatus) -> &'static str {
     match status {
         RunStatus::Created => "created",
@@ -1070,9 +1057,9 @@ fn status_short_label(status: &RunStatus) -> &'static str {
     }
 }
 
-fn run_review_label(run: &RunMetadata) -> String {
+fn decision_label(run: &RunMetadata) -> String {
     let risk_count = run.warnings.len() + run.risk_warnings.len();
-    let signal = match run.status {
+    let base = match run.status {
         RunStatus::Ready => "review",
         RunStatus::NotReady => "blocked",
         RunStatus::Running => "running",
@@ -1080,11 +1067,22 @@ fn run_review_label(run: &RunMetadata) -> String {
         RunStatus::Created => "created",
     };
 
-    if risk_count == 0 {
-        signal.to_string()
-    } else {
-        format!("{signal} risk:{risk_count}")
+    match (run.status.clone(), risk_count) {
+        (RunStatus::Ready, 0) => "review".to_string(),
+        (RunStatus::Ready, count) => format!("review risk:{count}"),
+        (_, 0) => base.to_string(),
+        (_, count) => format!("{base} risk:{count}"),
     }
+}
+
+fn run_decision_label(run: &RunMetadata) -> String {
+    truncate(&decision_label(run), 14)
+}
+
+fn decision_style(run: &RunMetadata) -> Style {
+    Style::default()
+        .fg(status_color(&run.status))
+        .add_modifier(Modifier::BOLD)
 }
 
 fn status_color(status: &RunStatus) -> Color {
@@ -1155,10 +1153,20 @@ fn text_lines(value: &str) -> Vec<Line<'static>> {
 }
 
 fn diff_lines(value: &str) -> Vec<Line<'static>> {
-    let lines = value.lines().map(diff_line).collect::<Vec<_>>();
-    if lines.is_empty() {
+    if value.lines().next().is_none() {
         vec![Line::from("(empty)")]
     } else {
+        let mut lines = vec![Line::from(vec![
+            Span::styled("+ additions", Style::default().fg(theme::GREEN)),
+            Span::raw("  "),
+            Span::styled("- deletions", Style::default().fg(theme::RED)),
+            Span::raw("  "),
+            Span::styled("@@ hunks", Style::default().fg(theme::BLUE)),
+            Span::raw("  "),
+            Span::styled("file headers", Style::default().fg(theme::CYAN)),
+        ])];
+        lines.push(Line::from(""));
+        lines.extend(value.lines().map(diff_line));
         lines
     }
 }
@@ -1167,22 +1175,26 @@ fn diff_line(line: &str) -> Line<'static> {
     let style = if line.starts_with("diff --git") {
         Style::default()
             .fg(theme::CYAN)
+            .bg(theme::CYAN_BG)
             .add_modifier(Modifier::BOLD)
     } else if line.starts_with("@@") {
-        Style::default().fg(theme::BLUE)
+        Style::default()
+            .fg(theme::BLUE)
+            .bg(theme::BLUE_BG)
+            .add_modifier(Modifier::BOLD)
     } else if line.starts_with("+++") || line.starts_with("---") {
         Style::default().fg(theme::MUTED)
     } else if line.starts_with('+') {
-        Style::default().fg(theme::GREEN)
+        Style::default().fg(theme::GREEN).bg(theme::GREEN_BG)
     } else if line.starts_with('-') {
-        Style::default().fg(theme::RED)
+        Style::default().fg(theme::RED).bg(theme::RED_BG)
     } else if line.starts_with("new file")
         || line.starts_with("deleted file")
         || line.starts_with("rename from")
         || line.starts_with("rename to")
         || line.starts_with("index ")
     {
-        Style::default().fg(theme::AMBER)
+        Style::default().fg(theme::AMBER).bg(theme::AMBER_BG)
     } else {
         Style::default().fg(theme::TEXT)
     };
@@ -1217,6 +1229,19 @@ mod tests {
     }
 
     #[test]
+    fn decision_label_keeps_review_signal_short() {
+        let mut run = sample_run();
+
+        assert_eq!(decision_label(&run), "review");
+
+        run.status = RunStatus::NotReady;
+        assert_eq!(decision_label(&run), "blocked");
+
+        run.warnings.push("dependency manifest changed".to_string());
+        assert_eq!(decision_label(&run), "blocked risk:1");
+    }
+
+    #[test]
     fn check_lines_prioritize_failed_checks_and_show_exit_code() {
         let checks = vec![
             check("git status", CheckStatus::Passed, Some(0)),
@@ -1238,20 +1263,13 @@ mod tests {
         let rendered = format!("{:?}", lines);
 
         assert!(rendered.contains("diff --git"));
+        assert!(rendered.contains("+ additions"));
         assert!(rendered.contains("old"));
         assert!(rendered.contains("new"));
         assert!(rendered.contains("Rgb(238, 106, 106)"));
         assert!(rendered.contains("Rgb(119, 214, 140)"));
-    }
-
-    #[test]
-    fn failure_label_uses_metadata_failure_reason() {
-        let mut run = sample_run();
-
-        assert_eq!(failure_label(&run), "none");
-
-        run.failure_reason = Some(keel_core::FailureReason::CheckFailed);
-        assert_eq!(failure_label(&run), "check_failed");
+        assert!(rendered.contains("Rgb(49, 22, 26)"));
+        assert!(rendered.contains("Rgb(12, 42, 27)"));
     }
 
     #[test]
