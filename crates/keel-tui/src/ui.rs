@@ -10,11 +10,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap};
 use ratatui::Frame;
 
-const RUN_TABLE_WIDTHS: [Constraint; 3] = [
-    Constraint::Length(14),
-    Constraint::Length(14),
-    Constraint::Min(8),
-];
 const NARROW_WIDTH: u16 = 110;
 
 pub fn render(frame: &mut Frame<'_>, app: &mut App) {
@@ -193,26 +188,33 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             };
             Row::new(vec![
                 Cell::from(short_run_id_for_width(&run.run_id, 14)),
-                Cell::from(truncate(&review_state_label(run), 13)),
-                Cell::from(next_step_label(run)),
+                Cell::from(truncate(&run.agent, 8)),
+                Cell::from(truncate(&review_state_label(run), 14)),
             ])
             .style(style)
         })
         .collect::<Vec<_>>();
 
-    let table = Table::new(rows, RUN_TABLE_WIDTHS)
-        .header(
-            Row::new(vec!["Run", "State", "Action"])
-                .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
-        )
-        .block(
-            Block::default()
-                .title(review_queue_title(app))
-                .borders(Borders::ALL)
-                .border_style(theme::border())
-                .style(Style::default().bg(theme::PANEL)),
-        )
-        .row_highlight_style(theme::selected());
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(14),
+            Constraint::Length(8),
+            Constraint::Min(10),
+        ],
+    )
+    .header(
+        Row::new(vec!["Run", "Agent", "State"])
+            .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
+    )
+    .block(
+        Block::default()
+            .title(review_queue_title(app))
+            .borders(Borders::ALL)
+            .border_style(theme::border())
+            .style(Style::default().bg(theme::PANEL)),
+    )
+    .row_highlight_style(theme::selected());
     frame.render_widget(table, area);
 
     if app.visible_count() == 0 {
@@ -1271,20 +1273,6 @@ fn review_state_label(run: &RunMetadata) -> String {
     }
 }
 
-fn next_step_label(run: &RunMetadata) -> String {
-    let label = match run.status {
-        RunStatus::Ready if !run.committed => "commit",
-        RunStatus::Ready if !run.pushed => "push",
-        RunStatus::Ready if !run.pr_created => "pr",
-        RunStatus::Ready => "review",
-        RunStatus::NotReady => "fix/rerun",
-        RunStatus::Discarded => "history",
-        RunStatus::Running => "refresh",
-        RunStatus::Created => "wait",
-    };
-    label.to_string()
-}
-
 fn next_step_text(run: &RunMetadata) -> String {
     review_next_action_text(run)
 }
@@ -1462,30 +1450,12 @@ mod tests {
         let mut run = sample_run();
 
         assert_eq!(review_state_label(&run), "review");
-        assert_eq!(next_step_label(&run), "commit");
 
         run.status = RunStatus::NotReady;
         assert_eq!(review_state_label(&run), "blocked");
-        assert_eq!(next_step_label(&run), "fix/rerun");
 
         run.warnings.push("dependency manifest changed".to_string());
         assert_eq!(review_state_label(&run), "blocked risk:1");
-    }
-
-    #[test]
-    fn next_step_label_tracks_git_review_progress() {
-        let mut run = sample_run();
-
-        assert_eq!(next_step_label(&run), "commit");
-        run.committed = true;
-        assert_eq!(next_step_label(&run), "push");
-        run.pushed = true;
-        assert_eq!(next_step_label(&run), "pr");
-        run.pr_created = true;
-        assert_eq!(next_step_label(&run), "review");
-
-        run.status = RunStatus::Discarded;
-        assert_eq!(next_step_label(&run), "history");
     }
 
     #[test]
