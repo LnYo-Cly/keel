@@ -10,12 +10,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap};
 use ratatui::Frame;
 
-const RUN_TABLE_WIDTHS: [Constraint; 5] = [
+const RUN_TABLE_WIDTHS: [Constraint; 4] = [
     Constraint::Length(12),
     Constraint::Length(14),
-    Constraint::Length(10),
     Constraint::Min(16),
-    Constraint::Length(7),
+    Constraint::Length(12),
 ];
 const NARROW_WIDTH: u16 = 110;
 
@@ -196,10 +195,9 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             };
             Row::new(vec![
                 Cell::from(short_id(&run.run_id)),
-                Cell::from(run_decision_label(run)),
-                Cell::from(status_short_label(&run.status)),
+                Cell::from(run_queue_label(run)),
                 Cell::from(truncate(&run.task, 34)),
-                Cell::from(git_state(run)),
+                Cell::from(next_step_label(run)),
             ])
             .style(style)
         })
@@ -207,7 +205,7 @@ fn render_runs(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let table = Table::new(rows, RUN_TABLE_WIDTHS)
         .header(
-            Row::new(vec!["Run", "Decision", "State", "Task", "Git"])
+            Row::new(vec!["Run", "Queue", "Task", "Next"])
                 .style(Style::default().fg(theme::MUTED).bg(theme::PANEL)),
         )
         .block(
@@ -1264,16 +1262,6 @@ fn status_label(status: &RunStatus) -> &'static str {
     }
 }
 
-fn status_short_label(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Created => "created",
-        RunStatus::Running => "running",
-        RunStatus::Ready => "ready",
-        RunStatus::NotReady => "not_ready",
-        RunStatus::Discarded => "discard",
-    }
-}
-
 fn decision_label(run: &RunMetadata) -> String {
     let risk_count = run.warnings.len() + run.risk_warnings.len();
     let base = match run.status {
@@ -1292,8 +1280,39 @@ fn decision_label(run: &RunMetadata) -> String {
     }
 }
 
-fn run_decision_label(run: &RunMetadata) -> String {
-    truncate(&decision_label(run), 14)
+fn run_queue_label(run: &RunMetadata) -> String {
+    truncate(&queue_label(run), 14)
+}
+
+fn queue_label(run: &RunMetadata) -> String {
+    let risk_count = run.warnings.len() + run.risk_warnings.len();
+    let prefix = match run.status {
+        RunStatus::Ready => "review",
+        RunStatus::NotReady => "blocked",
+        RunStatus::Running => "running",
+        RunStatus::Discarded => "discarded",
+        RunStatus::Created => "created",
+    };
+
+    if risk_count == 0 {
+        prefix.to_string()
+    } else {
+        format!("{prefix} !{risk_count}")
+    }
+}
+
+fn next_step_label(run: &RunMetadata) -> String {
+    let label = match run.status {
+        RunStatus::Ready if !run.committed => "commit",
+        RunStatus::Ready if !run.pushed => "push",
+        RunStatus::Ready if !run.pr_created => "pr",
+        RunStatus::Ready => "review",
+        RunStatus::NotReady => "fix/rerun",
+        RunStatus::Discarded => "history",
+        RunStatus::Running => "refresh",
+        RunStatus::Created => "wait",
+    };
+    label.to_string()
 }
 
 fn decision_style(run: &RunMetadata) -> Style {
@@ -1452,12 +1471,33 @@ mod tests {
         let mut run = sample_run();
 
         assert_eq!(decision_label(&run), "review");
+        assert_eq!(queue_label(&run), "review");
+        assert_eq!(next_step_label(&run), "commit");
 
         run.status = RunStatus::NotReady;
         assert_eq!(decision_label(&run), "blocked");
+        assert_eq!(queue_label(&run), "blocked");
+        assert_eq!(next_step_label(&run), "fix/rerun");
 
         run.warnings.push("dependency manifest changed".to_string());
         assert_eq!(decision_label(&run), "blocked risk:1");
+        assert_eq!(queue_label(&run), "blocked !1");
+    }
+
+    #[test]
+    fn next_step_label_tracks_git_review_progress() {
+        let mut run = sample_run();
+
+        assert_eq!(next_step_label(&run), "commit");
+        run.committed = true;
+        assert_eq!(next_step_label(&run), "push");
+        run.pushed = true;
+        assert_eq!(next_step_label(&run), "pr");
+        run.pr_created = true;
+        assert_eq!(next_step_label(&run), "review");
+
+        run.status = RunStatus::Discarded;
+        assert_eq!(next_step_label(&run), "history");
     }
 
     #[test]

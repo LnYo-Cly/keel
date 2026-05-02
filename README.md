@@ -140,8 +140,8 @@ Current TUI behavior:
   startup to open directly on matching runs. These filters can be combined.
 - Shows status counts for ready, not ready, running, discarded, committed,
   pushed, and PR/MR-created runs.
-- Uses a review inbox layout with a compact `Decision` column so the next human
-  action is visible before lower-level status details.
+- Uses a review queue layout with compact `Queue` and `Next` columns so the
+  review state and next CLI action are visible before lower-level details.
 - Shows the selected run's report summary, review progress, checks, warnings,
   suggested next CLI action, diff, log, and artifact paths.
 - Separates review progress into commit, push, and PR/MR state so the TUI shows
