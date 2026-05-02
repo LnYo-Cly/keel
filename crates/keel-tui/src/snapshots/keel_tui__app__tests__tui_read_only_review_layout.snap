@@ -1,6 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
-assertion_line: 878
+assertion_line: 948
 expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 ---
 "Keel                    Ready       Not Ready       Running        Discarded        Committed       Pushed        PR    "
@@ -34,4 +34,4 @@ expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 "│                                                   ││Review report, diff, log, checks, and warnings before merging.   │"
 "└───────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
-"j/k Tab / ? PgUp/PgDn r q  REVIEW  filter: <none>                                                                       "
+"j/k g/G 1-4 Tab / ? PgUp/PgDn r q  REVIEW  filter: <none>                                                               "

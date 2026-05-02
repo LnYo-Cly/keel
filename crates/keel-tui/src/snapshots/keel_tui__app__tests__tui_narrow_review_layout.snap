@@ -1,6 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
-assertion_line: 911
+assertion_line: 981
 expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 ---
 "Keel  Ready 0  NotReady 1  Running 0  Git c0 p0 pr0                                         "
@@ -36,4 +36,4 @@ expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 "│none                                                                                      │"
 "└──────────────────────────────────────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────────────────"
-"j/k Tab / ? PgUp/PgDn r q  REVIEW  filter: <none>                                           "
+"j/k g/G 1-4 Tab / ? PgUp/PgDn r q  REVIEW  filter: <none>                                   "

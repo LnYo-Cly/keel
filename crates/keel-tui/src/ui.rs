@@ -696,6 +696,10 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let line = Line::from(vec![
             Span::styled("j/k", key_style()),
             Span::raw(" "),
+            Span::styled("g/G", key_style()),
+            Span::raw(" "),
+            Span::styled("1-4", key_style()),
+            Span::raw(" "),
             Span::styled("Tab", key_style()),
             Span::raw(" "),
             Span::styled("/", key_style()),
@@ -719,6 +723,10 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let line = Line::from(vec![
         Span::styled("j/k", key_style()),
         Span::raw(" move  "),
+        Span::styled("g/G", key_style()),
+        Span::raw(" first/last  "),
+        Span::styled("1-4", key_style()),
+        Span::raw(" tabs  "),
         Span::styled("Tab", key_style()),
         Span::raw(" next tab  "),
         Span::styled("Shift+Tab", key_style()),
@@ -756,10 +764,10 @@ fn render_footer_line(frame: &mut Frame<'_>, area: Rect, line: Line<'_>) {
 }
 
 fn render_help_overlay(frame: &mut Frame<'_>, area: Rect) {
-    let overlay = centered_rect(area, 92, 24);
+    let overlay = centered_rect(area, 112, 30);
     let lines = help_overlay_lines();
 
-    frame.render_widget(Clear, overlay);
+    frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
             .block(
@@ -784,13 +792,19 @@ fn help_overlay_lines() -> Vec<Line<'static>> {
         [
             ("j / Down", "select next run"),
             ("k / Up", "select previous run"),
+            ("g / G", "jump to first or last visible run"),
+            ("PgUp / PgDn", "scroll the current detail tab"),
+            ("Home / End", "jump to top or bottom of detail"),
+        ],
+    ));
+    lines.push(Line::from(""));
+    lines.extend(help_section(
+        "Tabs",
+        [
+            ("1 / 2", "open report or diff"),
+            ("3 / 4", "open log or artifacts"),
             ("Tab", "next detail tab"),
             ("Shift+Tab", "previous detail tab"),
-            ("PgUp / PgDn", "scroll the current detail tab"),
-            (
-                "Home / End",
-                "jump to top or bottom of the current detail tab",
-            ),
         ],
     ));
     lines.push(Line::from(""));

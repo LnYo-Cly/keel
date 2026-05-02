@@ -1,4 +1,4 @@
-use crate::app::{App, TuiFilters};
+use crate::app::{App, DetailTab, TuiFilters};
 use crate::ui;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -96,8 +96,14 @@ fn run_event_loop(terminal: &mut TuiTerminal, app: &mut App) -> Result<()> {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('g') => app.select_first(),
+            KeyCode::Char('G') => app.select_last(),
             KeyCode::Tab => app.next_tab(),
             KeyCode::BackTab => app.previous_tab(),
+            KeyCode::Char('1') => app.select_tab(DetailTab::Report),
+            KeyCode::Char('2') => app.select_tab(DetailTab::Diff),
+            KeyCode::Char('3') => app.select_tab(DetailTab::Log),
+            KeyCode::Char('4') => app.select_tab(DetailTab::Artifacts),
             KeyCode::Char('r') => app.refresh()?,
             KeyCode::Char('/') => app.begin_filter_edit(),
             KeyCode::Char('?') => app.toggle_help(),

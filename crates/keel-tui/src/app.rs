@@ -118,6 +118,24 @@ impl App {
         self.reload_detail();
     }
 
+    pub fn select_first(&mut self) {
+        if self.visible.is_empty() {
+            return;
+        }
+        self.selected = 0;
+        self.clamp_run_list_offset();
+        self.reload_detail();
+    }
+
+    pub fn select_last(&mut self) {
+        if self.visible.is_empty() {
+            return;
+        }
+        self.selected = self.visible.len() - 1;
+        self.clamp_run_list_offset();
+        self.reload_detail();
+    }
+
     pub fn next_tab(&mut self) {
         self.tab = match self.tab {
             DetailTab::Report => DetailTab::Diff,
@@ -134,6 +152,10 @@ impl App {
             DetailTab::Log => DetailTab::Diff,
             DetailTab::Artifacts => DetailTab::Log,
         };
+    }
+
+    pub fn select_tab(&mut self, tab: DetailTab) {
+        self.tab = tab;
     }
 
     pub fn runs(&self) -> &[RunMetadata] {
@@ -600,6 +622,20 @@ mod tests {
         assert_eq!(app.tab(), DetailTab::Report);
     }
 
+    #[test]
+    fn direct_tab_selection_opens_requested_tab() {
+        let mut app = empty_app();
+
+        app.select_tab(DetailTab::Log);
+        assert_eq!(app.tab(), DetailTab::Log);
+
+        app.select_tab(DetailTab::Diff);
+        assert_eq!(app.tab(), DetailTab::Diff);
+
+        app.select_tab(DetailTab::Artifacts);
+        assert_eq!(app.tab(), DetailTab::Artifacts);
+    }
+
     fn empty_app() -> App {
         empty_app_with_filters(TuiFilters::default())
     }
@@ -865,6 +901,40 @@ mod tests {
 
         assert_eq!(app.selected_index(), 1);
         assert_eq!(app.run_list_offset(), 1);
+    }
+
+    #[test]
+    fn first_and_last_run_selection_jump_visible_runs() {
+        let mut app = empty_app();
+        app.runs = (0..5)
+            .map(|index| {
+                sample_run(
+                    &format!("run-{index}"),
+                    RunStatus::Ready,
+                    false,
+                    false,
+                    false,
+                )
+            })
+            .collect();
+        app.rebuild_visible(None);
+
+        app.select_last();
+        assert_eq!(app.selected_run().unwrap().run_id, "run-4");
+
+        app.select_first();
+        assert_eq!(app.selected_run().unwrap().run_id, "run-0");
+    }
+
+    #[test]
+    fn first_and_last_selection_ignore_empty_run_lists() {
+        let mut app = empty_app();
+
+        app.select_last();
+        assert_eq!(app.selected_index(), 0);
+
+        app.select_first();
+        assert_eq!(app.selected_index(), 0);
     }
 
     #[test]
