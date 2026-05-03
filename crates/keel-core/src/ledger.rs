@@ -4,13 +4,19 @@ use crate::time::{now_timestamp, unix_millis};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 const LEDGER_DIR: &str = "ledger";
 const LEDGER_TASKS_DIR: &str = "tasks";
 const ACTIVE_TASK_FILE: &str = "active_task.json";
+const LEDGER_LOCK_FILE: &str = "ledger.lock";
+const LEDGER_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
+const LEDGER_LOCK_RETRY: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LedgerTask {
@@ -220,6 +226,7 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
         bail!("task title cannot be empty");
     }
 
+    let _lock = acquire_ledger_lock(root)?;
     fs::create_dir_all(tasks_dir(root))
         .with_context(|| format!("failed to create {}", tasks_dir(root).display()))?;
 
@@ -271,6 +278,7 @@ pub(crate) fn task_report(root: &Path, task_id: &str) -> Result<LedgerTaskReport
 }
 
 pub(crate) fn reopen_task(root: &Path, task_id: &str) -> Result<LedgerTask> {
+    let _lock = acquire_ledger_lock(root)?;
     let mut task = read_task(root, task_id)?;
     let timestamp = now_timestamp();
     supersede_active_task(root, &timestamp, Some(&task.task_id))?;
@@ -282,6 +290,7 @@ pub(crate) fn reopen_task(root: &Path, task_id: &str) -> Result<LedgerTask> {
 }
 
 pub(crate) fn finish_task(root: &Path) -> Result<LedgerTask> {
+    let _lock = acquire_ledger_lock(root)?;
     let mut task = read_active_task(root)?;
     task.status = LedgerTaskStatus::Finished;
     task.updated_at = now_timestamp();
@@ -296,6 +305,7 @@ pub(crate) fn finish_task(root: &Path) -> Result<LedgerTask> {
 
 pub(crate) fn add_checkpoint(root: &Path, message: &str) -> Result<LedgerTask> {
     let message = normalized_message(message, "checkpoint message")?;
+    let _lock = acquire_ledger_lock(root)?;
     let mut task = read_active_task(root)?;
     task.checkpoints.push(LedgerCheckpoint {
         checkpoint_id: generate_event_id("checkpoint", task.checkpoints.len() + 1),
@@ -307,6 +317,7 @@ pub(crate) fn add_checkpoint(root: &Path, message: &str) -> Result<LedgerTask> {
 
 pub(crate) fn add_note(root: &Path, message: &str) -> Result<LedgerTask> {
     let message = normalized_message(message, "note message")?;
+    let _lock = acquire_ledger_lock(root)?;
     let mut task = read_active_task(root)?;
     task.notes.push(LedgerNote {
         note_id: generate_event_id("note", task.notes.len() + 1),
@@ -322,8 +333,21 @@ pub(crate) fn add_evidence(
     env: Vec<LedgerEvidenceEnv>,
 ) -> Result<LedgerTask> {
     let command = normalized_message(command, "evidence command")?;
+    let active_task_id = {
+        let _lock = acquire_ledger_lock(root)?;
+        read_active_task(root)?.task_id
+    };
+
+    let evidence = run_evidence_command(root, &command, env)?;
+
+    let _lock = acquire_ledger_lock(root)?;
     let mut task = read_active_task(root)?;
-    let evidence = run_evidence_command(root, &command, env, task.evidence.len() + 1)?;
+    if task.task_id != active_task_id {
+        bail!(
+            "active Keel task changed while evidence command was running; evidence was not recorded"
+        );
+    }
+    let evidence = evidence.into_evidence(task.evidence.len() + 1);
     task.evidence.push(evidence);
     touch_and_write(root, task)
 }
@@ -415,6 +439,73 @@ fn write_active_task(root: &Path, task_id: &str) -> Result<()> {
     )
 }
 
+struct LedgerLock {
+    file: File,
+}
+
+impl Drop for LedgerLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn acquire_ledger_lock(root: &Path) -> Result<LedgerLock> {
+    let lock_path = ledger_lock_path(root);
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let start = Instant::now();
+    loop {
+        match open_ledger_lock_file(&lock_path).and_then(|file| {
+            file.try_lock().map(|()| file).map_err(|error| match error {
+                TryLockError::WouldBlock => std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "ledger lock is already held",
+                ),
+                TryLockError::Error(error) => error,
+            })
+        }) {
+            Ok(mut file) => {
+                let path_for_error = lock_path.display().to_string();
+                file.set_len(0)
+                    .with_context(|| format!("failed to clear {path_for_error}"))?;
+                writeln!(
+                    file,
+                    "pid={}\ncreated_at={}",
+                    std::process::id(),
+                    now_timestamp()
+                )
+                .with_context(|| format!("failed to write {path_for_error}"))?;
+                return Ok(LedgerLock { file });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if start.elapsed() >= LEDGER_LOCK_TIMEOUT {
+                    bail!(
+                        "timed out waiting for Keel ledger lock at {}; another ledger command may still be running",
+                        lock_path.display()
+                    );
+                }
+                thread::sleep(LEDGER_LOCK_RETRY);
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to create {}", lock_path.display()));
+            }
+        }
+    }
+}
+
+fn open_ledger_lock_file(lock_path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_path)
+}
+
 fn supersede_active_task(root: &Path, timestamp: &str, except_task_id: Option<&str>) -> Result<()> {
     let Ok(mut previous) = read_active_task(root) else {
         return Ok(());
@@ -438,8 +529,7 @@ fn run_evidence_command(
     root: &Path,
     command: &str,
     env: Vec<LedgerEvidenceEnv>,
-    sequence: usize,
-) -> Result<LedgerEvidence> {
+) -> Result<LedgerEvidenceCapture> {
     let started_at = now_timestamp();
     let start = Instant::now();
     let mut shell = shell_command(command);
@@ -456,8 +546,7 @@ fn run_evidence_command(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let (stdout, stdout_truncated) = truncate_output(&stdout);
     let (stderr, stderr_truncated) = truncate_output(&stderr);
-    Ok(LedgerEvidence {
-        evidence_id: generate_event_id("evidence", sequence),
+    Ok(LedgerEvidenceCapture {
         command: command.to_string(),
         status: if output.status.success() {
             LedgerEvidenceStatus::Passed
@@ -474,6 +563,39 @@ fn run_evidence_command(
         stderr_truncated,
         env,
     })
+}
+
+struct LedgerEvidenceCapture {
+    command: String,
+    status: LedgerEvidenceStatus,
+    exit_code: Option<i32>,
+    started_at: String,
+    finished_at: String,
+    duration_ms: u128,
+    stdout: String,
+    stderr: String,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+    env: Vec<LedgerEvidenceEnv>,
+}
+
+impl LedgerEvidenceCapture {
+    fn into_evidence(self, sequence: usize) -> LedgerEvidence {
+        LedgerEvidence {
+            evidence_id: generate_event_id("evidence", sequence),
+            command: self.command,
+            status: self.status,
+            exit_code: self.exit_code,
+            started_at: self.started_at,
+            finished_at: self.finished_at,
+            duration_ms: self.duration_ms,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            stdout_truncated: self.stdout_truncated,
+            stderr_truncated: self.stderr_truncated,
+            env: self.env,
+        }
+    }
 }
 
 fn shell_command(command: &str) -> Command {
@@ -852,6 +974,10 @@ fn active_task_path(root: &Path) -> PathBuf {
     ledger_dir(root).join(ACTIVE_TASK_FILE)
 }
 
+fn ledger_lock_path(root: &Path) -> PathBuf {
+    ledger_dir(root).join(LEDGER_LOCK_FILE)
+}
+
 fn task_path(root: &Path, task_id: &str) -> PathBuf {
     tasks_dir(root).join(task_id).join("task.json")
 }
@@ -868,6 +994,72 @@ fn ledger_dir(root: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn concurrent_task_mutations_preserve_all_events() {
+        let temp = TempDir::new().unwrap();
+        start_task(temp.path(), "concurrent ledger").unwrap();
+
+        thread::scope(|scope| {
+            for index in 0..8 {
+                let root = temp.path().to_path_buf();
+                scope.spawn(move || {
+                    add_note(&root, &format!("note {index}")).unwrap();
+                });
+            }
+            for index in 0..8 {
+                let root = temp.path().to_path_buf();
+                scope.spawn(move || {
+                    add_checkpoint(&root, &format!("checkpoint {index}")).unwrap();
+                });
+            }
+        });
+
+        let task = read_active_task(temp.path()).unwrap();
+        assert_eq!(task.notes.len(), 8);
+        assert_eq!(task.checkpoints.len(), 8);
+        for index in 0..8 {
+            assert!(task
+                .notes
+                .iter()
+                .any(|note| note.message == format!("note {index}")));
+            assert!(task
+                .checkpoints
+                .iter()
+                .any(|checkpoint| checkpoint.message == format!("checkpoint {index}")));
+        }
+    }
+
+    #[test]
+    fn concurrent_evidence_commands_preserve_all_results() {
+        let temp = TempDir::new().unwrap();
+        start_task(temp.path(), "concurrent evidence").unwrap();
+
+        thread::scope(|scope| {
+            for _ in 0..4 {
+                let root = temp.path().to_path_buf();
+                scope.spawn(move || {
+                    add_evidence(&root, "git --version", Vec::new()).unwrap();
+                });
+            }
+        });
+
+        let task = read_active_task(temp.path()).unwrap();
+        assert_eq!(task.evidence.len(), 4);
+        assert!(task
+            .evidence
+            .iter()
+            .all(|evidence| evidence.status == LedgerEvidenceStatus::Passed));
+
+        let mut evidence_ids = task
+            .evidence
+            .iter()
+            .map(|evidence| evidence.evidence_id.clone())
+            .collect::<Vec<_>>();
+        evidence_ids.sort();
+        evidence_ids.dedup();
+        assert_eq!(evidence_ids.len(), task.evidence.len());
+    }
 
     #[test]
     fn review_requires_evidence_before_ready() {
