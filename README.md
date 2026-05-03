@@ -194,7 +194,10 @@ files grouped by source/tests/docs/config/other, latest and failed evidence, and
 suggested closeout commands. These commands do not merge, push, or mutate source
 files. After a task is finished, `keel review <task-id>`, `keel verify
 <task-id>`, and `keel handoff <task-id>` can read the preserved task directly
-without reopening it.
+without reopening it. Preserved-task review intentionally omits the current
+workspace `git status` / `git diff --stat` context, because those live files may
+belong to unrelated later work; reopen the task if you want live workspace
+context again.
 
 `keel task status` shows the active ledger task and recent task summaries.
 Its JSON output is intentionally compact, so evidence stdout/stderr stays out

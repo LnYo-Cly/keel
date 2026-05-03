@@ -143,7 +143,7 @@ pub struct LedgerReview {
     pub task: LedgerTask,
     pub summary: LedgerSummary,
     pub decision: LedgerDecision,
-    pub workspace: WorkspaceContext,
+    pub workspace: Option<WorkspaceContext>,
     pub packet: LedgerReviewPacket,
     pub next_actions: Vec<String>,
 }
@@ -170,7 +170,7 @@ pub struct LedgerDecision {
 pub struct LedgerHandoff {
     pub task: LedgerTask,
     pub summary: LedgerSummary,
-    pub workspace: WorkspaceContext,
+    pub workspace: Option<WorkspaceContext>,
     pub packet: LedgerReviewPacket,
     pub last_checkpoint: Option<LedgerCheckpoint>,
     pub recent_notes: Vec<LedgerNote>,
@@ -194,6 +194,14 @@ pub struct LedgerReviewPacket {
     pub changed_file_groups: Vec<ChangedFileGroup>,
     pub evidence: LedgerEvidencePacket,
     pub suggested_commands: Vec<String>,
+    pub workspace_context: LedgerWorkspaceContextKind,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LedgerWorkspaceContextKind {
+    Current,
+    ArchivedTask,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -375,7 +383,7 @@ pub(crate) fn handoff_task(root: &Path, task_id: &str) -> Result<LedgerHandoff> 
 fn review_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerReview> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
-    let workspace = workspace_context(root);
+    let workspace = workspace_context_for_review(root, task_id);
     let packet = review_packet(&task, &summary, &decision, &workspace);
     Ok(LedgerReview {
         task,
@@ -390,7 +398,7 @@ fn review_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Resu
 fn handoff_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerHandoff> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
-    let workspace = workspace_context(root);
+    let workspace = workspace_context_for_review(root, task_id);
     let packet = review_packet(&task, &summary, &decision, &workspace);
     let last_checkpoint = task.checkpoints.last().cloned();
     let recent_notes = tail_items(&task.notes, 5);
@@ -695,6 +703,13 @@ fn task_summary_status(task: &LedgerTask, active_task_id: Option<&str>) -> Ledge
     task.status
 }
 
+fn workspace_context_for_review(root: &Path, task_id: Option<&str>) -> Option<WorkspaceContext> {
+    if task_id.is_some_and(|task_id| !task_id.is_empty()) {
+        return None;
+    }
+    Some(workspace_context(root))
+}
+
 fn workspace_context(root: &Path) -> WorkspaceContext {
     let status = capture_git(root, ["status", "--short"]);
     let diff_stat = capture_git(root, ["diff", "--stat"]);
@@ -777,24 +792,32 @@ fn review_packet(
     task: &LedgerTask,
     summary: &LedgerSummary,
     decision: &LedgerDecision,
-    workspace: &WorkspaceContext,
+    workspace: &Option<WorkspaceContext>,
 ) -> LedgerReviewPacket {
     LedgerReviewPacket {
         headline: review_headline(decision, workspace),
-        changed_file_groups: group_changed_files(&workspace.changed_files),
+        changed_file_groups: workspace
+            .as_ref()
+            .map(|workspace| group_changed_files(&workspace.changed_files))
+            .unwrap_or_default(),
         evidence: evidence_packet(task, summary),
         suggested_commands: suggested_packet_commands(decision, workspace),
+        workspace_context: workspace
+            .as_ref()
+            .map_or(LedgerWorkspaceContextKind::ArchivedTask, |_| {
+                LedgerWorkspaceContextKind::Current
+            }),
     }
 }
 
-fn review_headline(decision: &LedgerDecision, workspace: &WorkspaceContext) -> String {
+fn review_headline(decision: &LedgerDecision, workspace: &Option<WorkspaceContext>) -> String {
     let verdict = if decision.ready { "ready" } else { "not ready" };
-    let dirty = if workspace.dirty {
-        "workspace has changes"
-    } else {
-        "workspace is clean"
+    let workspace = match workspace {
+        Some(workspace) if workspace.dirty => "workspace has changes",
+        Some(_) => "workspace is clean",
+        None => "archived task; current workspace context not included",
     };
-    format!("{verdict}: {dirty}; {}", decision.reason)
+    format!("{verdict}: {workspace}; {}", decision.reason)
 }
 
 fn group_changed_files(files: &[String]) -> Vec<ChangedFileGroup> {
@@ -895,7 +918,7 @@ fn evidence_brief(evidence: &LedgerEvidence) -> LedgerEvidenceBrief {
 
 fn suggested_packet_commands(
     decision: &LedgerDecision,
-    workspace: &WorkspaceContext,
+    workspace: &Option<WorkspaceContext>,
 ) -> Vec<String> {
     let mut commands = Vec::new();
     if !decision.ready {
@@ -904,6 +927,11 @@ fn suggested_packet_commands(
         commands.push("keel verify".to_string());
         return commands;
     }
+    let Some(workspace) = workspace else {
+        commands.push("keel task reopen <task-id>".to_string());
+        commands.push("keel task show <task-id>".to_string());
+        return commands;
+    };
     if workspace.dirty {
         commands.push("git diff --stat".to_string());
         commands.push("git diff --check".to_string());
@@ -1242,6 +1270,34 @@ mod tests {
         let error = task_report(temp.path(), "../bad").unwrap_err().to_string();
 
         assert!(error.contains("invalid task id"));
+    }
+
+    #[test]
+    fn preserved_task_review_omits_current_workspace_context() {
+        let temp = TempDir::new().unwrap();
+        let task = start_task(temp.path(), "archived review").unwrap();
+        add_evidence(temp.path(), "git --version", Vec::new()).unwrap();
+        finish_task(temp.path()).unwrap();
+        fs::write(temp.path().join("README.md"), "changed\n").unwrap();
+
+        let active_error = review(temp.path()).unwrap_err().to_string();
+        assert!(active_error.contains("no active Keel task found"));
+        let archived = review_task(temp.path(), &task.task_id).unwrap();
+
+        assert!(archived.workspace.is_none());
+        assert_eq!(
+            archived.packet.workspace_context,
+            LedgerWorkspaceContextKind::ArchivedTask
+        );
+        assert!(archived.packet.changed_file_groups.is_empty());
+        assert!(archived
+            .packet
+            .headline
+            .contains("archived task; current workspace context not included"));
+        assert!(archived
+            .packet
+            .suggested_commands
+            .contains(&"keel task reopen <task-id>".to_string()));
     }
 
     #[test]

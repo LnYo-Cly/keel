@@ -515,7 +515,7 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
     );
     println!("Reason: {}", review.decision.reason);
     print_ledger_packet("Review packet", &review.packet);
-    print_workspace_context(&review.workspace);
+    print_optional_workspace_context(&review.workspace);
     if !review.next_actions.is_empty() {
         println!("Next actions:");
         for action in &review.next_actions {
@@ -539,7 +539,7 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
         handoff.summary.current_evidence_failed
     );
     print_ledger_packet("Review packet", &handoff.packet);
-    print_workspace_context(&handoff.workspace);
+    print_optional_workspace_context(&handoff.workspace);
     match &handoff.last_checkpoint {
         Some(checkpoint) => println!("Last checkpoint: {}", checkpoint.message),
         None => println!("Last checkpoint: none"),
@@ -547,6 +547,16 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     println!("Next actions:");
     for action in &handoff.next_actions {
         println!("- {action}");
+    }
+}
+
+fn print_optional_workspace_context(workspace: &Option<keel_core::WorkspaceContext>) {
+    match workspace {
+        Some(workspace) => print_workspace_context(workspace),
+        None => {
+            println!("Workspace: archived task");
+            println!("- Current workspace context is not included. Reopen the task to inspect live workspace changes.");
+        }
     }
 }
 

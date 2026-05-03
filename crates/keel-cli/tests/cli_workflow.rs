@@ -596,6 +596,19 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
     ));
     assert_eq!(preserved_review["task"]["task_id"], task_id);
     assert_eq!(preserved_review["decision"]["ready"], true);
+    assert!(preserved_review["workspace"].is_null());
+    assert_eq!(
+        preserved_review["packet"]["workspace_context"],
+        "archived_task"
+    );
+    assert!(preserved_review["packet"]["changed_file_groups"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(preserved_review["packet"]["headline"]
+        .as_str()
+        .unwrap()
+        .contains("archived task; current workspace context not included"));
 
     run_keel(repo.path(), ["verify", &task_id])
         .assert()
@@ -608,6 +621,7 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
     ));
     assert_eq!(preserved_handoff["task"]["task_id"], task_id);
     assert_eq!(preserved_handoff["summary"]["evidence_passed"], 2);
+    assert!(preserved_handoff["workspace"].is_null());
 
     let shown = parse_json_object(&run_keel_output(
         repo.path(),
@@ -640,6 +654,55 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid task id"));
+}
+
+#[test]
+fn preserved_ledger_review_does_not_report_unrelated_live_workspace_changes() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    let task = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "start", "archived workspace", "--json"],
+    ));
+    let task_id = task["task_id"].as_str().unwrap().to_string();
+    run_keel(repo.path(), ["evidence", "add", "--cmd", "git --version"])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["task", "finish"]).assert().success();
+    fs::write(repo.path().join("README.md"), "# unrelated later work\n").unwrap();
+
+    let archived = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["review", &task_id, "--json"],
+    ));
+    assert!(archived["workspace"].is_null());
+    assert_eq!(archived["packet"]["workspace_context"], "archived_task");
+    assert!(archived["packet"]["changed_file_groups"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(archived["packet"]["headline"]
+        .as_str()
+        .unwrap()
+        .contains("archived task; current workspace context not included"));
+
+    run_keel(repo.path(), ["review", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Workspace: archived task"))
+        .stdout(predicate::str::contains("README.md").not());
+
+    run_keel(repo.path(), ["task", "reopen", &task_id])
+        .assert()
+        .success();
+    let active = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
+    assert_eq!(active["packet"]["workspace_context"], "current");
+    assert!(active["workspace"]["changed_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file == "README.md"));
 }
 
 #[test]

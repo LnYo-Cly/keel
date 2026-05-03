@@ -239,7 +239,7 @@ pub struct LedgerReviewJson {
     task: LedgerTaskSummary,
     summary: crate::ledger::LedgerSummary,
     decision: crate::ledger::LedgerDecision,
-    workspace: crate::ledger::WorkspaceContext,
+    workspace: Option<crate::ledger::WorkspaceContext>,
     packet: crate::ledger::LedgerReviewPacket,
     next_actions: Vec<String>,
 }
@@ -248,7 +248,7 @@ pub struct LedgerReviewJson {
 pub struct LedgerHandoffJson {
     task: LedgerTaskSummary,
     summary: crate::ledger::LedgerSummary,
-    workspace: crate::ledger::WorkspaceContext,
+    workspace: Option<crate::ledger::WorkspaceContext>,
     packet: crate::ledger::LedgerReviewPacket,
     last_checkpoint: Option<crate::ledger::LedgerCheckpoint>,
     recent_notes: Vec<crate::ledger::LedgerNote>,
