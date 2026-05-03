@@ -362,6 +362,20 @@ fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
         .provider_command
         .windows(2)
         .any(|pair| pair == ["--repo", "owner/repo"]));
+    let body_index = result
+        .provider_command
+        .iter()
+        .position(|arg| arg == "--body")
+        .unwrap()
+        + 1;
+    assert!(result.provider_command[body_index].contains("## Keel Candidate Change"));
+    assert!(result.provider_command[body_index].contains("\n## Artifacts\n"));
+    assert!(result
+        .provider_command_display
+        .contains("<generated PR body>"));
+    assert!(!result
+        .provider_command_display
+        .contains("Keel Candidate Change"));
     assert!(result.would_create_request);
     assert!(!result.would_write_artifact);
     assert!(!result.would_push);

@@ -2617,7 +2617,17 @@ fn path_with_git_only() -> String {
 }
 
 fn path_with_git_and(extra_dir: &Path) -> String {
-    std::env::join_paths([git_executable().parent().unwrap(), extra_dir])
+    let git_dir = git_executable().parent().unwrap().to_path_buf();
+    let paths = if cfg!(windows) {
+        let powershell_dir = powershell_executable()
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| git_dir.clone());
+        vec![extra_dir.to_path_buf(), powershell_dir, git_dir]
+    } else {
+        vec![extra_dir.to_path_buf(), git_dir]
+    };
+    std::env::join_paths(paths)
         .unwrap()
         .to_string_lossy()
         .to_string()
@@ -2656,6 +2666,29 @@ fn git_executable() -> PathBuf {
     PathBuf::from(first)
 }
 
+fn powershell_executable() -> PathBuf {
+    executable_from_path("powershell")
+        .or_else(|| executable_from_path("pwsh"))
+        .unwrap_or_else(|| PathBuf::from("powershell"))
+}
+
+fn executable_from_path(program: &str) -> Option<PathBuf> {
+    let output = StdCommand::new("where")
+        .arg(program)
+        .output()
+        .or_else(|_| StdCommand::new("which").arg(program).output())
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
 fn create_fake_executable(dir: &Path, name: &str) {
     let path = dir.join(if cfg!(windows) {
         format!("{name}.cmd")
@@ -2678,21 +2711,18 @@ fn create_fake_executable(dir: &Path, name: &str) {
 }
 
 fn create_fake_provider_cli(dir: &Path, name: &str, url: &str) {
-    let path = dir.join(if cfg!(windows) {
-        format!("{name}.cmd")
-    } else {
-        name.to_string()
-    });
+    let path = fake_executable_path(dir, name);
+    let calls = dir.join(format!("{name}-args.txt"));
     let content = if cfg!(windows) {
         format!(
-            "@echo off\r\necho %* >> \"{}\"\r\nif \"%1 %2\"==\"pr list\" (\r\n  echo []\r\n  exit /B 0\r\n)\r\necho {}\r\nexit /B 0\r\n",
-            dir.join(format!("{name}-args.txt")).display(),
-            url
+            "$args -join ' ' | Add-Content -LiteralPath '{}'\nif ($args[0] -eq 'pr' -and $args[1] -eq 'list') {{\n  Write-Output '[]'\n  exit 0\n}}\nWrite-Output '{}'\nexit 0\n",
+            ps_single_quoted(&calls.display().to_string()),
+            ps_single_quoted(url)
         )
     } else {
         format!(
             "#!/bin/sh\necho \"$@\" >> '{}'\nif [ \"$1 $2\" = \"pr list\" ]; then\n  echo '[]'\n  exit 0\nfi\necho '{}'\nexit 0\n",
-            dir.join(format!("{name}-args.txt")).display(),
+            calls.display(),
             url
         )
     };
@@ -2713,11 +2743,7 @@ fn create_fake_provider_cli_with_existing_pr(
     title: &str,
     draft: bool,
 ) {
-    let path = dir.join(if cfg!(windows) {
-        format!("{name}.cmd")
-    } else {
-        name.to_string()
-    });
+    let path = fake_executable_path(dir, name);
     let calls = dir.join(format!("{name}-calls.txt"));
     let list_json = serde_json::json!([{
         "url": url,
@@ -2727,17 +2753,11 @@ fn create_fake_provider_cli_with_existing_pr(
     .to_string();
     let content = if cfg!(windows) {
         format!(
-            "@echo off\r\necho %* >> \"{}\"\r\nif \"%1 %2\"==\"pr list\" (\r\n  echo {}\r\n  exit /B 0\r\n)\r\necho should-not-create\r\nexit /B 0\r\n",
-            calls.display(),
-            list_json
+            "$args -join ' ' | Add-Content -LiteralPath '{}'\nif ($args[0] -eq 'pr' -and $args[1] -eq 'list') {{\n  Write-Output '{}'\n  exit 0\n}}\nWrite-Output 'should-not-create'\nexit 0\n",
+            ps_single_quoted(&calls.display().to_string()),
+            ps_single_quoted(&list_json)
         )
     } else {
-        let list_json = serde_json::json!([{
-            "url": url,
-            "title": title,
-            "isDraft": draft,
-        }])
-        .to_string();
         format!(
             "#!/bin/sh\necho \"$@\" >> '{}'\nif [ \"$1 $2\" = \"pr list\" ]; then\n  printf '%s\\n' '{}'\n  exit 0\nfi\necho should-not-create\nexit 0\n",
             calls.display(),
@@ -2752,6 +2772,18 @@ fn create_fake_provider_cli_with_existing_pr(
         permissions.set_mode(0o755);
         fs::set_permissions(&path, permissions).unwrap();
     }
+}
+
+fn fake_executable_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(if cfg!(windows) {
+        format!("{name}.ps1")
+    } else {
+        name.to_string()
+    })
+}
+
+fn ps_single_quoted(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 fn create_fake_provider_cli_failure(dir: &Path, name: &str, stderr: &str) {

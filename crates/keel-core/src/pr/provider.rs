@@ -33,7 +33,7 @@ pub(super) fn provider_command(plan: &PrPlan) -> Result<Vec<String>> {
                 "--title".to_string(),
                 plan.title.clone(),
                 "--body".to_string(),
-                provider_body_arg(&plan.body),
+                plan.body.clone(),
             ];
             if plan.draft {
                 command.push("--draft".to_string());
@@ -321,14 +321,6 @@ fn is_not_found_failure(value: &str) -> bool {
         || value.contains("not found")
 }
 
-fn provider_body_arg(body: &str) -> String {
-    collapse_whitespace(body)
-}
-
-fn collapse_whitespace(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub fn infer_provider(remote_url: &str) -> Option<PrProvider> {
     let host = remote_host(remote_url)?;
     match host.as_str() {
@@ -458,6 +450,7 @@ fn encode_query_value(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pr::PrArtifactPaths;
 
     #[test]
     fn infers_common_provider_remote_urls() {
@@ -608,6 +601,49 @@ mod tests {
         assert!(display.contains("<generated PR body>"));
         assert!(!display.contains("Keel Candidate Change"));
         assert!(!display.contains("local paths"));
+    }
+
+    #[test]
+    fn provider_command_preserves_markdown_body() {
+        let plan = PrPlan {
+            run_id: "run-1".to_string(),
+            provider: PrProvider::Github,
+            provider_name: "GitHub",
+            request_kind: "pull_request",
+            manual: false,
+            dry_run: false,
+            remote: "origin".to_string(),
+            remote_url: "git@github.com:owner/repo.git".to_string(),
+            repository_url: Some("https://github.com/owner/repo".to_string()),
+            web_url: None,
+            source_branch: "keel/run/run-1".to_string(),
+            target_branch: "main".to_string(),
+            commit_sha: "abc123".to_string(),
+            title: "keel: test".to_string(),
+            body: "## Heading\n\n- item one\n- item two".to_string(),
+            copyable_summary: "summary".to_string(),
+            draft: false,
+            artifacts: PrArtifactPaths {
+                metadata: ".keel/runs/run-1/metadata.json".to_string(),
+                log: ".keel/runs/run-1/log.txt".to_string(),
+                diff: ".keel/runs/run-1/diff.patch".to_string(),
+                checks: ".keel/runs/run-1/checks.json".to_string(),
+                report: ".keel/runs/run-1/report.md".to_string(),
+                commit: None,
+                push: None,
+                pr: None,
+            },
+            manual_steps: Vec::new(),
+            would_create_request: true,
+            would_write_artifact: true,
+            would_push: false,
+            would_merge: false,
+        };
+
+        let command = provider_command(&plan).unwrap();
+        let body_index = command.iter().position(|arg| arg == "--body").unwrap() + 1;
+
+        assert_eq!(command[body_index], plan.body);
     }
 
     #[test]

@@ -29,8 +29,8 @@ pub(crate) struct AgentCommandCapture {
 
 pub(crate) fn run_command(dir: &Path, program: &str, args: &[String]) -> Result<CommandCapture> {
     let executable = resolve_program(program);
-    let output = Command::new(&executable)
-        .args(args.iter().map(OsStr::new))
+    let mut command = command_for_executable(&executable, args);
+    let output = command
         .current_dir(dir)
         .output()
         .map_err(|error| command_error(program, args, error))?;
@@ -40,6 +40,31 @@ pub(crate) fn run_command(dir: &Path, program: &str, args: &[String]) -> Result<
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
+}
+
+fn command_for_executable(executable: &Path, args: &[String]) -> Command {
+    #[cfg(windows)]
+    {
+        if executable
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("ps1"))
+        {
+            let mut command = Command::new("powershell");
+            command
+                .arg("-NoProfile")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-File")
+                .arg(executable)
+                .args(args.iter().map(OsStr::new));
+            return command;
+        }
+    }
+
+    let mut command = Command::new(executable);
+    command.args(args.iter().map(OsStr::new));
+    command
 }
 
 pub(crate) fn run_command_with_timeout(
@@ -189,8 +214,8 @@ fn resolve_program(program: &str) -> PathBuf {
 
 #[cfg(windows)]
 fn windows_path_extensions() -> Vec<String> {
-    std::env::var("PATHEXT")
-        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+    let mut extensions = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD;.PS1".to_string())
         .split(';')
         .filter(|extension| !extension.is_empty())
         .map(|extension| {
@@ -200,7 +225,14 @@ fn windows_path_extensions() -> Vec<String> {
                 format!(".{extension}")
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if !extensions
+        .iter()
+        .any(|extension| extension.eq_ignore_ascii_case(".PS1"))
+    {
+        extensions.push(".PS1".to_string());
+    }
+    extensions
 }
 
 #[cfg(windows)]
