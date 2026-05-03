@@ -87,6 +87,90 @@ impl FromStr for PrProvider {
     }
 }
 
+impl PrArtifact {
+    fn from_legacy_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
+        let Some(legacy) = LegacyPrMetadata::from_metadata(metadata)? else {
+            return Ok(None);
+        };
+        let provider = legacy.provider;
+
+        Ok(Some(Self {
+            run_id: metadata.run_id.clone(),
+            provider,
+            provider_name: provider.display_name().to_string(),
+            request_kind: provider.request_kind().to_string(),
+            remote: metadata
+                .push_remote
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
+            repository_url: metadata
+                .push_remote_url
+                .as_deref()
+                .and_then(repository_web_url),
+            source_branch: legacy.source_branch,
+            target_branch: legacy.target_branch,
+            commit_sha: legacy.commit_sha,
+            title: metadata
+                .commit_message
+                .clone()
+                .unwrap_or_else(|| default_commit_message(metadata)),
+            url: legacy.url,
+            created_at: legacy.created_at,
+            draft: false,
+            reused_existing: false,
+            dry_run: false,
+        }))
+    }
+}
+
+struct LegacyPrMetadata {
+    created_at: String,
+    provider: PrProvider,
+    url: String,
+    target_branch: String,
+    source_branch: String,
+    commit_sha: String,
+}
+
+impl LegacyPrMetadata {
+    fn from_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
+        if !metadata.pr_created {
+            return Ok(None);
+        }
+
+        let Some(provider) = metadata.pr_provider.as_deref() else {
+            return Ok(None);
+        };
+
+        let (
+            Some(created_at),
+            Some(url),
+            Some(target_branch),
+            Some(source_branch),
+            Some(commit_sha),
+        ) = (
+            metadata.pr_created_at.clone(),
+            metadata.pr_url.clone(),
+            metadata.pr_target_branch.clone(),
+            metadata.pr_source_branch.clone(),
+            metadata.commit_sha.clone(),
+        )
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self {
+            created_at,
+            provider: provider.parse()?,
+            url,
+            target_branch,
+            source_branch,
+            commit_sha,
+        }))
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PrPlan {
     pub run_id: String,
@@ -480,51 +564,8 @@ fn existing_pr(metadata: &RunMetadata, pr_path: &Path) -> Result<Option<PrArtifa
         return Ok(Some(pr.clone()));
     }
 
-    if metadata.pr_created {
-        if let (
-            Some(created_at),
-            Some(provider),
-            Some(url),
-            Some(target_branch),
-            Some(source_branch),
-            Some(commit_sha),
-        ) = (
-            metadata.pr_created_at.clone(),
-            metadata.pr_provider.clone(),
-            metadata.pr_url.clone(),
-            metadata.pr_target_branch.clone(),
-            metadata.pr_source_branch.clone(),
-            metadata.commit_sha.clone(),
-        ) {
-            let provider = provider.parse::<PrProvider>()?;
-            return Ok(Some(PrArtifact {
-                run_id: metadata.run_id.clone(),
-                provider,
-                provider_name: provider.display_name().to_string(),
-                request_kind: provider.request_kind().to_string(),
-                remote: metadata
-                    .push_remote
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
-                remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
-                repository_url: metadata
-                    .push_remote_url
-                    .as_deref()
-                    .and_then(repository_web_url),
-                source_branch,
-                target_branch,
-                commit_sha,
-                title: metadata
-                    .commit_message
-                    .clone()
-                    .unwrap_or_else(|| default_commit_message(metadata)),
-                url,
-                created_at,
-                draft: false,
-                reused_existing: false,
-                dry_run: false,
-            }));
-        }
+    if let Some(pr) = PrArtifact::from_legacy_metadata(metadata)? {
+        return Ok(Some(pr));
     }
 
     if pr_path.is_file() {
