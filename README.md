@@ -182,7 +182,9 @@ suggested closeout commands. These commands do not merge, push, or mutate source
 files.
 
 `keel task status` shows the active ledger task and recent task summaries.
-`keel task show <task-id>` reads preserved task history even after a task is
+Its JSON output is intentionally compact, so evidence stdout/stderr stays out
+of quick status checks. `keel task show <task-id>` reads the full preserved task
+history, including checkpoints, notes, and evidence, even after a task is
 finished or superseded. Starting a new task marks the previously active task
 superseded. `keel task finish` marks the active task finished and clears it as
 active; the task history remains under `.keel/ledger/tasks/`. `keel task reopen

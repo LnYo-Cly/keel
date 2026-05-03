@@ -515,6 +515,20 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
     let task_status =
         parse_json_object(&run_keel_output(repo.path(), ["task", "status", "--json"]));
     assert_eq!(task_status["active_task"]["task_id"], task_id);
+    assert!(task_status["active_task"]["checkpoints"].is_number());
+    assert!(task_status["active_task"]["notes"].is_number());
+    assert!(task_status["active_task"]["evidence"].is_number());
+    assert!(
+        task_status["active_task"].get("root").is_none(),
+        "task status should expose the compact active task summary, not the full task"
+    );
+    assert!(
+        task_status["active_task"]
+            .get("checkpoints")
+            .unwrap()
+            .is_number(),
+        "task status should summarize checkpoint count instead of embedding checkpoint records"
+    );
     assert!(task_status["recent_tasks"]
         .as_array()
         .unwrap()
@@ -548,6 +562,8 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
     ));
     assert_eq!(shown["task"]["task_id"], task_id);
     assert_eq!(shown["decision"]["ready"], true);
+    assert!(shown["task"]["evidence"].as_array().unwrap().len() >= 2);
+    assert!(!shown["task"]["checkpoints"].as_array().unwrap().is_empty());
 
     run_keel(repo.path(), ["task", "show", &task_id])
         .assert()

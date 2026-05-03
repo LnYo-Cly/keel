@@ -106,7 +106,7 @@ pub struct ActiveLedgerTask {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LedgerStatus {
-    pub active_task: Option<LedgerTask>,
+    pub active_task: Option<LedgerTaskSummary>,
     pub recent_tasks: Vec<LedgerTaskSummary>,
 }
 
@@ -243,6 +243,9 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
 pub(crate) fn status(root: &Path) -> Result<LedgerStatus> {
     let active_task = read_active_task(root).ok();
     let active_task_id = active_task.as_ref().map(|task| task.task_id.as_str());
+    let active_task_summary = active_task
+        .as_ref()
+        .map(|task| LedgerTaskSummary::from_task(task, active_task_id));
     let mut recent_tasks = list_tasks(root)?
         .into_iter()
         .map(|task| LedgerTaskSummary::from_task(&task, active_task_id))
@@ -255,7 +258,7 @@ pub(crate) fn status(root: &Path) -> Result<LedgerStatus> {
             .then_with(|| left.task_id.cmp(&right.task_id))
     });
     Ok(LedgerStatus {
-        active_task,
+        active_task: active_task_summary,
         recent_tasks,
     })
 }
