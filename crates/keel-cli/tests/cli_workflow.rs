@@ -461,6 +461,14 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
 
     let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
     assert_eq!(review["task"]["task_id"], task_id);
+    assert!(
+        review["task"].get("root").is_none(),
+        "review --json should expose a compact task summary"
+    );
+    assert!(
+        review["task"].get("evidence").unwrap().is_number(),
+        "review --json should summarize evidence count instead of embedding full command output"
+    );
     assert_eq!(review["summary"]["checkpoints"], 1);
     assert_eq!(review["summary"]["notes"], 1);
     assert_eq!(review["summary"]["evidence_passed"], 2);
@@ -489,6 +497,14 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .as_str()
         .unwrap()
         .contains("echo"));
+    assert_eq!(
+        review["packet"]["evidence"]["latest"]["env_keys"][0],
+        "KEEL_LEDGER_TEST"
+    );
+    assert!(!review.to_string().contains("\"stdout\""));
+    assert!(!review.to_string().contains("\"stderr\""));
+    assert!(!review.to_string().contains("ok\\r\\n"));
+    assert!(!review.to_string().contains("ok\\n"));
 
     run_keel(repo.path(), ["review"])
         .assert()
@@ -511,6 +527,14 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .stdout(predicate::str::contains(
             "Last checkpoint: core ledger model added",
         ));
+    let handoff = parse_json_object(&run_keel_output(repo.path(), ["handoff", "--json"]));
+    assert_eq!(handoff["task"]["task_id"], task_id);
+    assert!(handoff["task"].get("root").is_none());
+    assert!(handoff["recent_evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|evidence| evidence.get("stdout").is_none() && evidence.get("stderr").is_none()));
 
     let task_status =
         parse_json_object(&run_keel_output(repo.path(), ["task", "status", "--json"]));

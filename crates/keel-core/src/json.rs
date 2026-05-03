@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
 use crate::pr::{PrArtifact, PrProvider};
 use crate::push::PushArtifact;
@@ -59,6 +60,30 @@ pub fn report_json(report: &ReportInfo) -> ReportJson {
         pr: report_pr_json(&report.metadata),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
+    }
+}
+
+pub fn ledger_review_json(review: &LedgerReview) -> LedgerReviewJson {
+    LedgerReviewJson {
+        task: LedgerTaskSummary::from_task(&review.task, Some(&review.task.task_id)),
+        summary: review.summary.clone(),
+        decision: review.decision.clone(),
+        workspace: review.workspace.clone(),
+        packet: review.packet.clone(),
+        next_actions: review.next_actions.clone(),
+    }
+}
+
+pub fn ledger_handoff_json(handoff: &LedgerHandoff) -> LedgerHandoffJson {
+    LedgerHandoffJson {
+        task: LedgerTaskSummary::from_task(&handoff.task, Some(&handoff.task.task_id)),
+        summary: handoff.summary.clone(),
+        workspace: handoff.workspace.clone(),
+        packet: handoff.packet.clone(),
+        last_checkpoint: handoff.last_checkpoint.clone(),
+        recent_notes: handoff.recent_notes.clone(),
+        recent_evidence: handoff.recent_evidence.iter().map(evidence_brief).collect(),
+        next_actions: handoff.next_actions.clone(),
     }
 }
 
@@ -210,6 +235,42 @@ pub struct ArtifactJson {
     path: String,
     exists: bool,
     state: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LedgerReviewJson {
+    task: LedgerTaskSummary,
+    summary: crate::ledger::LedgerSummary,
+    decision: crate::ledger::LedgerDecision,
+    workspace: crate::ledger::WorkspaceContext,
+    packet: crate::ledger::LedgerReviewPacket,
+    next_actions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LedgerHandoffJson {
+    task: LedgerTaskSummary,
+    summary: crate::ledger::LedgerSummary,
+    workspace: crate::ledger::WorkspaceContext,
+    packet: crate::ledger::LedgerReviewPacket,
+    last_checkpoint: Option<crate::ledger::LedgerCheckpoint>,
+    recent_notes: Vec<crate::ledger::LedgerNote>,
+    recent_evidence: Vec<LedgerEvidenceBrief>,
+    next_actions: Vec<String>,
+}
+
+fn evidence_brief(evidence: &crate::ledger::LedgerEvidence) -> LedgerEvidenceBrief {
+    LedgerEvidenceBrief {
+        command: evidence.command.clone(),
+        status: evidence.status,
+        exit_code: evidence.exit_code,
+        started_at: evidence.started_at.clone(),
+        env_keys: evidence
+            .env
+            .iter()
+            .map(|variable| variable.key.clone())
+            .collect(),
+    }
 }
 
 fn artifact_json(artifacts: &[ArtifactInfo], label: &str) -> ArtifactJson {

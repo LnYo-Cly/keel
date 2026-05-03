@@ -210,6 +210,8 @@ pub struct LedgerEvidenceBrief {
     pub status: LedgerEvidenceStatus,
     pub exit_code: Option<i32>,
     pub started_at: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_keys: Vec<String>,
 }
 
 pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
@@ -528,7 +530,7 @@ fn report_for_task(task: LedgerTask) -> LedgerTaskReport {
 }
 
 impl LedgerTaskSummary {
-    fn from_task(task: &LedgerTask, active_task_id: Option<&str>) -> Self {
+    pub(crate) fn from_task(task: &LedgerTask, active_task_id: Option<&str>) -> Self {
         let summary = summarize_task(task);
         Self {
             task_id: task.task_id.clone(),
@@ -743,6 +745,11 @@ fn evidence_brief(evidence: &LedgerEvidence) -> LedgerEvidenceBrief {
         status: evidence.status,
         exit_code: evidence.exit_code,
         started_at: evidence.started_at.clone(),
+        env_keys: evidence
+            .env
+            .iter()
+            .map(|variable| variable.key.clone())
+            .collect(),
     }
 }
 

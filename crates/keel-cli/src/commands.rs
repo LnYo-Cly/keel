@@ -1,7 +1,7 @@
 use anyhow::Result;
 use keel_core::{
-    report_json, run_doctor, status_json, validate_config, CommitOptions, KeelProject,
-    LedgerEvidenceEnv, PrOptions, PushOptions, RunMetadata,
+    ledger_handoff_json, ledger_review_json, report_json, run_doctor, status_json, validate_config,
+    CommitOptions, KeelProject, LedgerEvidenceEnv, PrOptions, PushOptions, RunMetadata,
 };
 use std::process::ExitCode;
 
@@ -132,7 +132,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
         Some(Commands::Verify { json }) => {
             let review = project.ledger_review()?;
             if json {
-                render::print_json(&review)?;
+                render::print_json(&ledger_review_json(&review))?;
             } else {
                 render::print_ledger_verify(&review);
             }
@@ -145,7 +145,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
         Some(Commands::Handoff { json }) => {
             let handoff = project.handoff()?;
             if json {
-                render::print_json(&handoff)?;
+                render::print_json(&ledger_handoff_json(&handoff))?;
             } else {
                 render::print_ledger_handoff(&handoff);
             }
@@ -153,7 +153,7 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
         Some(Commands::Review { json }) => {
             let review = project.ledger_review()?;
             if json {
-                render::print_json(&review)?;
+                render::print_json(&ledger_review_json(&review))?;
             } else {
                 render::print_ledger_review(&review);
             }
