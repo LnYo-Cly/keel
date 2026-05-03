@@ -33,7 +33,7 @@ pub use ledger::{
     ChangedFileGroup, LedgerCheckpoint, LedgerDecision, LedgerEvidence, LedgerEvidenceBrief,
     LedgerEvidenceEnv, LedgerEvidencePacket, LedgerEvidenceStatus, LedgerHandoff, LedgerNote,
     LedgerReview, LedgerReviewPacket, LedgerStatus, LedgerSummary, LedgerTask, LedgerTaskReport,
-    LedgerTaskStatus, LedgerTaskSummary, WorkspaceContext,
+    LedgerTaskStatus, LedgerTaskSummary, LedgerWorkspaceContextKind, WorkspaceContext,
 };
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,

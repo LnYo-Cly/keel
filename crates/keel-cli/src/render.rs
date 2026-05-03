@@ -550,12 +550,14 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     }
 }
 
-fn print_optional_workspace_context(workspace: &Option<keel_core::WorkspaceContext>) {
+fn print_optional_workspace_context(workspace: &Option<WorkspaceContext>) {
     match workspace {
         Some(workspace) => print_workspace_context(workspace),
         None => {
             println!("Workspace: archived task");
-            println!("- Current workspace context is not included. Reopen the task to inspect live workspace changes.");
+            println!(
+                "- Current workspace context is not included. Reopen the task to inspect live workspace changes."
+            );
         }
     }
 }

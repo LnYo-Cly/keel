@@ -383,7 +383,7 @@ pub(crate) fn handoff_task(root: &Path, task_id: &str) -> Result<LedgerHandoff> 
 fn review_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerReview> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
-    let workspace = workspace_context_for_review(root, task_id);
+    let workspace = workspace_context_for_review(root, task_id.is_some());
     let packet = review_packet(&task, &summary, &decision, &workspace);
     Ok(LedgerReview {
         task,
@@ -398,7 +398,7 @@ fn review_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Resu
 fn handoff_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerHandoff> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
-    let workspace = workspace_context_for_review(root, task_id);
+    let workspace = workspace_context_for_review(root, task_id.is_some());
     let packet = review_packet(&task, &summary, &decision, &workspace);
     let last_checkpoint = task.checkpoints.last().cloned();
     let recent_notes = tail_items(&task.notes, 5);
@@ -703,8 +703,8 @@ fn task_summary_status(task: &LedgerTask, active_task_id: Option<&str>) -> Ledge
     task.status
 }
 
-fn workspace_context_for_review(root: &Path, task_id: Option<&str>) -> Option<WorkspaceContext> {
-    if task_id.is_some_and(|task_id| !task_id.is_empty()) {
+fn workspace_context_for_review(root: &Path, archived_task: bool) -> Option<WorkspaceContext> {
+    if archived_task {
         return None;
     }
     Some(workspace_context(root))
