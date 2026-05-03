@@ -354,25 +354,25 @@ pub(crate) fn add_evidence(
 
 pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
     let task = read_active_task(root)?;
-    review_for_task(root, task)
+    review_for_task(root, task, None)
 }
 
 pub(crate) fn review_task(root: &Path, task_id: &str) -> Result<LedgerReview> {
     let task = read_task(root, task_id)?;
-    review_for_task(root, task)
+    review_for_task(root, task, Some(task_id))
 }
 
 pub(crate) fn handoff(root: &Path) -> Result<LedgerHandoff> {
     let task = read_active_task(root)?;
-    handoff_for_task(root, task)
+    handoff_for_task(root, task, None)
 }
 
 pub(crate) fn handoff_task(root: &Path, task_id: &str) -> Result<LedgerHandoff> {
     let task = read_task(root, task_id)?;
-    handoff_for_task(root, task)
+    handoff_for_task(root, task, Some(task_id))
 }
 
-fn review_for_task(root: &Path, task: LedgerTask) -> Result<LedgerReview> {
+fn review_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerReview> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
     let workspace = workspace_context(root);
@@ -383,11 +383,11 @@ fn review_for_task(root: &Path, task: LedgerTask) -> Result<LedgerReview> {
         decision,
         workspace,
         packet,
-        next_actions: review_next_actions(),
+        next_actions: review_next_actions(task_id),
     })
 }
 
-fn handoff_for_task(root: &Path, task: LedgerTask) -> Result<LedgerHandoff> {
+fn handoff_for_task(root: &Path, task: LedgerTask, task_id: Option<&str>) -> Result<LedgerHandoff> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
     let workspace = workspace_context(root);
@@ -403,7 +403,7 @@ fn handoff_for_task(root: &Path, task: LedgerTask) -> Result<LedgerHandoff> {
         last_checkpoint,
         recent_notes,
         recent_evidence,
-        next_actions: handoff_next_actions(),
+        next_actions: handoff_next_actions(task_id),
     })
 }
 
@@ -923,20 +923,34 @@ fn current_evidence_window(evidence: &[LedgerEvidence]) -> &[LedgerEvidence] {
     &evidence[start..]
 }
 
-fn review_next_actions() -> Vec<String> {
-    vec![
-        "keel checkpoint \"...\"".to_string(),
-        "keel evidence add --cmd \"cargo test --workspace\"".to_string(),
-        "keel handoff".to_string(),
-    ]
+fn review_next_actions(task_id: Option<&str>) -> Vec<String> {
+    match task_id {
+        Some(task_id) => vec![
+            format!("keel task reopen {task_id}"),
+            format!("keel task show {task_id}"),
+            "keel task status".to_string(),
+        ],
+        None => vec![
+            "keel checkpoint \"...\"".to_string(),
+            "keel evidence add --cmd \"cargo test --workspace\"".to_string(),
+            "keel handoff".to_string(),
+        ],
+    }
 }
 
-fn handoff_next_actions() -> Vec<String> {
-    vec![
-        "continue from the last checkpoint".to_string(),
-        "rerun or add evidence for any changed behavior".to_string(),
-        "finish with `keel review` before committing".to_string(),
-    ]
+fn handoff_next_actions(task_id: Option<&str>) -> Vec<String> {
+    match task_id {
+        Some(task_id) => vec![
+            format!("keel task reopen {task_id}"),
+            format!("keel task show {task_id}"),
+            "keel task status".to_string(),
+        ],
+        None => vec![
+            "continue from the last checkpoint".to_string(),
+            "rerun or add evidence for any changed behavior".to_string(),
+            "finish with `keel review` before committing".to_string(),
+        ],
+    }
 }
 
 fn tail_items<T: Clone>(items: &[T], limit: usize) -> Vec<T> {
