@@ -6,6 +6,7 @@ use crate::command::{
 use crate::constants::{
     CHECKS_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
+use crate::fsio::write_text;
 use crate::json::write_json_pretty;
 use crate::model::{CheckResult, FailureReason, RunMetadata, RunStatus};
 use crate::project::KeelProject;
@@ -39,7 +40,7 @@ impl RunLog {
     }
 
     pub(crate) fn write_to(&self, path: &Path) -> Result<()> {
-        fs::write(path, self.lines.join("\n") + "\n")
+        write_text(path, self.lines.join("\n") + "\n")
             .with_context(|| format!("failed to write log {}", path.display()))
     }
 }
@@ -245,16 +246,16 @@ impl RunSession {
     }
 
     fn persist_diff(&self) -> Result<()> {
-        fs::write(
-            self.run_dir.join(DIFF_FILE),
+        write_text(
+            &self.run_dir.join(DIFF_FILE),
             self.diff.as_deref().unwrap_or(""),
         )
         .with_context(|| format!("failed to write {}", self.run_dir.join(DIFF_FILE).display()))
     }
 
     fn persist_report(&self) -> Result<()> {
-        fs::write(
-            self.run_dir.join(REPORT_FILE),
+        write_text(
+            &self.run_dir.join(REPORT_FILE),
             render_report(
                 &self.metadata,
                 &self.checks,

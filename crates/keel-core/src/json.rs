@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
 use crate::pr::{PrArtifact, PrProvider};
@@ -23,13 +24,9 @@ pub(crate) fn write_json_pretty<T>(path: &Path, value: &T) -> Result<()>
 where
     T: Serialize,
 {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
     let content = serde_json::to_string_pretty(value)
         .with_context(|| format!("failed to serialize {}", path.display()))?;
-    fs::write(path, content + "\n").with_context(|| format!("failed to write {}", path.display()))
+    write_text(path, content + "\n")
 }
 
 pub fn status_json(runs: &[RunMetadata]) -> Vec<RunSummaryJson> {

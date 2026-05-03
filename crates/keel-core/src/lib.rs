@@ -5,6 +5,7 @@ mod commit;
 mod config;
 mod constants;
 mod doctor;
+mod fsio;
 mod git;
 mod json;
 mod ledger;

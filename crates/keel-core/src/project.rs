@@ -9,6 +9,7 @@ use crate::constants::{
     CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PR_FILE,
     PUSH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
 };
+use crate::fsio::write_text;
 use crate::git::{
     ensure_safe_run_id, ensure_safe_worktree_target, expected_run_branch,
     prepare_untracked_for_diff,
@@ -118,7 +119,7 @@ impl KeelProject {
 
         let config_path = keel_dir.join(CONFIG_FILE);
         if !config_path.exists() {
-            fs::write(&config_path, default_config_toml())
+            write_text(&config_path, default_config_toml())
                 .with_context(|| format!("failed to write {}", config_path.display()))?;
         }
 
@@ -635,7 +636,7 @@ impl KeelProject {
                 "",
             ),
         };
-        fs::write(&report_path, report)
+        write_text(&report_path, report)
             .with_context(|| format!("failed to update {}", report_path.display()))?;
         log.push(format!("run {run_id} marked discarded"));
         log.write_to(&log_path)?;
@@ -825,7 +826,7 @@ impl KeelProject {
             return Ok(());
         }
 
-        fs::write(
+        write_text(
             &report_path,
             format!("{}\n\n{}", existing_report, section.trim_end()),
         )

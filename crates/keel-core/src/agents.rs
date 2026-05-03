@@ -1,7 +1,7 @@
 use crate::command::run_command_with_timeout;
 use crate::constants::{DEFAULT_AGENT_TIMEOUT_SECS, NOOP_OUTPUT_FILE};
+use crate::fsio::write_text;
 use anyhow::{Context, Result};
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -53,7 +53,7 @@ impl AgentAdapter for NoopAgent {
             "Keel noop agent output\n\nrun_id = {}\ntask = {}\n",
             context.run_id, context.task
         );
-        fs::write(context.worktree.join(NOOP_OUTPUT_FILE), output).with_context(|| {
+        write_text(&context.worktree.join(NOOP_OUTPUT_FILE), output).with_context(|| {
             format!(
                 "failed to write noop output in {}",
                 context.worktree.display()

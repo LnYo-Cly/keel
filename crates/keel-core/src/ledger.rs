@@ -1062,6 +1062,32 @@ mod tests {
     }
 
     #[test]
+    fn evidence_is_not_recorded_if_active_task_changes_while_command_runs() {
+        let temp = TempDir::new().unwrap();
+        let first = start_task(temp.path(), "first evidence target").unwrap();
+        let root = temp.path().to_path_buf();
+
+        let evidence = thread::spawn(move || {
+            add_evidence(&root, slow_success_command(), Vec::new())
+                .unwrap_err()
+                .to_string()
+        });
+        thread::sleep(Duration::from_millis(100));
+        let second = start_task(temp.path(), "second evidence target").unwrap();
+
+        let error = evidence.join().unwrap();
+        assert!(error.contains("active Keel task changed while evidence command was running"));
+        assert!(read_task(temp.path(), &first.task_id)
+            .unwrap()
+            .evidence
+            .is_empty());
+        assert!(read_task(temp.path(), &second.task_id)
+            .unwrap()
+            .evidence
+            .is_empty());
+    }
+
+    #[test]
     fn review_requires_evidence_before_ready() {
         let temp = TempDir::new().unwrap();
 
@@ -1200,6 +1226,14 @@ mod tests {
                 "new.rs".to_string()
             ]
         );
+    }
+
+    fn slow_success_command() -> &'static str {
+        if cfg!(windows) {
+            "ping -n 2 127.0.0.1 >NUL"
+        } else {
+            "sleep 1"
+        }
     }
 
     #[test]
