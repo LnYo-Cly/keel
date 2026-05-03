@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+use std::thread;
 use tempfile::TempDir;
 
 const RUN_CREATED_PREFIX: &str = "Run created: ";
@@ -615,6 +616,54 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid task id"));
+}
+
+#[test]
+fn ledger_cli_concurrent_writes_preserve_all_records() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let task = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "start", "concurrent ledger cli", "--json"],
+    ));
+    let task_id = task["task_id"].as_str().unwrap().to_string();
+
+    thread::scope(|scope| {
+        for index in 0..4 {
+            let root = repo.path().to_path_buf();
+            scope.spawn(move || {
+                let message = format!("checkpoint {index}");
+                run_keel_process(&root, ["checkpoint", message.as_str()]);
+            });
+        }
+        for index in 0..4 {
+            let root = repo.path().to_path_buf();
+            scope.spawn(move || {
+                let message = format!("note {index}");
+                run_keel_process(&root, ["note", message.as_str()]);
+            });
+        }
+        for _ in 0..4 {
+            let root = repo.path().to_path_buf();
+            scope.spawn(move || {
+                run_keel_process(&root, ["evidence", "add", "--cmd", "git --version"]);
+            });
+        }
+    });
+
+    let shown = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "show", &task_id, "--json"],
+    ));
+    let task = &shown["task"];
+    assert_eq!(task["checkpoints"].as_array().unwrap().len(), 4);
+    assert_eq!(task["notes"].as_array().unwrap().len(), 4);
+    assert_eq!(task["evidence"].as_array().unwrap().len(), 4);
+    assert!(task["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|evidence| evidence["status"] == "passed"));
 }
 
 #[test]
@@ -2176,6 +2225,21 @@ fn run_keel_with_path<const N: usize>(repo: &Path, args: [&str; N], path: &str) 
 fn run_keel_output<const N: usize>(repo: &Path, args: [&str; N]) -> String {
     let output = run_keel(repo, args).assert().success().get_output().clone();
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn run_keel_process<const N: usize>(repo: &Path, args: [&str; N]) {
+    let output = StdCommand::new(assert_cmd::cargo::cargo_bin("keel"))
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "keel command failed: {}\nstdout:\n{}\nstderr:\n{}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn run_keel_output_with_path<const N: usize>(
