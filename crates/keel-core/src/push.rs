@@ -1,4 +1,5 @@
 use crate::command::{format_command, run_command};
+use crate::commit::CommitArtifact;
 use crate::constants::{COMMIT_FILE, PUSH_FILE};
 use crate::git::{ensure_safe_run_id, expected_run_branch};
 use crate::json::read_json;
@@ -202,20 +203,12 @@ fn validate_push_identity(metadata: &RunMetadata) -> Result<()> {
 }
 
 fn committed_sha(metadata: &RunMetadata, commit_path: &Path) -> Result<String> {
-    if let Some(commit_sha) = &metadata.commit_sha {
-        if !commit_sha.trim().is_empty() {
-            return Ok(commit_sha.clone());
-        }
-    }
-
-    if let Some(commit) = &metadata.commit {
-        if !commit.commit_sha.trim().is_empty() {
-            return Ok(commit.commit_sha.clone());
-        }
+    if let Some(commit_sha) = CommitArtifact::commit_sha_from_metadata(metadata) {
+        return Ok(commit_sha);
     }
 
     if commit_path.is_file() {
-        let commit: crate::commit::CommitArtifact = read_json(commit_path)?;
+        let commit: CommitArtifact = read_json(commit_path)?;
         if !commit.commit_sha.trim().is_empty() {
             return Ok(commit.commit_sha);
         }

@@ -27,6 +27,46 @@ pub struct CommitArtifact {
     pub dry_run: bool,
 }
 
+impl CommitArtifact {
+    pub(crate) fn commit_sha_from_metadata(metadata: &RunMetadata) -> Option<String> {
+        metadata
+            .commit_sha
+            .as_deref()
+            .filter(|commit_sha| !commit_sha.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                metadata
+                    .commit
+                    .as_ref()
+                    .map(|commit| commit.commit_sha.as_str())
+                    .filter(|commit_sha| !commit_sha.trim().is_empty())
+                    .map(str::to_string)
+            })
+    }
+
+    pub(crate) fn from_legacy_metadata(metadata: &RunMetadata) -> Option<Self> {
+        if !metadata.committed {
+            return None;
+        }
+
+        let commit_sha = Self::commit_sha_from_metadata(metadata)?;
+        let commit_message = metadata.commit_message.clone()?;
+        let committed_at = metadata.committed_at.clone()?;
+
+        Some(Self {
+            run_id: metadata.run_id.clone(),
+            branch: metadata.branch.clone(),
+            worktree: metadata.worktree_path.clone(),
+            commit_sha,
+            commit_message,
+            committed_at,
+            had_uncommitted_changes: false,
+            warnings: metadata.warnings.clone(),
+            dry_run: false,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitResult {
     pub run_id: String,
@@ -217,24 +257,8 @@ fn existing_commit(metadata: &RunMetadata, commit_path: &Path) -> Result<Option<
         return Ok(Some(commit.clone()));
     }
 
-    if metadata.committed {
-        if let (Some(commit_sha), Some(commit_message), Some(committed_at)) = (
-            metadata.commit_sha.clone(),
-            metadata.commit_message.clone(),
-            metadata.committed_at.clone(),
-        ) {
-            return Ok(Some(CommitArtifact {
-                run_id: metadata.run_id.clone(),
-                branch: metadata.branch.clone(),
-                worktree: metadata.worktree_path.clone(),
-                commit_sha,
-                commit_message,
-                committed_at,
-                had_uncommitted_changes: false,
-                warnings: metadata.warnings.clone(),
-                dry_run: false,
-            }));
-        }
+    if let Some(artifact) = CommitArtifact::from_legacy_metadata(metadata) {
+        return Ok(Some(artifact));
     }
 
     if commit_path.is_file() {
