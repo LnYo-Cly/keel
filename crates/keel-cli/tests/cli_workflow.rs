@@ -1718,6 +1718,8 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
     .success()
     .stdout(predicate::str::contains("PR/MR provider dry-run plan"))
     .stdout(predicate::str::contains("Would run: gh pr create"))
+    .stdout(predicate::str::contains("<generated PR body>"))
+    .stdout(predicate::str::contains("## Keel Candidate Change").not())
     .stdout(predicate::str::contains(
         "Source branch: owner:feature-branch",
     ))
@@ -1766,6 +1768,14 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
         .unwrap()
         .iter()
         .any(|arg| arg == "--draft"));
+    assert!(json["provider_command_display"]
+        .as_str()
+        .unwrap()
+        .contains("<generated PR body>"));
+    assert!(!json["provider_command_display"]
+        .as_str()
+        .unwrap()
+        .contains("Keel Candidate Change"));
 
     let custom_json = parse_json_object(&run_keel_output_with_path(
         repo.path(),

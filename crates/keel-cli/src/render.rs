@@ -292,7 +292,7 @@ pub(crate) fn print_pr_result(result: &PrResult) {
         println!("Commit: {}", result.commit_sha);
         println!("Title: {}", result.title);
         println!("Draft: {}", if result.draft { "yes" } else { "no" });
-        println!("Would run: {}", result.provider_command.join(" "));
+        println!("Would run: {}", result.provider_command_display);
         println!("Keel would create a PR/MR through the provider CLI.");
         println!("Keel would not write pr.json during dry-run.");
         println!("Keel would not merge anything.");

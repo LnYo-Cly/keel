@@ -14,7 +14,10 @@ use std::str::FromStr;
 mod provider;
 pub use provider::infer_provider;
 use provider::{find_existing_provider_pr, ExistingProviderPr};
-use provider::{provider_command, provider_pr_web_url, repository_web_url, run_provider_command};
+use provider::{
+    provider_command, provider_command_display, provider_pr_web_url, repository_web_url,
+    run_provider_command,
+};
 
 #[derive(Debug, Clone)]
 pub struct PrOptions {
@@ -164,6 +167,7 @@ pub struct PrResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr_path: Option<String>,
     pub provider_command: Vec<String>,
+    pub provider_command_display: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -207,6 +211,7 @@ pub(crate) fn create_pr(
 
     let plan = build_pr_plan(root, metadata, &options, false)?;
     let provider_command = provider_command(&plan)?;
+    let provider_command_display = provider_command_display(&provider_command);
 
     if options.dry_run {
         return Ok(PrResult {
@@ -232,6 +237,7 @@ pub(crate) fn create_pr(
             would_write_artifact: false,
             would_push: false,
             would_merge: false,
+            provider_command_display,
             pr_path: None,
             provider_command,
         });
@@ -296,6 +302,7 @@ pub(crate) fn create_pr(
         would_push: false,
         would_merge: false,
         pr_path: Some(pr_path.display().to_string()),
+        provider_command_display,
         provider_command,
     })
 }
@@ -557,6 +564,7 @@ fn already_created_result(
     dry_run: bool,
     pr_path: &Path,
 ) -> PrResult {
+    let provider_command = provider_command(plan).unwrap_or_default();
     PrResult {
         run_id: plan.run_id.clone(),
         provider: artifact.provider,
@@ -581,7 +589,8 @@ fn already_created_result(
         would_push: false,
         would_merge: false,
         pr_path: Some(pr_path.display().to_string()),
-        provider_command: provider_command(plan).unwrap_or_default(),
+        provider_command_display: provider_command_display(&provider_command),
+        provider_command,
     }
 }
 
@@ -635,6 +644,7 @@ fn reused_existing_result(
         would_push: false,
         would_merge: false,
         pr_path: Some(pr_path.display().to_string()),
+        provider_command_display: provider_command_display(&provider_command),
         provider_command,
     };
     (artifact, result)

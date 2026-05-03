@@ -48,6 +48,10 @@ pub(super) fn provider_command(plan: &PrPlan) -> Result<Vec<String>> {
     }
 }
 
+pub(super) fn provider_command_display(command: &[String]) -> String {
+    format_provider_command(&provider_command_for_display(command))
+}
+
 pub(super) fn run_provider_command(
     root: &Path,
     plan: &PrPlan,
@@ -236,7 +240,7 @@ fn format_provider_failure(
     stdout: &str,
     stderr: &str,
 ) -> String {
-    let command_text = format_provider_command(command);
+    let command_text = provider_command_display(command);
     let combined = format!("{stdout}\n{stderr}").to_ascii_lowercase();
     let hint = if is_auth_failure(&combined) {
         Some("GitHub CLI is not authenticated; run `gh auth login` or set a valid GITHUB_TOKEN.")
@@ -268,6 +272,28 @@ fn format_provider_command(command: &[String]) -> String {
         .split_first()
         .map(|(program, args)| format_command(program, args))
         .unwrap_or_else(|| "<empty provider command>".to_string())
+}
+
+fn provider_command_for_display(command: &[String]) -> Vec<String> {
+    let mut display = Vec::with_capacity(command.len());
+    let mut redact_next = false;
+    for arg in command {
+        if redact_next {
+            display.push("<generated PR body>".to_string());
+            redact_next = false;
+            continue;
+        }
+
+        if arg == "--body" {
+            display.push(arg.clone());
+            redact_next = true;
+        } else if arg.starts_with("--body=") {
+            display.push("--body=<generated PR body>".to_string());
+        } else {
+            display.push(arg.clone());
+        }
+    }
+    display
 }
 
 fn is_auth_failure(value: &str) -> bool {
@@ -526,7 +552,13 @@ mod tests {
 
     #[test]
     fn formats_common_gh_failures_with_actionable_hints() {
-        let command = vec!["gh".to_string(), "pr".to_string(), "create".to_string()];
+        let command = vec![
+            "gh".to_string(),
+            "pr".to_string(),
+            "create".to_string(),
+            "--body".to_string(),
+            "sensitive generated body".to_string(),
+        ];
 
         let auth = format_provider_failure(
             PrProvider::Github,
@@ -536,6 +568,8 @@ mod tests {
             "You are not logged into any GitHub hosts",
         );
         assert!(auth.contains("GitHub CLI is not authenticated"));
+        assert!(auth.contains("<generated PR body>"));
+        assert!(!auth.contains("sensitive generated body"));
 
         let permission = format_provider_failure(
             PrProvider::Github,
@@ -554,6 +588,26 @@ mod tests {
             "HTTP 404: Repository not found",
         );
         assert!(not_found.contains("repository was not found or is inaccessible"));
+    }
+
+    #[test]
+    fn provider_command_display_redacts_generated_body() {
+        let command = vec![
+            "gh".to_string(),
+            "pr".to_string(),
+            "create".to_string(),
+            "--title".to_string(),
+            "keel: test".to_string(),
+            "--body".to_string(),
+            "## Keel Candidate Change\n\nlocal paths and generated details".to_string(),
+        ];
+
+        let display = provider_command_display(&command);
+
+        assert!(display.contains("gh pr create"));
+        assert!(display.contains("<generated PR body>"));
+        assert!(!display.contains("Keel Candidate Change"));
+        assert!(!display.contains("local paths"));
     }
 
     #[test]
