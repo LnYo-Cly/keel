@@ -312,9 +312,19 @@ fn compile_globs(patterns: &[impl AsRef<str>]) -> (GlobSet, Vec<String>, Vec<Ris
         }
     }
 
-    let set = builder
-        .build()
-        .expect("globset build should succeed after invalid patterns are skipped");
+    let set = match builder.build() {
+        Ok(set) => set,
+        Err(error) => {
+            warnings.push(RiskWarning::new(
+                RiskWarningKind::InvalidRiskPattern,
+                "risk path patterns could not be compiled",
+                None,
+                None,
+                Some(error.to_string()),
+            ));
+            GlobSet::empty()
+        }
+    };
     (set, valid_patterns, warnings)
 }
 
@@ -401,6 +411,27 @@ deleted file mode 100644
         assert!(has_kind(&warnings, RiskWarningKind::Lockfile));
         assert!(has_kind(&warnings, RiskWarningKind::DeletedFile));
         assert!(has_kind(&warnings, RiskWarningKind::LargeDiff));
+    }
+
+    #[test]
+    fn reports_invalid_risk_patterns_without_panicking() {
+        let diff = "\
+diff --git a/src/auth/session.rs b/src/auth/session.rs
+--- a/src/auth/session.rs
++++ b/src/auth/session.rs
+";
+        let config = RiskConfig {
+            paths: vec!["src/auth/**".to_string(), "[".to_string()],
+            large_diff_file_threshold: 20,
+        };
+
+        let warnings = analyze_diff_risk(diff, &config);
+
+        assert!(warnings.iter().any(|warning| {
+            warning.kind == RiskWarningKind::InvalidRiskPattern
+                && warning.pattern.as_deref() == Some("[")
+        }));
+        assert!(has_kind(&warnings, RiskWarningKind::RiskPath));
     }
 
     fn has_kind(warnings: &[RiskWarning], kind: RiskWarningKind) -> bool {
