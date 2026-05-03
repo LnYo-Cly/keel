@@ -84,7 +84,7 @@ pub(crate) fn render_report(
         failure_reason,
         duration,
         metadata.readiness_reason,
-        render_warnings(&metadata.warnings),
+        render_markdown_list(&metadata.warnings, "- none"),
         render_commit_section(metadata),
         render_push_section(metadata),
         render_pr_section(metadata),
@@ -110,17 +110,6 @@ fn summarize_report_output(output: &str) -> String {
     let mut summary = output.chars().take(REPORT_OUTPUT_LIMIT).collect::<String>();
     summary.push_str("\n... output truncated ...\n");
     summary
-}
-
-fn render_warnings(warnings: &[String]) -> String {
-    if warnings.is_empty() {
-        return "- none\n".to_string();
-    }
-
-    warnings
-        .iter()
-        .map(|warning| format!("- {warning}\n"))
-        .collect()
 }
 
 fn render_failure_section(failure: Option<&str>) -> String {
@@ -168,15 +157,7 @@ pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
     let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
     let commit_message = metadata.commit_message.as_deref().unwrap_or("unknown");
     let committed_at = metadata.committed_at.as_deref().unwrap_or("unknown");
-    let warnings = if metadata.warnings.is_empty() {
-        "- none\n".to_string()
-    } else {
-        metadata
-            .warnings
-            .iter()
-            .map(|warning| format!("- {warning}\n"))
-            .collect()
-    };
+    let warnings = render_markdown_list(&metadata.warnings, "- none");
 
     format!(
         "## Commit\n\n\
@@ -191,6 +172,14 @@ pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
          - Keel did not push or merge anything.\n\n",
         metadata.branch, warnings, metadata.run_id
     )
+}
+
+pub(crate) fn render_markdown_list(items: &[String], empty: &str) -> String {
+    if items.is_empty() {
+        return format!("{empty}\n");
+    }
+
+    items.iter().map(|item| format!("- {item}\n")).collect()
 }
 
 pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {

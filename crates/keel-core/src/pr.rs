@@ -5,6 +5,7 @@ use crate::constants::{
 };
 use crate::model::{RunMetadata, RunStatus};
 use crate::push::PushArtifact;
+use crate::report::render_markdown_list;
 use crate::time::now_timestamp;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -789,16 +790,14 @@ fn copyable_summary(
 }
 
 fn warnings_markdown(metadata: &RunMetadata) -> String {
-    if metadata.warnings.is_empty() {
-        return "None".to_string();
-    }
-
-    metadata
+    let warnings = metadata
         .warnings
         .iter()
-        .map(|warning| format!("- {}", markdown_inline(warning)))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .map(|warning| markdown_inline(warning))
+        .collect::<Vec<_>>();
+    render_markdown_list(&warnings, "None")
+        .trim_end()
+        .to_string()
 }
 
 fn readiness_summary(metadata: &RunMetadata) -> &str {
