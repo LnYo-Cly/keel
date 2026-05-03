@@ -15,8 +15,8 @@ use crate::git::{
 };
 use crate::json::{read_json, write_json_pretty};
 use crate::ledger::{
-    add_checkpoint, add_evidence, add_note, handoff, review, start_task, LedgerEvidenceEnv,
-    LedgerHandoff, LedgerReview, LedgerTask,
+    add_checkpoint, add_evidence, add_note, finish_task, handoff, review, start_task, status,
+    LedgerEvidenceEnv, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
 };
 use crate::model::{
     ArtifactInfo, CheckResult, DiffInfo, InitResult, LogInfo, ReportInfo, RunArtifacts,
@@ -382,6 +382,16 @@ impl KeelProject {
     pub fn start_ledger_task(&self, title: &str) -> Result<LedgerTask> {
         self.ensure_initialized()?;
         start_task(&self.root, title)
+    }
+
+    pub fn ledger_status(&self) -> Result<LedgerStatus> {
+        self.ensure_initialized()?;
+        status(&self.root)
+    }
+
+    pub fn finish_ledger_task(&self) -> Result<LedgerTask> {
+        self.ensure_initialized()?;
+        finish_task(&self.root)
     }
 
     pub fn checkpoint(&self, message: &str) -> Result<LedgerTask> {

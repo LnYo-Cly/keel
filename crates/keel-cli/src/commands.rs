@@ -59,6 +59,26 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_ledger_task_started(&task);
             }
         }
+        Some(Commands::Task {
+            command: TaskCommands::Status { json },
+        }) => {
+            let status = project.ledger_status()?;
+            if json {
+                render::print_json(&status)?;
+            } else {
+                render::print_ledger_status(&status);
+            }
+        }
+        Some(Commands::Task {
+            command: TaskCommands::Finish { json },
+        }) => {
+            let task = project.finish_ledger_task()?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_task_finished(&task);
+            }
+        }
         Some(Commands::Checkpoint { message, json }) => {
             let task = project.checkpoint(&message)?;
             if json {

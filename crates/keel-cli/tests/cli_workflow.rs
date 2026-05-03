@@ -511,6 +511,36 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .stdout(predicate::str::contains(
             "Last checkpoint: core ledger model added",
         ));
+
+    let task_status =
+        parse_json_object(&run_keel_output(repo.path(), ["task", "status", "--json"]));
+    assert_eq!(task_status["active_task"]["task_id"], task_id);
+    assert!(task_status["recent_tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|task| task["task_id"] == task_id && task["evidence_passed"] == 2));
+
+    run_keel(repo.path(), ["task", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel task status"))
+        .stdout(predicate::str::contains("Active task: self dogfood json"));
+
+    let finished = parse_json_object(&run_keel_output(repo.path(), ["task", "finish", "--json"]));
+    assert_eq!(finished["task_id"], task_id);
+    assert_eq!(finished["status"], "finished");
+
+    run_keel(repo.path(), ["task", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Active task: none"))
+        .stdout(predicate::str::contains("[finished] self dogfood json"));
+
+    run_keel(repo.path(), ["review"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no active Keel task found"));
 }
 
 #[test]

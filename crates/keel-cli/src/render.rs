@@ -1,8 +1,8 @@
 use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
-    DoctorStatus, LedgerHandoff, LedgerReview, LedgerTask, LogInfo, PrPlan, PrResult, PushResult,
-    ReportInfo, RunMetadata, WorkspaceContext,
+    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskSummary,
+    LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -338,6 +338,49 @@ pub(crate) fn print_ledger_task_started(task: &LedgerTask) {
     println!("Title: {}", task.title);
     println!("Status: {}", task.status);
     println!("Ledger: .keel/ledger/tasks/{}/task.json", task.task_id);
+}
+
+pub(crate) fn print_ledger_status(status: &LedgerStatus) {
+    println!("Keel task status");
+    match &status.active_task {
+        Some(task) => {
+            println!("Active task: {}", task.title);
+            println!("Task ID: {}", task.task_id);
+            println!("Status: {}", task.status);
+            println!("Updated: {}", task.updated_at);
+        }
+        None => println!("Active task: none"),
+    }
+
+    if status.recent_tasks.is_empty() {
+        println!("Recent tasks: none");
+        return;
+    }
+
+    println!("Recent tasks:");
+    for task in &status.recent_tasks {
+        print_ledger_task_summary(task);
+    }
+}
+
+pub(crate) fn print_ledger_task_finished(task: &LedgerTask) {
+    println!("Finished Keel task: {}", task.task_id);
+    println!("Title: {}", task.title);
+    println!("Status: {}", task.status);
+    println!("Ledger: .keel/ledger/tasks/{}/task.json", task.task_id);
+}
+
+fn print_ledger_task_summary(task: &LedgerTaskSummary) {
+    println!(
+        "- {} [{}] {} (checkpoints {}, notes {}, evidence {} passed / {} failed)",
+        task.task_id,
+        task.status,
+        task.title,
+        task.checkpoints,
+        task.notes,
+        task.evidence_passed,
+        task.evidence_failed
+    );
 }
 
 pub(crate) fn print_ledger_checkpoint(task: &LedgerTask) {

@@ -224,6 +224,18 @@ enum TaskCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Show the active workspace task and recent task history.
+    Status {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mark the active workspace task finished and clear it as active.
+    Finish {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]

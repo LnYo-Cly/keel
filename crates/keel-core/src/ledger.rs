@@ -32,12 +32,16 @@ pub struct LedgerTask {
 #[serde(rename_all = "snake_case")]
 pub enum LedgerTaskStatus {
     Active,
+    Superseded,
+    Finished,
 }
 
 impl std::fmt::Display for LedgerTaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Active => f.write_str("active"),
+            Self::Superseded => f.write_str("superseded"),
+            Self::Finished => f.write_str("finished"),
         }
     }
 }
@@ -98,6 +102,27 @@ impl std::fmt::Display for LedgerEvidenceStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveLedgerTask {
     pub task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LedgerStatus {
+    pub active_task: Option<LedgerTask>,
+    pub recent_tasks: Vec<LedgerTaskSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LedgerTaskSummary {
+    pub task_id: String,
+    pub title: String,
+    pub status: LedgerTaskStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    pub checkpoints: usize,
+    pub notes: usize,
+    pub evidence: usize,
+    pub evidence_passed: usize,
+    pub evidence_failed: usize,
+    pub current_evidence_failed: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,6 +215,12 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
         .with_context(|| format!("failed to create {}", tasks_dir(root).display()))?;
 
     let timestamp = now_timestamp();
+    if let Ok(mut previous) = read_active_task(root) {
+        previous.status = LedgerTaskStatus::Superseded;
+        previous.updated_at = timestamp.clone();
+        write_task(root, &previous)?;
+    }
+
     let task = LedgerTask {
         task_id: generate_task_id(),
         title: title.to_string(),
@@ -208,6 +239,39 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
             task_id: task.task_id.clone(),
         },
     )?;
+    Ok(task)
+}
+
+pub(crate) fn status(root: &Path) -> Result<LedgerStatus> {
+    let active_task = read_active_task(root).ok();
+    let active_task_id = active_task.as_ref().map(|task| task.task_id.as_str());
+    let mut recent_tasks = list_tasks(root)?
+        .into_iter()
+        .map(|task| LedgerTaskSummary::from_task(&task, active_task_id))
+        .collect::<Vec<_>>();
+    recent_tasks.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| right.created_at.cmp(&left.created_at))
+            .then_with(|| left.task_id.cmp(&right.task_id))
+    });
+    Ok(LedgerStatus {
+        active_task,
+        recent_tasks,
+    })
+}
+
+pub(crate) fn finish_task(root: &Path) -> Result<LedgerTask> {
+    let mut task = read_active_task(root)?;
+    task.status = LedgerTaskStatus::Finished;
+    task.updated_at = now_timestamp();
+    write_task(root, &task)?;
+    let active_path = active_task_path(root);
+    if active_path.exists() {
+        fs::remove_file(&active_path)
+            .with_context(|| format!("failed to remove {}", active_path.display()))?;
+    }
     Ok(task)
 }
 
@@ -294,6 +358,28 @@ fn read_active_task(root: &Path) -> Result<LedgerTask> {
 
 fn read_task(root: &Path, task_id: &str) -> Result<LedgerTask> {
     read_json(&task_path(root, task_id)).with_context(|| format!("task `{task_id}` does not exist"))
+}
+
+fn list_tasks(root: &Path) -> Result<Vec<LedgerTask>> {
+    let tasks_dir = tasks_dir(root);
+    if !tasks_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut tasks = Vec::new();
+    for entry in fs::read_dir(&tasks_dir)
+        .with_context(|| format!("failed to read {}", tasks_dir.display()))?
+    {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let task_path = entry.path().join("task.json");
+        if task_path.exists() {
+            tasks.push(read_json(&task_path)?);
+        }
+    }
+    Ok(tasks)
 }
 
 fn write_task(root: &Path, task: &LedgerTask) -> Result<()> {
@@ -389,6 +475,32 @@ fn summarize_task(task: &LedgerTask) -> LedgerSummary {
         current_evidence_passed,
         current_evidence_failed,
     }
+}
+
+impl LedgerTaskSummary {
+    fn from_task(task: &LedgerTask, active_task_id: Option<&str>) -> Self {
+        let summary = summarize_task(task);
+        Self {
+            task_id: task.task_id.clone(),
+            title: task.title.clone(),
+            status: task_summary_status(task, active_task_id),
+            created_at: task.created_at.clone(),
+            updated_at: task.updated_at.clone(),
+            checkpoints: summary.checkpoints,
+            notes: summary.notes,
+            evidence: summary.evidence,
+            evidence_passed: summary.evidence_passed,
+            evidence_failed: summary.evidence_failed,
+            current_evidence_failed: summary.current_evidence_failed,
+        }
+    }
+}
+
+fn task_summary_status(task: &LedgerTask, active_task_id: Option<&str>) -> LedgerTaskStatus {
+    if task.status == LedgerTaskStatus::Active && Some(task.task_id.as_str()) != active_task_id {
+        return LedgerTaskStatus::Superseded;
+    }
+    task.status
 }
 
 fn workspace_context(root: &Path) -> WorkspaceContext {
@@ -736,6 +848,38 @@ mod tests {
             review.decision.reason,
             "all evidence since the most recent failure passed"
         );
+    }
+
+    #[test]
+    fn starting_new_task_marks_previous_active_task_superseded() {
+        let temp = TempDir::new().unwrap();
+
+        let first = start_task(temp.path(), "first task").unwrap();
+        let second = start_task(temp.path(), "second task").unwrap();
+        let status = status(temp.path()).unwrap();
+
+        assert_eq!(status.active_task.unwrap().task_id, second.task_id);
+        assert!(status.recent_tasks.iter().any(
+            |task| task.task_id == first.task_id && task.status == LedgerTaskStatus::Superseded
+        ));
+    }
+
+    #[test]
+    fn finishing_task_clears_active_task_and_preserves_history() {
+        let temp = TempDir::new().unwrap();
+
+        let task = start_task(temp.path(), "finish me").unwrap();
+        let finished = finish_task(temp.path()).unwrap();
+        let status = status(temp.path()).unwrap();
+
+        assert_eq!(finished.task_id, task.task_id);
+        assert_eq!(finished.status, LedgerTaskStatus::Finished);
+        assert!(status.active_task.is_none());
+        assert!(status
+            .recent_tasks
+            .iter()
+            .any(|task| task.task_id == finished.task_id
+                && task.status == LedgerTaskStatus::Finished));
     }
 
     #[test]
