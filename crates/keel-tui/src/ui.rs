@@ -1469,7 +1469,8 @@ mod tests {
         assert!(present.contains("Diff"));
         assert!(present.contains("\"+\""));
 
-        detail.diff.as_mut().unwrap().is_empty = true;
+        let diff = detail.diff.as_mut().expect("sample artifacts include diff");
+        diff.is_empty = true;
         assert!(format!("{:?}", tab_label(DetailTab::Diff, Some(&detail))).contains("empty"));
 
         detail.diff = None;

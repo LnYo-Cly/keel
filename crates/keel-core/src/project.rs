@@ -78,6 +78,10 @@ impl std::fmt::Display for BranchCleanupResult {
 }
 
 impl KeelProject {
+    pub fn from_root_for_display(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
     pub fn discover_from_current_dir() -> Result<Self> {
         Self::discover(std::env::current_dir().context("failed to read current directory")?)
     }

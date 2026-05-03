@@ -662,7 +662,7 @@ mod tests {
 
     fn empty_app_with_filters(filters: TuiFilters) -> App {
         App {
-            project: KeelProject::discover(".").expect("test should run inside git repo"),
+            project: KeelProject::from_root_for_display("."),
             runs: Vec::new(),
             visible: Vec::new(),
             selected: 0,
