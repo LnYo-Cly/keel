@@ -80,10 +80,97 @@ fn report_includes_artifact_paths_and_next_actions() {
         .contains(&format!("keel diff {}", metadata.run_id)));
     assert!(report
         .next_actions
-        .contains(&format!("keel rerun {}", metadata.run_id)));
+        .contains(&format!("keel log {}", metadata.run_id)));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel commit {} --dry-run", metadata.run_id)));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel commit {}", metadata.run_id)));
     assert!(report
         .next_actions
         .contains(&format!("keel discard {}", metadata.run_id)));
+}
+
+#[test]
+fn report_next_actions_follow_commit_push_pr_progress() {
+    let temp = git_repo();
+    let remote = bare_git_repo();
+    add_origin(&temp, &remote);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("progressive next actions", "noop").unwrap();
+
+    let initial = project.report(&metadata.run_id).unwrap();
+    assert!(initial
+        .next_actions
+        .contains(&format!("keel commit {} --dry-run", metadata.run_id)));
+    assert!(!initial
+        .next_actions
+        .contains(&format!("keel push {} --dry-run", metadata.run_id)));
+
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let committed = project.report(&metadata.run_id).unwrap();
+    assert!(committed
+        .next_actions
+        .contains(&format!("keel push {} --dry-run", metadata.run_id)));
+    assert!(committed
+        .next_actions
+        .contains(&format!("keel push {}", metadata.run_id)));
+    assert!(!committed
+        .next_actions
+        .contains(&format!("keel commit {}", metadata.run_id)));
+
+    project.push(&metadata.run_id, push_options(false)).unwrap();
+    let pushed = project.report(&metadata.run_id).unwrap();
+    assert!(pushed
+        .next_actions
+        .contains(&format!("keel pr {} --manual --dry-run", metadata.run_id)));
+    assert!(!pushed
+        .next_actions
+        .contains(&format!("keel pr {} --provider github", metadata.run_id)));
+}
+
+#[test]
+fn report_next_actions_offer_github_provider_pr_after_github_push() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("github next action", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+    let mut pushed = read_metadata(&temp, &metadata.run_id);
+    pushed.pushed = true;
+    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    pushed.push_remote = Some("origin".to_string());
+    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    pushed.pushed_branch = Some(pushed.branch.clone());
+    project.write_metadata(&pushed).unwrap();
+
+    let report = project.report(&metadata.run_id).unwrap();
+
+    assert!(report.next_actions.contains(&format!(
+        "keel pr {} --provider github --dry-run",
+        metadata.run_id
+    )));
+    assert!(report
+        .next_actions
+        .contains(&format!("keel pr {} --provider github", metadata.run_id)));
 }
 
 #[test]
@@ -113,6 +200,11 @@ fn core_json_views_cover_status_and_report_shapes() {
         .unwrap()
         .iter()
         .any(|action| action == &format!("keel diff {}", metadata.run_id)));
+    assert!(report["next_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == &format!("keel commit {}", metadata.run_id)));
 }
 
 #[test]

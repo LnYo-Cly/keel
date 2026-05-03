@@ -125,6 +125,17 @@ on `PATH`.
 - The TUI is read-only and renders existing `.keel/runs/<run-id>/` artifacts.
 - A human developer is always the final merge decision maker.
 
+`keel report <run-id>` is the command-line review hub. Its suggested next
+actions follow the candidate lifecycle:
+
+- ready but uncommitted: inspect `diff`/`log`, then `keel commit --dry-run` and
+  `keel commit`
+- committed: `keel push --dry-run` and `keel push`
+- pushed: `keel pr --manual --dry-run`; GitHub remotes also show
+  `keel pr --provider github --dry-run` and `keel pr --provider github`
+- PR/MR created: review the provider request; Keel still does not merge
+- not ready or discarded: inspect artifacts, rerun, or preserve history
+
 ## Artifacts
 
 Each run stores review artifacts under `.keel/runs/<run-id>/`:

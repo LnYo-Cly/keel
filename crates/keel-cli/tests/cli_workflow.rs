@@ -884,6 +884,9 @@ fn report_outputs_artifacts_and_suggested_next_actions() {
     }
     for action in [
         format!("keel diff {}", run.run_id),
+        format!("keel log {}", run.run_id),
+        format!("keel commit {} --dry-run", run.run_id),
+        format!("keel commit {}", run.run_id),
         format!("keel rerun {}", run.run_id),
         format!("keel discard {}", run.run_id),
     ] {
@@ -938,10 +941,62 @@ fn report_json_is_parseable_and_includes_review_summary() {
         .any(|action| action == &format!("keel diff {}", run.run_id)));
     assert!(actions
         .iter()
-        .any(|action| action == &format!("keel rerun {}", run.run_id)));
+        .any(|action| action == &format!("keel log {}", run.run_id)));
+    assert!(actions
+        .iter()
+        .any(|action| action == &format!("keel commit {} --dry-run", run.run_id)));
+    assert!(actions
+        .iter()
+        .any(|action| action == &format!("keel commit {}", run.run_id)));
     assert!(actions
         .iter()
         .any(|action| action == &format!("keel discard {}", run.run_id)));
+}
+
+#[test]
+fn report_next_actions_advance_through_commit_push_pr_flow() {
+    let repo = create_temp_git_repo();
+    let remote = create_bare_git_repo();
+    git(
+        repo.path(),
+        ["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli next action task");
+
+    let ready = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_next_action(&ready, &format!("keel commit {} --dry-run", run.run_id));
+    assert_next_action(&ready, &format!("keel commit {}", run.run_id));
+
+    run_keel(repo.path(), ["commit", run.run_id.as_str()])
+        .assert()
+        .success();
+    let committed = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_next_action(&committed, &format!("keel push {} --dry-run", run.run_id));
+    assert_next_action(&committed, &format!("keel push {}", run.run_id));
+    assert_no_next_action(&committed, &format!("keel commit {}", run.run_id));
+
+    run_keel(repo.path(), ["push", run.run_id.as_str()])
+        .assert()
+        .success();
+    let pushed = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["report", run.run_id.as_str(), "--json"],
+    ));
+    assert_next_action(
+        &pushed,
+        &format!("keel pr {} --manual --dry-run", run.run_id),
+    );
+    assert_no_next_action(
+        &pushed,
+        &format!("keel pr {} --provider github", run.run_id),
+    );
 }
 
 #[test]
@@ -1171,6 +1226,8 @@ fn commit_success_is_idempotent_and_updates_report_surfaces() {
     ));
     assert_eq!(report_json["commit"]["commit_sha"], commit_sha);
     assert_eq!(report_json["artifacts"]["commit"]["exists"], true);
+    assert_next_action(&report_json, &format!("keel push {} --dry-run", run.run_id));
+    assert_next_action(&report_json, &format!("keel push {}", run.run_id));
 
     let already_json = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1394,6 +1451,10 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
     assert_eq!(report_json["artifacts"]["push"]["exists"], true);
     assert!(report_json.get("publish").is_none());
     assert!(report_json["artifacts"].get("publish").is_none());
+    assert_next_action(
+        &report_json,
+        &format!("keel pr {} --manual --dry-run", run.run_id),
+    );
 
     let already_json = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1790,6 +1851,10 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
         "https://github.com/owner/repo/pull/42"
     );
     assert_eq!(report_json["artifacts"]["pr"]["exists"], true);
+    assert_next_action(
+        &report_json,
+        "review PR/MR on provider: https://github.com/owner/repo/pull/42",
+    );
 
     let already_json = parse_json_object(&run_keel_output_with_path(
         repo.path(),
@@ -2343,6 +2408,30 @@ fn parse_json_array(output: &str) -> Vec<Value> {
 
 fn parse_json_object(output: &str) -> Value {
     serde_json::from_str(output).unwrap()
+}
+
+fn assert_next_action(report: &Value, expected: &str) {
+    assert!(
+        report["next_actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action == expected),
+        "missing next action `{expected}` in {}",
+        report["next_actions"]
+    );
+}
+
+fn assert_no_next_action(report: &Value, unexpected: &str) {
+    assert!(
+        !report["next_actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action == unexpected),
+        "unexpected next action `{unexpected}` in {}",
+        report["next_actions"]
+    );
 }
 
 fn check_status<'a>(report: &'a Value, id: &str) -> &'a str {

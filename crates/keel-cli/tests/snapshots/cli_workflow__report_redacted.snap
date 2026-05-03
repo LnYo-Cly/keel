@@ -15,5 +15,8 @@ Artifacts:
 - PR/MR: <repo>/.keel/runs/<run-id>/pr.json (missing)
 Suggested next actions:
 - keel diff <run-id>
+- keel log <run-id>
+- keel commit <run-id> --dry-run
+- keel commit <run-id>
 - keel rerun <run-id>
 - keel discard <run-id>

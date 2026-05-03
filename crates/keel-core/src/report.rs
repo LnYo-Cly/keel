@@ -4,6 +4,7 @@ use crate::constants::{
     REPORT_OUTPUT_LIMIT,
 };
 use crate::model::{CheckResult, RunMetadata, RunStatus};
+use crate::pr::{infer_provider, PrProvider};
 
 pub(crate) fn render_report(
     metadata: &RunMetadata,
@@ -186,9 +187,9 @@ pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
          ### Warnings\n\n\
          {}\
          ### Next\n\n\
-         - You can push this branch later with future `keel push`.\n\
+         - Use `keel push {}` when you want to push this candidate branch.\n\
          - Keel did not push or merge anything.\n\n",
-        metadata.branch, warnings
+        metadata.branch, warnings, metadata.run_id
     )
 }
 
@@ -214,9 +215,10 @@ pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
          - Commit: `{commit_sha}`\n\
          - Pushed at: `{pushed_at}`\n\n\
          ### Next\n\n\
-         - Open a Pull Request or Merge Request on your Git hosting provider.\n\
+         - Use `keel pr {} --manual --dry-run` to prepare a Pull Request or Merge Request.\n\
          - Keel did not create a PR/MR.\n\
-         - Keel did not merge anything.\n\n"
+         - Keel did not merge anything.\n\n",
+        metadata.run_id
     )
 }
 
@@ -262,22 +264,69 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
 }
 
 fn render_suggested_next_actions(metadata: &RunMetadata) -> String {
+    suggested_next_actions(metadata)
+        .into_iter()
+        .map(|action| format!("- {action}\n"))
+        .collect::<String>()
+        + "\n"
+}
+
+pub(crate) fn suggested_next_actions(metadata: &RunMetadata) -> Vec<String> {
+    let run_id = &metadata.run_id;
     match metadata.status {
-        RunStatus::Ready => format!(
-            "- Review `{}` and `{}` before making any merge decision.\n- Use `keel discard {}` to remove the candidate worktree and preserve history.\n- Use `keel rerun {}` to try the same task again in a fresh worktree.\n\n",
-            DIFF_FILE, REPORT_FILE, metadata.run_id, metadata.run_id
-        ),
-        RunStatus::NotReady => format!(
-            "- Inspect `{}` and `{}` to understand why the candidate is not ready.\n- Use `keel rerun {}` after fixing environment or task issues.\n- Use `keel discard {}` if the candidate worktree is no longer useful.\n\n",
-            LOG_FILE, CHECKS_FILE, metadata.run_id, metadata.run_id
-        ),
-        RunStatus::Discarded => format!(
-            "- Run history is preserved under `{}`.\n- Use `keel rerun {}` to create a fresh candidate from the same task.\n\n",
-            metadata.run_dir, metadata.run_id
-        ),
+        RunStatus::Ready => ready_next_actions(metadata),
+        RunStatus::NotReady => vec![
+            format!("keel log {run_id}"),
+            format!("keel diff {run_id}"),
+            format!("keel rerun {run_id}"),
+            format!("keel discard {run_id}"),
+        ],
+        RunStatus::Discarded => vec![
+            format!("keel report {run_id}"),
+            format!("keel diff {run_id}"),
+            format!("keel log {run_id}"),
+            format!("keel rerun {run_id}"),
+        ],
         RunStatus::Created | RunStatus::Running => {
-            "- Wait for the run to finish, then check `keel status` and inspect this report again.\n\n"
-                .to_string()
+            vec![format!("keel status"), format!("keel log {run_id}")]
         }
     }
+}
+
+fn ready_next_actions(metadata: &RunMetadata) -> Vec<String> {
+    let run_id = &metadata.run_id;
+    let mut actions = vec![format!("keel diff {run_id}"), format!("keel log {run_id}")];
+
+    if !metadata.committed {
+        actions.push(format!("keel commit {run_id} --dry-run"));
+        actions.push(format!("keel commit {run_id}"));
+    } else if !metadata.pushed {
+        actions.push(format!("keel push {run_id} --dry-run"));
+        actions.push(format!("keel push {run_id}"));
+    } else if !metadata.pr_created {
+        actions.push(format!("keel pr {run_id} --manual --dry-run"));
+        if pushed_to_github(metadata) {
+            actions.push(format!("keel pr {run_id} --provider github --dry-run"));
+            actions.push(format!("keel pr {run_id} --provider github"));
+        }
+    } else {
+        actions.push(
+            metadata
+                .pr_url
+                .as_deref()
+                .map(|url| format!("review PR/MR on provider: {url}"))
+                .unwrap_or_else(|| "review PR/MR on provider before merging".to_string()),
+        );
+    }
+
+    actions.push(format!("keel rerun {run_id}"));
+    actions.push(format!("keel discard {run_id}"));
+    actions
+}
+
+fn pushed_to_github(metadata: &RunMetadata) -> bool {
+    let Some(remote_url) = metadata.push_remote_url.as_deref() else {
+        return false;
+    };
+    infer_provider(remote_url) == Some(PrProvider::Github)
 }

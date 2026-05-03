@@ -26,7 +26,10 @@ use crate::model::{
 };
 use crate::pr::{create_pr, plan_pr, PrOptions, PrPlan, PrResult};
 use crate::push::{push_run, PushOptions, PushResult};
-use crate::report::{render_commit_section, render_pr_section, render_push_section, render_report};
+use crate::report::{
+    render_commit_section, render_pr_section, render_push_section, render_report,
+    suggested_next_actions,
+};
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
@@ -857,15 +860,7 @@ impl KeelProject {
 }
 
 fn next_actions_for_report(metadata: &RunMetadata) -> Vec<String> {
-    let run_id = &metadata.run_id;
-    let mut actions = vec![
-        format!("keel diff {run_id}"),
-        format!("keel rerun {run_id}"),
-    ];
-    if metadata.status != RunStatus::Discarded {
-        actions.push(format!("keel discard {run_id}"));
-    }
-    actions
+    suggested_next_actions(metadata)
 }
 
 fn compare_runs_newest_first(left: &RunMetadata, right: &RunMetadata) -> Ordering {
