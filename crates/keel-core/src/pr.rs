@@ -446,25 +446,8 @@ fn pushed_candidate(metadata: &RunMetadata) -> Result<PushArtifact> {
         return Ok(push.clone());
     }
 
-    if metadata.pushed {
-        if let (Some(pushed_at), Some(remote), Some(remote_url), Some(branch), Some(commit_sha)) = (
-            metadata.pushed_at.clone(),
-            metadata.push_remote.clone(),
-            metadata.push_remote_url.clone(),
-            metadata.pushed_branch.clone(),
-            metadata.commit_sha.clone(),
-        ) {
-            return Ok(PushArtifact {
-                run_id: metadata.run_id.clone(),
-                remote,
-                remote_url,
-                branch,
-                commit_sha,
-                pushed: true,
-                pushed_at,
-                dry_run: false,
-            });
-        }
+    if let Some(push) = PushArtifact::from_legacy_metadata(metadata) {
+        return Ok(push);
     }
 
     bail!(

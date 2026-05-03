@@ -30,6 +30,33 @@ pub struct PushArtifact {
     pub dry_run: bool,
 }
 
+impl PushArtifact {
+    pub(crate) fn from_legacy_metadata(metadata: &RunMetadata) -> Option<Self> {
+        if !metadata.pushed {
+            return None;
+        }
+
+        let (pushed_at, remote, remote_url, branch, commit_sha) = (
+            metadata.pushed_at.clone()?,
+            metadata.push_remote.clone()?,
+            metadata.push_remote_url.clone()?,
+            metadata.pushed_branch.clone()?,
+            metadata.commit_sha.clone()?,
+        );
+
+        Some(Self {
+            run_id: metadata.run_id.clone(),
+            remote,
+            remote_url,
+            branch,
+            commit_sha,
+            pushed: true,
+            pushed_at,
+            dry_run: false,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PushResult {
     pub run_id: String,
@@ -303,28 +330,11 @@ fn existing_push(
         }));
     }
 
-    if metadata.pushed {
-        if let (Some(pushed_at), Some(remote), Some(remote_url), Some(branch), Some(commit_sha)) = (
-            metadata.pushed_at.clone(),
-            metadata.push_remote.clone(),
-            metadata.push_remote_url.clone(),
-            metadata.pushed_branch.clone(),
-            metadata.commit_sha.clone(),
-        ) {
-            return Ok(Some(ExistingPush {
-                artifact: PushArtifact {
-                    run_id: metadata.run_id.clone(),
-                    remote,
-                    remote_url,
-                    branch,
-                    commit_sha,
-                    pushed: true,
-                    pushed_at,
-                    dry_run: false,
-                },
-                path: existing_push_artifact_path(run_dir, push_path),
-            }));
-        }
+    if let Some(artifact) = PushArtifact::from_legacy_metadata(metadata) {
+        return Ok(Some(ExistingPush {
+            artifact,
+            path: existing_push_artifact_path(run_dir, push_path),
+        }));
     }
 
     if push_path.is_file() {
