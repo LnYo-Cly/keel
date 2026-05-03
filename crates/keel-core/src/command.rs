@@ -74,9 +74,8 @@ pub(crate) fn run_command_with_timeout(
     timeout: Duration,
 ) -> Result<AgentCommandCapture> {
     let executable = resolve_program(program);
-    let mut command = Command::new(&executable);
+    let mut command = command_for_executable(&executable, args);
     command
-        .args(args.iter().map(OsStr::new))
         .current_dir(dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

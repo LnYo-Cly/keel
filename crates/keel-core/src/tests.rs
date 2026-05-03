@@ -179,6 +179,7 @@ enum FakeCodexMode {
     Failure,
     Timeout,
     SpawnChild,
+    PowerShellSuccess,
 }
 
 enum FakeClaudeMode {
@@ -247,7 +248,10 @@ impl AgentAdapter for FileChangeAgent {
 
 fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
     let script = repo.join(if cfg!(windows) {
-        "fake-codex.cmd"
+        match mode {
+            FakeCodexMode::PowerShellSuccess => "fake-codex.ps1",
+            _ => "fake-codex.cmd",
+        }
     } else {
         "fake-codex"
     });
@@ -264,6 +268,9 @@ fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
             FakeCodexMode::SpawnChild if cfg!(windows) => {
                 "@echo off\r\necho fake codex spawning child\r\nstart \"\" /B cmd /C \"ping -n 4 127.0.0.1 >nul & echo child survived>process-tree-survivor.txt\"\r\nping -n 6 127.0.0.1 >nul\r\nexit /B 0\r\n"
             }
+            FakeCodexMode::PowerShellSuccess if cfg!(windows) => {
+                "$args -join ' ' | Set-Content -LiteralPath codex-ps1-args.txt\nWrite-Output 'fake codex ps1 stdout'\nWrite-Error 'fake codex ps1 stderr' -ErrorAction Continue\nSet-Content -LiteralPath codex-ps1-output.txt -Value 'codex ps1 output'\nexit 0\n"
+            }
             FakeCodexMode::Success => {
                 "#!/bin/sh\necho fake codex stdout\necho fake codex stderr >&2\necho codex output > codex-output.txt\nexit 0\n"
             }
@@ -273,6 +280,9 @@ fn fake_codex(repo: &Path, mode: FakeCodexMode) -> PathBuf {
             }
             FakeCodexMode::SpawnChild => {
                 "#!/bin/sh\necho fake codex spawning child\n(sh -c 'sleep 3; echo child survived > process-tree-survivor.txt') &\nsleep 5\nexit 0\n"
+            }
+            FakeCodexMode::PowerShellSuccess => {
+                "#!/bin/sh\necho fake codex stdout\necho fake codex stderr >&2\necho codex output > codex-output.txt\nexit 0\n"
             }
         };
     fs::write(&script, content).unwrap();

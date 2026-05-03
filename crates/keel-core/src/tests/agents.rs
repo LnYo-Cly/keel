@@ -117,6 +117,40 @@ fn codex_adapter_captures_stdout_stderr_and_diff() {
     assert!(diff.contains("codex-output.txt"));
 }
 
+#[cfg(windows)]
+#[test]
+fn codex_adapter_runs_powershell_shim_with_timeout_wrapper() {
+    let temp = git_repo();
+    let fake_codex = fake_codex(temp.path(), FakeCodexMode::PowerShellSuccess);
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+
+    let metadata = project
+        .run_with_adapter(
+            "make a codex ps1 change",
+            &CodexAgent::with_program(fake_codex.to_string_lossy()),
+        )
+        .unwrap();
+
+    assert_eq!(metadata.agent, "codex");
+    assert_eq!(metadata.status, RunStatus::Ready);
+    let run_dir = run_dir(&temp, &metadata.run_id);
+    assert_required_artifacts(&run_dir);
+
+    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    assert!(log.contains("fake codex ps1 stdout"));
+    assert!(log.contains("fake codex ps1 stderr"));
+    assert!(log.contains("--ask-for-approval on-request"));
+
+    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    assert!(diff.contains("codex-ps1-output.txt"));
+
+    let args_path = worktree_dir(&temp, &metadata.run_id).join("codex-ps1-args.txt");
+    let args = fs::read_to_string(args_path).unwrap();
+    assert!(args.contains("--sandbox workspace-write"));
+    assert!(args.contains("make a codex ps1 change"));
+}
+
 #[test]
 fn codex_nonzero_exit_still_generates_report() {
     let temp = git_repo();
