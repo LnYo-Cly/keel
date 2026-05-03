@@ -165,6 +165,8 @@ keel evidence add --env CARGO_TARGET_DIR=target/keel-evidence --cmd "cargo test 
 keel verify
 keel review
 keel handoff
+keel review <task-id>
+keel verify <task-id>
 keel task finish
 keel task reopen <task-id>
 ```
@@ -179,7 +181,9 @@ but later passing evidence can restore readiness after a fix. `keel review` and
 `keel handoff` also include a review packet with a readiness headline, changed
 files grouped by source/tests/docs/config/other, latest and failed evidence, and
 suggested closeout commands. These commands do not merge, push, or mutate source
-files.
+files. After a task is finished, `keel review <task-id>`, `keel verify
+<task-id>`, and `keel handoff <task-id>` can read the preserved task directly
+without reopening it.
 
 `keel task status` shows the active ledger task and recent task summaries.
 Its JSON output is intentionally compact, so evidence stdout/stderr stays out

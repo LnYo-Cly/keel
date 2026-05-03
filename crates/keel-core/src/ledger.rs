@@ -354,6 +354,25 @@ pub(crate) fn add_evidence(
 
 pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
     let task = read_active_task(root)?;
+    review_for_task(root, task)
+}
+
+pub(crate) fn review_task(root: &Path, task_id: &str) -> Result<LedgerReview> {
+    let task = read_task(root, task_id)?;
+    review_for_task(root, task)
+}
+
+pub(crate) fn handoff(root: &Path) -> Result<LedgerHandoff> {
+    let task = read_active_task(root)?;
+    handoff_for_task(root, task)
+}
+
+pub(crate) fn handoff_task(root: &Path, task_id: &str) -> Result<LedgerHandoff> {
+    let task = read_task(root, task_id)?;
+    handoff_for_task(root, task)
+}
+
+fn review_for_task(root: &Path, task: LedgerTask) -> Result<LedgerReview> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
     let workspace = workspace_context(root);
@@ -368,8 +387,7 @@ pub(crate) fn review(root: &Path) -> Result<LedgerReview> {
     })
 }
 
-pub(crate) fn handoff(root: &Path) -> Result<LedgerHandoff> {
-    let task = read_active_task(root)?;
+fn handoff_for_task(root: &Path, task: LedgerTask) -> Result<LedgerHandoff> {
     let summary = summarize_task(&task);
     let decision = decision_for_summary(&summary);
     let workspace = workspace_context(root);

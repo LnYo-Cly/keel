@@ -60,18 +60,24 @@ enum Commands {
     },
     /// Verify whether the active workspace task has passing evidence.
     Verify {
+        /// Verify a preserved task instead of the active task.
+        task_id: Option<String>,
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
     },
     /// Generate a handoff packet for the active workspace task.
     Handoff {
+        /// Generate a handoff for a preserved task instead of the active task.
+        task_id: Option<String>,
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,
     },
     /// Generate a review packet for the active workspace task.
     Review {
+        /// Review a preserved task instead of the active task.
+        task_id: Option<String>,
         /// Print machine-readable JSON instead of human output.
         #[arg(long)]
         json: bool,

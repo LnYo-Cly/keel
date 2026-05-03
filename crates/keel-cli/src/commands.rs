@@ -129,8 +129,11 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_ledger_evidence(&task);
             }
         }
-        Some(Commands::Verify { json }) => {
-            let review = project.ledger_review()?;
+        Some(Commands::Verify { task_id, json }) => {
+            let review = match task_id {
+                Some(task_id) => project.ledger_review_task(&task_id)?,
+                None => project.ledger_review()?,
+            };
             if json {
                 render::print_json(&ledger_review_json(&review))?;
             } else {
@@ -142,16 +145,22 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 ExitCode::FAILURE
             });
         }
-        Some(Commands::Handoff { json }) => {
-            let handoff = project.handoff()?;
+        Some(Commands::Handoff { task_id, json }) => {
+            let handoff = match task_id {
+                Some(task_id) => project.handoff_task(&task_id)?,
+                None => project.handoff()?,
+            };
             if json {
                 render::print_json(&ledger_handoff_json(&handoff))?;
             } else {
                 render::print_ledger_handoff(&handoff);
             }
         }
-        Some(Commands::Review { json }) => {
-            let review = project.ledger_review()?;
+        Some(Commands::Review { task_id, json }) => {
+            let review = match task_id {
+                Some(task_id) => project.ledger_review_task(&task_id)?,
+                None => project.ledger_review()?,
+            };
             if json {
                 render::print_json(&ledger_review_json(&review))?;
             } else {
