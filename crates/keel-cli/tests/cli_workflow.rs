@@ -513,7 +513,9 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .stdout(predicate::str::contains("Changed file groups:"))
         .stdout(predicate::str::contains("Workspace:"))
         .stdout(predicate::str::contains("Dirty: yes"))
-        .stdout(predicate::str::contains("README.md"));
+        .stdout(predicate::str::contains("README.md"))
+        .stdout(predicate::str::contains("Checkpoints:").not())
+        .stdout(predicate::str::contains("Evidence:").not());
 
     run_keel(repo.path(), ["verify"])
         .assert()
@@ -526,7 +528,9 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .stdout(predicate::str::contains("Keel handoff"))
         .stdout(predicate::str::contains(
             "Last checkpoint: core ledger model added",
-        ));
+        ))
+        .stdout(predicate::str::contains("Recent notes:").not())
+        .stdout(predicate::str::contains("Recent evidence:").not());
     let handoff = parse_json_object(&run_keel_output(repo.path(), ["handoff", "--json"]));
     assert_eq!(handoff["task"]["task_id"], task_id);
     assert!(handoff["task"].get("root").is_none());

@@ -184,7 +184,8 @@ files.
 `keel task status` shows the active ledger task and recent task summaries.
 Its JSON output is intentionally compact, so evidence stdout/stderr stays out
 of quick status checks. `keel review --json`, `keel verify --json`, and
-`keel handoff --json` also return compact evidence summaries for automation.
+`keel handoff --json` also return compact evidence summaries for automation,
+and the human review/handoff output avoids replaying full evidence history.
 `keel task show <task-id>` reads the full preserved task history, including
 checkpoints, notes, and evidence, even after a task is finished or superseded.
 Starting a new task marks the previously active task superseded. `keel task

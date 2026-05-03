@@ -516,24 +516,6 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
     println!("Reason: {}", review.decision.reason);
     print_ledger_packet("Review packet", &review.packet);
     print_workspace_context(&review.workspace);
-    if !review.task.checkpoints.is_empty() {
-        println!("Checkpoints:");
-        for checkpoint in &review.task.checkpoints {
-            println!("- {}: {}", checkpoint.created_at, checkpoint.message);
-        }
-    }
-    if !review.task.evidence.is_empty() {
-        println!("Evidence:");
-        for evidence in &review.task.evidence {
-            println!(
-                "- {}: {} ({}, exit {})",
-                evidence.started_at,
-                evidence.command,
-                evidence.status,
-                evidence.exit_code.unwrap_or_default()
-            );
-        }
-    }
     if !review.next_actions.is_empty() {
         println!("Next actions:");
         for action in &review.next_actions {
@@ -561,24 +543,6 @@ pub(crate) fn print_ledger_handoff(handoff: &LedgerHandoff) {
     match &handoff.last_checkpoint {
         Some(checkpoint) => println!("Last checkpoint: {}", checkpoint.message),
         None => println!("Last checkpoint: none"),
-    }
-    if !handoff.recent_notes.is_empty() {
-        println!("Recent notes:");
-        for note in &handoff.recent_notes {
-            println!("- {}: {}", note.created_at, note.message);
-        }
-    }
-    if !handoff.recent_evidence.is_empty() {
-        println!("Recent evidence:");
-        for evidence in &handoff.recent_evidence {
-            println!(
-                "- {}: {} ({}, exit {})",
-                evidence.started_at,
-                evidence.command,
-                evidence.status,
-                evidence.exit_code.unwrap_or_default()
-            );
-        }
     }
     println!("Next actions:");
     for action in &handoff.next_actions {
