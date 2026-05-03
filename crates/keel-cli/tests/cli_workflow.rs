@@ -541,6 +541,36 @@ fn ledger_self_dogfood_workflow_records_task_evidence_review_and_handoff() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("no active Keel task found"));
+
+    let shown = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "show", &task_id, "--json"],
+    ));
+    assert_eq!(shown["task"]["task_id"], task_id);
+    assert_eq!(shown["decision"]["ready"], true);
+
+    run_keel(repo.path(), ["task", "show", &task_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel task"))
+        .stdout(predicate::str::contains("self dogfood json"));
+
+    let reopened = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["task", "reopen", &task_id, "--json"],
+    ));
+    assert_eq!(reopened["task_id"], task_id);
+    assert_eq!(reopened["status"], "active");
+
+    run_keel(repo.path(), ["review"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Task: self dogfood json"));
+
+    run_keel(repo.path(), ["task", "show", "../bad"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid task id"));
 }
 
 #[test]

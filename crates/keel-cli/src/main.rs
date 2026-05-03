@@ -230,6 +230,22 @@ enum TaskCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Show a preserved workspace task by id.
+    Show {
+        /// Task id.
+        task_id: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Reopen a preserved workspace task as active.
+    Reopen {
+        /// Task id.
+        task_id: String,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Mark the active workspace task finished and clear it as active.
     Finish {
         /// Print machine-readable JSON instead of human output.

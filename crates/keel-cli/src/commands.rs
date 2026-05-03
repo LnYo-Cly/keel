@@ -70,6 +70,26 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             }
         }
         Some(Commands::Task {
+            command: TaskCommands::Show { task_id, json },
+        }) => {
+            let report = project.ledger_task_report(&task_id)?;
+            if json {
+                render::print_json(&report)?;
+            } else {
+                render::print_ledger_task_report(&report);
+            }
+        }
+        Some(Commands::Task {
+            command: TaskCommands::Reopen { task_id, json },
+        }) => {
+            let task = project.reopen_ledger_task(&task_id)?;
+            if json {
+                render::print_json(&task)?;
+            } else {
+                render::print_ledger_task_reopened(&task);
+            }
+        }
+        Some(Commands::Task {
             command: TaskCommands::Finish { json },
         }) => {
             let task = project.finish_ledger_task()?;

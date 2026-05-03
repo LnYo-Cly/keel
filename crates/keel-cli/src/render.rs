@@ -1,8 +1,9 @@
 use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
-    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskSummary,
-    LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata, WorkspaceContext,
+    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
+    LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
+    WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -368,6 +369,41 @@ pub(crate) fn print_ledger_task_finished(task: &LedgerTask) {
     println!("Title: {}", task.title);
     println!("Status: {}", task.status);
     println!("Ledger: .keel/ledger/tasks/{}/task.json", task.task_id);
+}
+
+pub(crate) fn print_ledger_task_reopened(task: &LedgerTask) {
+    println!("Reopened Keel task: {}", task.task_id);
+    println!("Title: {}", task.title);
+    println!("Status: {}", task.status);
+    println!("Ledger: .keel/ledger/tasks/{}/task.json", task.task_id);
+}
+
+pub(crate) fn print_ledger_task_report(report: &LedgerTaskReport) {
+    println!("Keel task");
+    println!("Task: {}", report.task.title);
+    println!("Task ID: {}", report.task.task_id);
+    println!("Status: {}", report.task.status);
+    println!("Created: {}", report.task.created_at);
+    println!("Updated: {}", report.task.updated_at);
+    println!(
+        "Summary: {} checkpoints, {} notes, {} evidence ({} passed, {} failed; current window {} passed, {} failed)",
+        report.summary.checkpoints,
+        report.summary.notes,
+        report.summary.evidence,
+        report.summary.evidence_passed,
+        report.summary.evidence_failed,
+        report.summary.current_evidence_passed,
+        report.summary.current_evidence_failed
+    );
+    println!(
+        "Decision: {}",
+        if report.decision.ready {
+            "ready"
+        } else {
+            "not ready"
+        }
+    );
+    println!("Reason: {}", report.decision.reason);
 }
 
 fn print_ledger_task_summary(task: &LedgerTaskSummary) {

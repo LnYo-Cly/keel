@@ -27,11 +27,13 @@ Run Keel inside an existing git repository with at least one commit.
 keel init
 keel task start "implement review workflow"
 keel task status
+keel task show <task-id>
 keel checkpoint "planned CLI changes"
 keel evidence add --cmd "cargo test --workspace"
 keel review
 keel handoff
 keel task finish
+keel task reopen <task-id>
 keel run "fix login bug" --agent noop
 keel status
 keel report <run-id>
@@ -82,11 +84,12 @@ and basic value sanity, including risk warning settings. It does not rewrite the
 file.
 
 `keel task start`, `keel checkpoint`, `keel note`, `keel evidence add`,
-`keel verify`, `keel review`, `keel handoff`, `keel task status`, and
-`keel task finish` provide a lightweight workspace ledger for long-running agent
-sessions. This mode does not start a new agent and does not create a worktree;
-it lets the current Codex or Claude Code session record checkpoints, evidence,
-handoff state, and review readiness while working in the current repository.
+`keel verify`, `keel review`, `keel handoff`, `keel task status`,
+`keel task show`, `keel task reopen`, and `keel task finish` provide a
+lightweight workspace ledger for long-running agent sessions. This mode does not
+start a new agent and does not create a worktree; it lets the current Codex or
+Claude Code session record checkpoints, evidence, handoff state, and review
+readiness while working in the current repository.
 
 `keel` opens a read-only terminal review UI for browsing runs and artifacts.
 `keel tui` is the explicit form of the same UI. It does not commit, push,
@@ -154,6 +157,7 @@ Code session can call these commands while it works:
 ```bash
 keel task start "implement Keel self-dogfood ledger"
 keel task status
+keel task show <task-id>
 keel checkpoint "core model added"
 keel note "risk: CLI output changed"
 keel evidence add --cmd "cargo fmt --all --check"
@@ -162,6 +166,7 @@ keel verify
 keel review
 keel handoff
 keel task finish
+keel task reopen <task-id>
 ```
 
 `keel evidence add --env KEY=VALUE --cmd "<command>"` sets environment variables
@@ -177,9 +182,11 @@ suggested closeout commands. These commands do not merge, push, or mutate source
 files.
 
 `keel task status` shows the active ledger task and recent task summaries.
-Starting a new task marks the previously active task superseded. `keel task
-finish` marks the active task finished and clears it as active; the task history
-remains under `.keel/ledger/tasks/`.
+`keel task show <task-id>` reads preserved task history even after a task is
+finished or superseded. Starting a new task marks the previously active task
+superseded. `keel task finish` marks the active task finished and clears it as
+active; the task history remains under `.keel/ledger/tasks/`. `keel task reopen
+<task-id>` makes a preserved task active again.
 
 ## Terminal Review UI
 
@@ -498,6 +505,8 @@ metadata, logs, diff, checks, and report artifacts when possible.
 - v0.6: self-dogfood ledger for long-running agent sessions.
   - `keel task start`: start a current-workspace task ledger.
   - `keel task status`: show the active task and recent ledger tasks.
+  - `keel task show <task-id>`: inspect preserved task history.
+  - `keel task reopen <task-id>`: make a preserved task active again.
   - `keel task finish`: finish the active task without deleting history.
   - `keel checkpoint`: record meaningful implementation milestones.
   - `keel note`: record decisions, risks, and unresolved context.

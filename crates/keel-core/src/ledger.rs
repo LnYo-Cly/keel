@@ -111,6 +111,13 @@ pub struct LedgerStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct LedgerTaskReport {
+    pub task: LedgerTask,
+    pub summary: LedgerSummary,
+    pub decision: LedgerDecision,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct LedgerTaskSummary {
     pub task_id: String,
     pub title: String,
@@ -215,11 +222,7 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
         .with_context(|| format!("failed to create {}", tasks_dir(root).display()))?;
 
     let timestamp = now_timestamp();
-    if let Ok(mut previous) = read_active_task(root) {
-        previous.status = LedgerTaskStatus::Superseded;
-        previous.updated_at = timestamp.clone();
-        write_task(root, &previous)?;
-    }
+    supersede_active_task(root, &timestamp, None)?;
 
     let task = LedgerTask {
         task_id: generate_task_id(),
@@ -233,12 +236,7 @@ pub(crate) fn start_task(root: &Path, title: &str) -> Result<LedgerTask> {
         evidence: Vec::new(),
     };
     write_task(root, &task)?;
-    write_json_pretty(
-        &active_task_path(root),
-        &ActiveLedgerTask {
-            task_id: task.task_id.clone(),
-        },
-    )?;
+    write_active_task(root, &task.task_id)?;
     Ok(task)
 }
 
@@ -260,6 +258,22 @@ pub(crate) fn status(root: &Path) -> Result<LedgerStatus> {
         active_task,
         recent_tasks,
     })
+}
+
+pub(crate) fn task_report(root: &Path, task_id: &str) -> Result<LedgerTaskReport> {
+    let task = read_task(root, task_id)?;
+    Ok(report_for_task(task))
+}
+
+pub(crate) fn reopen_task(root: &Path, task_id: &str) -> Result<LedgerTask> {
+    let mut task = read_task(root, task_id)?;
+    let timestamp = now_timestamp();
+    supersede_active_task(root, &timestamp, Some(&task.task_id))?;
+    task.status = LedgerTaskStatus::Active;
+    task.updated_at = timestamp;
+    write_task(root, &task)?;
+    write_active_task(root, &task.task_id)?;
+    Ok(task)
 }
 
 pub(crate) fn finish_task(root: &Path) -> Result<LedgerTask> {
@@ -357,6 +371,7 @@ fn read_active_task(root: &Path) -> Result<LedgerTask> {
 }
 
 fn read_task(root: &Path, task_id: &str) -> Result<LedgerTask> {
+    ensure_safe_task_id(task_id)?;
     read_json(&task_path(root, task_id)).with_context(|| format!("task `{task_id}` does not exist"))
 }
 
@@ -384,6 +399,28 @@ fn list_tasks(root: &Path) -> Result<Vec<LedgerTask>> {
 
 fn write_task(root: &Path, task: &LedgerTask) -> Result<()> {
     write_json_pretty(&task_path(root, &task.task_id), task)
+}
+
+fn write_active_task(root: &Path, task_id: &str) -> Result<()> {
+    write_json_pretty(
+        &active_task_path(root),
+        &ActiveLedgerTask {
+            task_id: task_id.to_string(),
+        },
+    )
+}
+
+fn supersede_active_task(root: &Path, timestamp: &str, except_task_id: Option<&str>) -> Result<()> {
+    let Ok(mut previous) = read_active_task(root) else {
+        return Ok(());
+    };
+    if Some(previous.task_id.as_str()) == except_task_id {
+        return Ok(());
+    }
+
+    previous.status = LedgerTaskStatus::Superseded;
+    previous.updated_at = timestamp.to_string();
+    write_task(root, &previous)
 }
 
 fn touch_and_write(root: &Path, mut task: LedgerTask) -> Result<LedgerTask> {
@@ -474,6 +511,16 @@ fn summarize_task(task: &LedgerTask) -> LedgerSummary {
         current_evidence: current_evidence.len(),
         current_evidence_passed,
         current_evidence_failed,
+    }
+}
+
+fn report_for_task(task: LedgerTask) -> LedgerTaskReport {
+    let summary = summarize_task(&task);
+    let decision = decision_for_summary(&summary);
+    LedgerTaskReport {
+        task,
+        summary,
+        decision,
     }
 }
 
@@ -770,6 +817,19 @@ fn normalized_message(message: &str, label: &str) -> Result<String> {
     Ok(message.to_string())
 }
 
+fn ensure_safe_task_id(task_id: &str) -> Result<()> {
+    if task_id.is_empty()
+        || task_id == "."
+        || task_id == ".."
+        || !task_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        bail!("invalid task id `{task_id}`");
+    }
+    Ok(())
+}
+
 fn generate_task_id() -> String {
     format!("task-{}-{}", unix_millis(), std::process::id())
 }
@@ -880,6 +940,48 @@ mod tests {
             .iter()
             .any(|task| task.task_id == finished.task_id
                 && task.status == LedgerTaskStatus::Finished));
+    }
+
+    #[test]
+    fn task_report_reads_preserved_finished_task() {
+        let temp = TempDir::new().unwrap();
+
+        let task = start_task(temp.path(), "show me").unwrap();
+        add_evidence(temp.path(), "git --version", Vec::new()).unwrap();
+        finish_task(temp.path()).unwrap();
+        let report = task_report(temp.path(), &task.task_id).unwrap();
+
+        assert_eq!(report.task.task_id, task.task_id);
+        assert_eq!(report.task.status, LedgerTaskStatus::Finished);
+        assert!(report.decision.ready);
+    }
+
+    #[test]
+    fn reopen_task_restores_preserved_task_as_active() {
+        let temp = TempDir::new().unwrap();
+
+        let first = start_task(temp.path(), "first").unwrap();
+        finish_task(temp.path()).unwrap();
+        let second = start_task(temp.path(), "second").unwrap();
+        let reopened = reopen_task(temp.path(), &first.task_id).unwrap();
+        let status = status(temp.path()).unwrap();
+
+        assert_eq!(reopened.task_id, first.task_id);
+        assert_eq!(status.active_task.unwrap().task_id, first.task_id);
+        assert!(status
+            .recent_tasks
+            .iter()
+            .any(|task| task.task_id == second.task_id
+                && task.status == LedgerTaskStatus::Superseded));
+    }
+
+    #[test]
+    fn task_ids_reject_path_traversal() {
+        let temp = TempDir::new().unwrap();
+
+        let error = task_report(temp.path(), "../bad").unwrap_err().to_string();
+
+        assert!(error.contains("invalid task id"));
     }
 
     #[test]

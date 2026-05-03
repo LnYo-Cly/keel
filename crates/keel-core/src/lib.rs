@@ -30,8 +30,8 @@ pub use json::{
 pub use ledger::{
     ChangedFileGroup, LedgerCheckpoint, LedgerDecision, LedgerEvidence, LedgerEvidenceBrief,
     LedgerEvidenceEnv, LedgerEvidencePacket, LedgerEvidenceStatus, LedgerHandoff, LedgerNote,
-    LedgerReview, LedgerReviewPacket, LedgerStatus, LedgerSummary, LedgerTask, LedgerTaskStatus,
-    LedgerTaskSummary, WorkspaceContext,
+    LedgerReview, LedgerReviewPacket, LedgerStatus, LedgerSummary, LedgerTask, LedgerTaskReport,
+    LedgerTaskStatus, LedgerTaskSummary, WorkspaceContext,
 };
 pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
