@@ -271,8 +271,7 @@ fn validate_check_command_strings(
         return;
     }
 
-    let mut seen = HashSet::new();
-    let mut duplicate_found = false;
+    let mut commands_seen = CommandDuplicateTracker::default();
     for (index, command) in commands.iter().enumerate() {
         match command.as_str() {
             Some(command) if command.trim().is_empty() => {
@@ -283,9 +282,7 @@ fn validate_check_command_strings(
                 ));
             }
             Some(command) => {
-                if !seen.insert(command.to_string()) {
-                    duplicate_found = true;
-                }
+                commands_seen.insert(command);
             }
             None => {
                 issues.push(ConfigValidationIssue::error(
@@ -297,13 +294,7 @@ fn validate_check_command_strings(
         }
     }
 
-    if duplicate_found {
-        issues.push(ConfigValidationIssue::warning(
-            "checks.commands.duplicates",
-            "checks.commands contains duplicate commands",
-            None,
-        ));
-    }
+    commands_seen.push_duplicate_warning(issues);
 
     if !issues
         .iter()
@@ -327,8 +318,7 @@ fn validate_legacy_checks(checks: &[toml::Value], issues: &mut Vec<ConfigValidat
         return;
     }
 
-    let mut seen = HashSet::new();
-    let mut duplicate_found = false;
+    let mut commands_seen = CommandDuplicateTracker::default();
     let mut has_error = false;
     for (index, check) in checks.iter().enumerate() {
         let Some(table) = check.as_table() else {
@@ -394,19 +384,10 @@ fn validate_legacy_checks(checks: &[toml::Value], issues: &mut Vec<ConfigValidat
             ));
         }
 
-        let command_text = command_parts.join(" ");
-        if !seen.insert(command_text) {
-            duplicate_found = true;
-        }
+        commands_seen.insert(command_parts.join(" "));
     }
 
-    if duplicate_found {
-        issues.push(ConfigValidationIssue::warning(
-            "checks.commands.duplicates",
-            "checks.commands contains duplicate commands",
-            None,
-        ));
-    }
+    commands_seen.push_duplicate_warning(issues);
 
     if !has_error {
         issues.push(ConfigValidationIssue::ok(
@@ -414,6 +395,30 @@ fn validate_legacy_checks(checks: &[toml::Value], issues: &mut Vec<ConfigValidat
             "checks.commands is valid",
             Some(format!("{} command(s)", checks.len())),
         ));
+    }
+}
+
+#[derive(Default)]
+struct CommandDuplicateTracker {
+    seen: HashSet<String>,
+    duplicate_found: bool,
+}
+
+impl CommandDuplicateTracker {
+    fn insert(&mut self, command: impl Into<String>) {
+        if !self.seen.insert(command.into()) {
+            self.duplicate_found = true;
+        }
+    }
+
+    fn push_duplicate_warning(&self, issues: &mut Vec<ConfigValidationIssue>) {
+        if self.duplicate_found {
+            issues.push(ConfigValidationIssue::warning(
+                "checks.commands.duplicates",
+                "checks.commands contains duplicate commands",
+                None,
+            ));
+        }
     }
 }
 
