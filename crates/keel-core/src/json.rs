@@ -2,7 +2,7 @@ use crate::commit::CommitArtifact;
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
-use crate::pr::{PrArtifact, PrProvider};
+use crate::pr::PrArtifact;
 use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
 use anyhow::{Context, Result};
@@ -194,37 +194,10 @@ fn report_push_json(metadata: &RunMetadata) -> Option<PushArtifact> {
 }
 
 fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
-    metadata.pr.clone().or_else(|| {
-        let provider = metadata
-            .pr_provider
-            .as_deref()?
-            .parse::<PrProvider>()
-            .ok()?;
-        Some(PrArtifact {
-            run_id: metadata.run_id.clone(),
-            provider,
-            provider_name: provider.display_name().to_string(),
-            request_kind: provider.request_kind().to_string(),
-            remote: metadata
-                .push_remote
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string()),
-            remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
-            repository_url: None,
-            source_branch: metadata.pr_source_branch.clone()?,
-            target_branch: metadata.pr_target_branch.clone()?,
-            commit_sha: metadata.commit_sha.clone()?,
-            title: metadata
-                .commit_message
-                .clone()
-                .unwrap_or_else(|| format!("keel: {}", metadata.task)),
-            url: metadata.pr_url.clone()?,
-            created_at: metadata.pr_created_at.clone()?,
-            draft: false,
-            reused_existing: false,
-            dry_run: false,
-        })
-    })
+    metadata
+        .pr
+        .clone()
+        .or_else(|| PrArtifact::from_legacy_metadata(metadata).ok().flatten())
 }
 
 #[derive(Debug, Serialize)]

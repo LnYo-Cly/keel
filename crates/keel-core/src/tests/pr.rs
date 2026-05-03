@@ -426,3 +426,50 @@ fn pr_provider_rejects_unsupported_gitee_creation() {
 
     assert!(error.contains("provider-backed PR/MR creation for Gitee is not implemented in v0.5c"));
 }
+
+#[test]
+fn pr_legacy_metadata_is_used_by_report_and_json_views() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("legacy pr metadata", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+
+    let mut legacy = read_metadata(&temp, &metadata.run_id);
+    legacy.pushed = true;
+    legacy.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    legacy.push_remote = Some("origin".to_string());
+    legacy.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    legacy.pushed_branch = Some(legacy.branch.clone());
+    legacy.push = None;
+    legacy.pr_created = true;
+    legacy.pr_created_at = Some("2026-04-30T01:00:00Z".to_string());
+    legacy.pr_provider = Some("github".to_string());
+    legacy.pr_url = Some("https://github.com/owner/repo/pull/1".to_string());
+    legacy.pr_target_branch = Some("main".to_string());
+    legacy.pr_source_branch = Some(legacy.branch.clone());
+    legacy.pr = None;
+    project.write_metadata(&legacy).unwrap();
+
+    let report = project.report(&metadata.run_id).unwrap();
+    let json = serde_json::to_value(report_json(&report)).unwrap();
+
+    assert_eq!(json["pr"]["provider"], "github");
+    assert_eq!(
+        json["pr"]["repository_url"],
+        "https://github.com/owner/repo"
+    );
+    assert_eq!(json["pr"]["url"], "https://github.com/owner/repo/pull/1");
+    assert!(json["artifacts"]["pr"]["path"]
+        .as_str()
+        .unwrap()
+        .ends_with(PR_FILE));
+}

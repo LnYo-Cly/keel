@@ -88,7 +88,7 @@ impl FromStr for PrProvider {
 }
 
 impl PrArtifact {
-    fn from_legacy_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
+    pub fn from_legacy_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
         let Some(legacy) = LegacyPrMetadata::from_metadata(metadata)? else {
             return Ok(None);
         };

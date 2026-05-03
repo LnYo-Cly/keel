@@ -2,7 +2,7 @@ use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
     DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
-    LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
+    LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
     WorkspaceContext,
 };
 use serde::Serialize;
@@ -88,7 +88,7 @@ pub(crate) fn print_report(report: ReportInfo) {
                 .unwrap_or("unknown")
         );
     }
-    if let Some(pr) = &report.metadata.pr {
+    if let Some(pr) = report_pr(&report.metadata) {
         println!("PR/MR:");
         println!("- Provider: {}", pr.provider_name);
         println!("- URL: {}", pr.url);
@@ -136,6 +136,13 @@ pub(crate) fn print_report(report: ReportInfo) {
     if report.is_discarded {
         println!("Run is already discarded.");
     }
+}
+
+fn report_pr(metadata: &RunMetadata) -> Option<PrArtifact> {
+    metadata
+        .pr
+        .clone()
+        .or_else(|| PrArtifact::from_legacy_metadata(metadata).ok().flatten())
 }
 
 pub(crate) fn print_commit_result(result: &CommitResult) {
