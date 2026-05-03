@@ -526,11 +526,7 @@ fn committed_sha(metadata: &RunMetadata) -> Result<String> {
 }
 
 fn pushed_candidate(metadata: &RunMetadata) -> Result<PushArtifact> {
-    if let Some(push) = &metadata.push {
-        return Ok(push.clone());
-    }
-
-    if let Some(push) = PushArtifact::from_legacy_metadata(metadata) {
+    if let Some(push) = PushArtifact::from_metadata(metadata) {
         return Ok(push);
     }
 

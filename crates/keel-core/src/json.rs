@@ -163,34 +163,11 @@ impl ArtifactSetJson {
 }
 
 fn report_commit_json(metadata: &RunMetadata) -> Option<CommitArtifact> {
-    metadata.commit.clone().or_else(|| {
-        Some(CommitArtifact {
-            run_id: metadata.run_id.clone(),
-            branch: metadata.branch.clone(),
-            worktree: metadata.worktree_path.clone(),
-            commit_sha: metadata.commit_sha.clone()?,
-            commit_message: metadata.commit_message.clone()?,
-            committed_at: metadata.committed_at.clone()?,
-            had_uncommitted_changes: false,
-            warnings: metadata.warnings.clone(),
-            dry_run: false,
-        })
-    })
+    CommitArtifact::from_metadata(metadata)
 }
 
 fn report_push_json(metadata: &RunMetadata) -> Option<PushArtifact> {
-    metadata.push.clone().or_else(|| {
-        Some(PushArtifact {
-            run_id: metadata.run_id.clone(),
-            remote: metadata.push_remote.clone()?,
-            remote_url: metadata.push_remote_url.clone()?,
-            branch: metadata.pushed_branch.clone()?,
-            commit_sha: metadata.commit_sha.clone()?,
-            pushed: true,
-            pushed_at: metadata.pushed_at.clone()?,
-            dry_run: false,
-        })
-    })
+    PushArtifact::from_metadata(metadata)
 }
 
 fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {

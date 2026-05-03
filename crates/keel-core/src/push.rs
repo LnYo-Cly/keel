@@ -32,6 +32,13 @@ pub struct PushArtifact {
 }
 
 impl PushArtifact {
+    pub fn from_metadata(metadata: &RunMetadata) -> Option<Self> {
+        metadata
+            .push
+            .clone()
+            .or_else(|| Self::from_legacy_metadata(metadata))
+    }
+
     pub(crate) fn from_legacy_metadata(metadata: &RunMetadata) -> Option<Self> {
         if !metadata.pushed {
             return None;
@@ -316,16 +323,9 @@ fn existing_push(
     run_dir: &Path,
     push_path: &Path,
 ) -> Result<Option<ExistingPush>> {
-    if let Some(push) = &metadata.push {
+    if let Some(push) = PushArtifact::from_metadata(metadata) {
         return Ok(Some(ExistingPush {
-            artifact: push.clone(),
-            path: existing_push_artifact_path(run_dir, push_path),
-        }));
-    }
-
-    if let Some(artifact) = PushArtifact::from_legacy_metadata(metadata) {
-        return Ok(Some(ExistingPush {
-            artifact,
+            artifact: push,
             path: existing_push_artifact_path(run_dir, push_path),
         }));
     }

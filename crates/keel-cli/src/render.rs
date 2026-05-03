@@ -2,8 +2,8 @@ use anyhow::Result;
 use keel_core::{
     CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
     DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
-    LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
-    WorkspaceContext,
+    LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushArtifact, PushResult, ReportInfo,
+    RunMetadata, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -66,7 +66,7 @@ pub(crate) fn print_report(report: ReportInfo) {
                 .unwrap_or("unknown")
         );
     }
-    if let Some(push) = &report.metadata.push {
+    if let Some(push) = report_push(&report.metadata) {
         println!("Push:");
         println!("- Remote: {}", push.remote);
         println!("- Remote URL: {}", push.remote_url);
@@ -140,6 +140,10 @@ pub(crate) fn print_report(report: ReportInfo) {
 
 fn report_pr(metadata: &RunMetadata) -> Option<PrArtifact> {
     PrArtifact::from_metadata(metadata).ok().flatten()
+}
+
+fn report_push(metadata: &RunMetadata) -> Option<PushArtifact> {
+    PushArtifact::from_metadata(metadata)
 }
 
 pub(crate) fn print_commit_result(result: &CommitResult) {

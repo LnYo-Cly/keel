@@ -28,6 +28,13 @@ pub struct CommitArtifact {
 }
 
 impl CommitArtifact {
+    pub fn from_metadata(metadata: &RunMetadata) -> Option<Self> {
+        metadata
+            .commit
+            .clone()
+            .or_else(|| Self::from_legacy_metadata(metadata))
+    }
+
     pub(crate) fn commit_sha_from_metadata(metadata: &RunMetadata) -> Option<String> {
         metadata
             .commit_sha
@@ -253,11 +260,7 @@ fn validate_commit_preconditions(
 }
 
 fn existing_commit(metadata: &RunMetadata, commit_path: &Path) -> Result<Option<CommitArtifact>> {
-    if let Some(commit) = &metadata.commit {
-        return Ok(Some(commit.clone()));
-    }
-
-    if let Some(artifact) = CommitArtifact::from_legacy_metadata(metadata) {
+    if let Some(artifact) = CommitArtifact::from_metadata(metadata) {
         return Ok(Some(artifact));
     }
 
