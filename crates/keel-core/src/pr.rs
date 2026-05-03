@@ -566,33 +566,16 @@ fn already_created_result(
     pr_path: &Path,
 ) -> PrResult {
     let provider_command = provider_command(plan).unwrap_or_default();
-    PrResult {
-        run_id: plan.run_id.clone(),
-        provider: artifact.provider,
-        provider_name: artifact.provider.display_name(),
-        request_kind: artifact.provider.request_kind(),
-        remote: artifact.remote,
-        remote_url: artifact.remote_url,
-        repository_url: artifact.repository_url,
-        source_branch: artifact.source_branch,
-        target_branch: artifact.target_branch,
-        commit_sha: artifact.commit_sha,
-        title: artifact.title,
-        url: Some(artifact.url),
-        draft: artifact.draft,
-        manual: false,
-        dry_run,
-        created: true,
-        already_created: true,
-        reused_existing: false,
-        would_create_request: false,
-        would_write_artifact: false,
-        would_push: false,
-        would_merge: false,
-        pr_path: Some(pr_path.display().to_string()),
-        provider_command_display: provider_command_display(&provider_command),
+    pr_result_from_artifact(
+        artifact,
+        PrResultState {
+            dry_run,
+            already_created: true,
+            would_write_artifact: false,
+        },
+        pr_path,
         provider_command,
-    }
+    )
 }
 
 fn reused_existing_result(
@@ -621,34 +604,59 @@ fn reused_existing_result(
         reused_existing: true,
         dry_run: false,
     };
-    let result = PrResult {
-        run_id: plan.run_id.clone(),
-        provider: plan.provider,
-        provider_name: plan.provider_name,
-        request_kind: plan.request_kind,
-        remote: plan.remote.clone(),
-        remote_url: plan.remote_url.clone(),
-        repository_url: plan.repository_url.clone(),
-        source_branch: plan.source_branch.clone(),
-        target_branch: plan.target_branch.clone(),
-        commit_sha: plan.commit_sha.clone(),
-        title,
-        url: Some(existing.url),
-        draft: existing.draft,
+    let result = pr_result_from_artifact(
+        artifact.clone(),
+        PrResultState {
+            dry_run: false,
+            already_created: false,
+            would_write_artifact: true,
+        },
+        pr_path,
+        provider_command,
+    );
+    (artifact, result)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PrResultState {
+    dry_run: bool,
+    already_created: bool,
+    would_write_artifact: bool,
+}
+
+fn pr_result_from_artifact(
+    artifact: PrArtifact,
+    state: PrResultState,
+    pr_path: &Path,
+    provider_command: Vec<String>,
+) -> PrResult {
+    PrResult {
+        run_id: artifact.run_id,
+        provider: artifact.provider,
+        provider_name: artifact.provider.display_name(),
+        request_kind: artifact.provider.request_kind(),
+        remote: artifact.remote,
+        remote_url: artifact.remote_url,
+        repository_url: artifact.repository_url,
+        source_branch: artifact.source_branch,
+        target_branch: artifact.target_branch,
+        commit_sha: artifact.commit_sha,
+        title: artifact.title,
+        url: Some(artifact.url),
+        draft: artifact.draft,
         manual: false,
-        dry_run: false,
+        dry_run: state.dry_run,
         created: true,
-        already_created: false,
-        reused_existing: true,
+        already_created: state.already_created,
+        reused_existing: artifact.reused_existing,
         would_create_request: false,
-        would_write_artifact: true,
+        would_write_artifact: state.would_write_artifact,
         would_push: false,
         would_merge: false,
         pr_path: Some(pr_path.display().to_string()),
         provider_command_display: provider_command_display(&provider_command),
         provider_command,
-    };
-    (artifact, result)
+    }
 }
 
 pub(crate) fn write_pr_artifact(run_dir: &Path, artifact: &PrArtifact) -> Result<()> {
