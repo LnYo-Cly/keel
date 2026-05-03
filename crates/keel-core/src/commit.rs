@@ -1,7 +1,6 @@
 use crate::command::{format_command, run_command};
 use crate::constants::{COMMIT_FILE, DIFF_FILE};
 use crate::git::{ensure_safe_run_id, ensure_safe_worktree_target};
-use crate::json::{read_json, write_json_pretty};
 use crate::model::{RunMetadata, RunStatus};
 use crate::time::now_timestamp;
 use anyhow::{bail, Context, Result};
@@ -114,7 +113,6 @@ pub(crate) fn commit_run(
         dry_run: false,
     };
 
-    write_json_pretty(&commit_path, &artifact)?;
     metadata.committed = true;
     metadata.commit_sha = Some(commit_sha.clone());
     metadata.commit_message = Some(message.clone());
@@ -136,6 +134,10 @@ pub(crate) fn commit_run(
         warnings: metadata.warnings.clone(),
         commit_path: Some(commit_path.display().to_string()),
     })
+}
+
+pub(crate) fn write_commit_artifact(run_dir: &Path, artifact: &CommitArtifact) -> Result<()> {
+    crate::json::write_json_pretty(&run_dir.join(COMMIT_FILE), artifact)
 }
 
 pub(crate) fn default_commit_message(metadata: &RunMetadata) -> String {
@@ -236,7 +238,7 @@ fn existing_commit(metadata: &RunMetadata, commit_path: &Path) -> Result<Option<
     }
 
     if commit_path.is_file() {
-        return Ok(Some(read_json(commit_path)?));
+        return Ok(Some(crate::json::read_json(commit_path)?));
     }
 
     Ok(None)

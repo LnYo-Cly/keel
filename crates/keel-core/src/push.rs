@@ -1,7 +1,7 @@
 use crate::command::{format_command, run_command};
 use crate::constants::{COMMIT_FILE, PUSH_FILE};
 use crate::git::{ensure_safe_run_id, expected_run_branch};
-use crate::json::{read_json, write_json_pretty};
+use crate::json::read_json;
 use crate::model::{RunMetadata, RunStatus};
 use crate::time::now_timestamp;
 use anyhow::{bail, Context, Result};
@@ -98,7 +98,6 @@ pub(crate) fn push_run(
         dry_run: false,
     };
 
-    write_json_pretty(&push_path, &artifact)?;
     metadata.pushed = true;
     metadata.pushed_at = Some(pushed_at);
     metadata.push_remote = Some(options.remote.clone());
@@ -118,6 +117,10 @@ pub(crate) fn push_run(
         would_push: false,
         push_path: Some(push_path.display().to_string()),
     })
+}
+
+pub(crate) fn write_push_artifact(run_dir: &Path, artifact: &PushArtifact) -> Result<()> {
+    crate::json::write_json_pretty(&run_dir.join(PUSH_FILE), artifact)
 }
 
 fn validate_push_preconditions(root: &Path, run_dir: &Path, metadata: &RunMetadata) -> Result<()> {

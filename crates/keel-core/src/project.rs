@@ -3,7 +3,7 @@ use crate::agents::{
 };
 use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
-use crate::commit::{commit_run, CommitOptions, CommitResult};
+use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
     CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PR_FILE,
@@ -25,7 +25,7 @@ use crate::model::{
     RunMetadata, RunStatus,
 };
 use crate::pr::{create_pr, plan_pr, PrOptions, PrPlan, PrResult};
-use crate::push::{push_run, PushOptions, PushResult};
+use crate::push::{push_run, write_push_artifact, PushOptions, PushResult};
 use crate::report::{
     render_commit_section, render_pr_section, render_push_section, render_report,
     suggested_next_actions,
@@ -337,6 +337,9 @@ impl KeelProject {
         let result = commit_run(&self.root, &run_dir, &worktree, &mut metadata, options)?;
 
         if result.committed && !result.already_committed && !result.dry_run {
+            if let Some(artifact) = &metadata.commit {
+                write_commit_artifact(&run_dir, artifact)?;
+            }
             self.write_metadata(&metadata)?;
             self.append_commit_to_report(&metadata)?;
         }
@@ -353,6 +356,9 @@ impl KeelProject {
         let result = push_run(&self.root, &run_dir, &mut metadata, options)?;
 
         if result.pushed && !result.already_pushed && !result.dry_run {
+            if let Some(artifact) = &metadata.push {
+                write_push_artifact(&run_dir, artifact)?;
+            }
             self.write_metadata(&metadata)?;
             self.append_push_to_report(&metadata)?;
         }
