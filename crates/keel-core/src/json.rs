@@ -194,10 +194,7 @@ fn report_push_json(metadata: &RunMetadata) -> Option<PushArtifact> {
 }
 
 fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
-    metadata
-        .pr
-        .clone()
-        .or_else(|| PrArtifact::from_legacy_metadata(metadata).ok().flatten())
+    PrArtifact::from_metadata(metadata).ok().flatten()
 }
 
 #[derive(Debug, Serialize)]

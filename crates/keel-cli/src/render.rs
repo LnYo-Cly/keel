@@ -139,10 +139,7 @@ pub(crate) fn print_report(report: ReportInfo) {
 }
 
 fn report_pr(metadata: &RunMetadata) -> Option<PrArtifact> {
-    metadata
-        .pr
-        .clone()
-        .or_else(|| PrArtifact::from_legacy_metadata(metadata).ok().flatten())
+    PrArtifact::from_metadata(metadata).ok().flatten()
 }
 
 pub(crate) fn print_commit_result(result: &CommitResult) {

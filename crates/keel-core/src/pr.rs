@@ -88,6 +88,14 @@ impl FromStr for PrProvider {
 }
 
 impl PrArtifact {
+    pub fn from_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
+        if let Some(pr) = &metadata.pr {
+            return Ok(Some(pr.clone()));
+        }
+
+        Self::from_legacy_metadata(metadata)
+    }
+
     pub fn from_legacy_metadata(metadata: &RunMetadata) -> Result<Option<Self>> {
         let Some(legacy) = LegacyPrMetadata::from_metadata(metadata)? else {
             return Ok(None);
@@ -560,11 +568,7 @@ fn validate_push_matches_run(
 }
 
 fn existing_pr(metadata: &RunMetadata, pr_path: &Path) -> Result<Option<PrArtifact>> {
-    if let Some(pr) = &metadata.pr {
-        return Ok(Some(pr.clone()));
-    }
-
-    if let Some(pr) = PrArtifact::from_legacy_metadata(metadata)? {
+    if let Some(pr) = PrArtifact::from_metadata(metadata)? {
         return Ok(Some(pr));
     }
 
