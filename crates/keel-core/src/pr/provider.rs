@@ -173,6 +173,12 @@ struct GithubPrListItem {
     is_draft: bool,
 }
 
+#[derive(Debug, Clone)]
+struct RemoteParts {
+    host: String,
+    path: String,
+}
+
 fn provider_output_url(provider: PrProvider, output: &str) -> Option<String> {
     output
         .split_whitespace()
@@ -196,33 +202,11 @@ fn token_matches_provider_url(provider: PrProvider, token: &str) -> bool {
 }
 
 fn repository_selector(remote_url: &str) -> Option<String> {
-    let remote_url = remote_url.trim().trim_end_matches(".git");
-    if remote_url.is_empty() {
-        return None;
-    }
-
-    let (host, path) = if let Some(index) = remote_url.find("://") {
-        let without_scheme = &remote_url[index + 3..];
-        let host = without_scheme.split('/').next()?.rsplit('@').next()?.trim();
-        let path = without_scheme
-            .split_once('/')
-            .map(|(_, path)| path.trim_matches('/'))
-            .filter(|path| !path.is_empty())?;
-        (host.to_ascii_lowercase(), path)
-    } else if let Some(index) = remote_url.find('@') {
-        let rest = &remote_url[index + 1..];
-        let (host, path) = rest.split_once([':', '/'])?;
-        (host.trim().to_ascii_lowercase(), path.trim_matches('/'))
+    let parts = remote_parts(remote_url)?;
+    if parts.host == "github.com" {
+        Some(parts.path)
     } else {
-        return None;
-    };
-
-    if path.is_empty() {
-        None
-    } else if host == "github.com" {
-        Some(path.to_string())
-    } else {
-        Some(format!("{host}/{path}"))
+        Some(format!("{}/{}", parts.host, parts.path))
     }
 }
 
@@ -333,27 +317,9 @@ pub fn infer_provider(remote_url: &str) -> Option<PrProvider> {
 }
 
 fn remote_host(remote_url: &str) -> Option<String> {
-    let remote_url = remote_url.trim();
-    if remote_url.is_empty() {
-        return None;
-    }
-
-    let host = if let Some(index) = remote_url.find("://") {
-        let without_scheme = &remote_url[index + 3..];
-        host_from_authority(without_scheme)
-    } else if let Some(index) = remote_url.find('@') {
-        host_until_separator(&remote_url[index + 1..])
-    } else {
-        host_until_separator(remote_url)
-    }?;
-
-    Some(host.trim().trim_matches('/').to_ascii_lowercase())
-}
-
-fn host_from_authority(value: &str) -> Option<String> {
-    let authority = value.split('/').next().unwrap_or(value);
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
-    host_until_separator(host_port)
+    remote_parts(remote_url)
+        .map(|parts| parts.host)
+        .or_else(|| host_until_separator(remote_url).map(|host| host.to_ascii_lowercase()))
 }
 
 fn host_until_separator(value: &str) -> Option<String> {
@@ -371,20 +337,44 @@ pub(super) fn repository_web_url(remote_url: &str) -> Option<String> {
         return Some(remote_url.to_string());
     }
 
-    let host = remote_host(remote_url)?;
-    let path = if let Some(index) = remote_url.find('@') {
-        let rest = &remote_url[index + 1..];
-        rest.split_once([':', '/'])
-            .map(|(_, path)| path.trim_matches('/'))?
-    } else {
-        return None;
-    };
+    let parts = remote_parts(remote_url)?;
+    Some(format!("https://{}/{}", parts.host, parts.path))
+}
 
-    if path.is_empty() {
-        None
-    } else {
-        Some(format!("https://{host}/{}", path.trim_end_matches(".git")))
+fn remote_parts(remote_url: &str) -> Option<RemoteParts> {
+    let remote_url = remote_url.trim().trim_end_matches(".git");
+    if remote_url.is_empty() {
+        return None;
     }
+
+    if let Some(index) = remote_url.find("://") {
+        let without_scheme = &remote_url[index + 3..];
+        let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+        let host = host_until_separator(authority.rsplit('@').next().unwrap_or(authority))?
+            .to_ascii_lowercase();
+        let path = without_scheme
+            .split_once('/')
+            .map(|(_, path)| path.trim_matches('/'))
+            .filter(|path| !path.is_empty())?
+            .to_string();
+        return Some(RemoteParts { host, path });
+    }
+
+    if let Some(index) = remote_url.find('@') {
+        let rest = &remote_url[index + 1..];
+        let (host, path) = rest.split_once([':', '/'])?;
+        let host = host_until_separator(host)?.to_ascii_lowercase();
+        let path = path.trim_matches('/');
+        if path.is_empty() {
+            return None;
+        }
+        return Some(RemoteParts {
+            host,
+            path: path.to_string(),
+        });
+    }
+
+    None
 }
 
 pub(super) fn provider_pr_web_url(
