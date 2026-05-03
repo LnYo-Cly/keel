@@ -24,7 +24,7 @@ use crate::model::{
     ArtifactInfo, CheckResult, DiffInfo, InitResult, LogInfo, ReportInfo, RunArtifacts,
     RunMetadata, RunStatus,
 };
-use crate::pr::{create_pr, plan_pr, PrOptions, PrPlan, PrResult};
+use crate::pr::{create_pr, plan_pr, write_pr_artifact, PrOptions, PrPlan, PrResult};
 use crate::push::{push_run, write_push_artifact, PushOptions, PushResult};
 use crate::report::{
     render_commit_section, render_pr_section, render_push_section, render_report,
@@ -383,6 +383,9 @@ impl KeelProject {
         let result = create_pr(&self.root, &run_dir, &mut metadata, options)?;
 
         if result.created && !result.already_created && !result.dry_run {
+            if let Some(artifact) = &metadata.pr {
+                write_pr_artifact(&run_dir, artifact)?;
+            }
             self.write_metadata(&metadata)?;
             self.append_pr_to_report(&metadata)?;
         }

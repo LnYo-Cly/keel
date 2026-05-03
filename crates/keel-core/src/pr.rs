@@ -251,7 +251,7 @@ pub(crate) fn create_pr(
             &pr_path,
             provider_command,
         );
-        write_pr_artifact_and_metadata(&pr_path, metadata, &artifact)?;
+        record_pr_metadata(metadata, &artifact);
         return Ok(result);
     }
 
@@ -276,7 +276,7 @@ pub(crate) fn create_pr(
         dry_run: false,
     };
 
-    write_pr_artifact_and_metadata(&pr_path, metadata, &artifact)?;
+    record_pr_metadata(metadata, &artifact);
 
     Ok(PrResult {
         run_id: plan.run_id,
@@ -650,12 +650,11 @@ fn reused_existing_result(
     (artifact, result)
 }
 
-fn write_pr_artifact_and_metadata(
-    pr_path: &Path,
-    metadata: &mut RunMetadata,
-    artifact: &PrArtifact,
-) -> Result<()> {
-    crate::json::write_json_pretty(pr_path, artifact)?;
+pub(crate) fn write_pr_artifact(run_dir: &Path, artifact: &PrArtifact) -> Result<()> {
+    crate::json::write_json_pretty(&run_dir.join(PR_FILE), artifact)
+}
+
+fn record_pr_metadata(metadata: &mut RunMetadata, artifact: &PrArtifact) {
     metadata.pr_created = true;
     metadata.pr_created_at = Some(artifact.created_at.clone());
     metadata.pr_provider = Some(artifact.provider.to_string());
@@ -663,7 +662,6 @@ fn write_pr_artifact_and_metadata(
     metadata.pr_target_branch = Some(artifact.target_branch.clone());
     metadata.pr_source_branch = Some(artifact.source_branch.clone());
     metadata.pr = Some(artifact.clone());
-    Ok(())
 }
 
 fn created_at_now() -> String {
