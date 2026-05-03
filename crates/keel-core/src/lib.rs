@@ -42,6 +42,9 @@ pub use model::{
 pub use pr::{infer_provider, PrArtifact, PrOptions, PrPlan, PrProvider, PrResult};
 pub use project::KeelProject;
 pub use push::{PushArtifact, PushOptions, PushResult};
+pub use report::{
+    primary_next_action, suggested_next_actions, ReviewNextAction, ReviewNextActionKind,
+};
 pub use risk::{RiskWarning, RiskWarningKind};
 
 #[cfg(test)]

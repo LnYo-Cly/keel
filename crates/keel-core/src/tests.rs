@@ -13,6 +13,7 @@ use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStat
 use crate::pr::{PrOptions, PrProvider};
 use crate::project::{compare_created_at_for_test, KeelProject};
 use crate::push::PushOptions;
+use crate::report::primary_next_action;
 use crate::risk::RiskWarningKind;
 use anyhow::{bail, Result};
 use std::ffi::OsStr;

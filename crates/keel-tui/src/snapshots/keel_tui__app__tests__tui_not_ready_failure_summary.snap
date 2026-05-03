@@ -1,12 +1,13 @@
 ---
 source: crates/keel-tui/src/app.rs
+assertion_line: 1025
 expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 ---
 "Keel review            Ready 0     Not Ready 1     Running 0      Discarded 0      Committed 0     Pushed 0      PR 0   "
 "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 "┌Review queue (1/1, newest first)─────────┐┌───────────────────────────────────────────────────────────────────────────┐"
 "│Run            Agent    State            ││run-...failed  blocked  task                                               │"
-"│run-...failed  noop     blocked          ││Action: fix or rerun; commit/push are blocked  Agent noop                  │"
+"│run-...failed  noop     blocked          ││Action: CLI: keel log run-failed  Agent noop                               │"
 "│                                         │└───────────────────────────────────────────────────────────────────────────┘"
 "│                                         │ Report │ Diff + │ Log + │ Artifacts                                         "
 "│                                         │                                                                             "
@@ -21,7 +22,7 @@ expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 "│                                         ││Commit     no   not committed                                              │"
 "│                                         ││Push       no   not pushed                                                 │"
 "│                                         ││PR/MR      no   not created                                                │"
-"│                                         ││Next       fix or rerun; commit/push are blocked                           │"
+"│                                         ││Next       CLI: keel log run-failed                                        │"
 "│                                         │└───────────────────────────────────────────────────────────────────────────┘"
 "│                                         │┌Checks─────────────────────────────────────────────────────────────────────┐"
 "│                                         ││✗ cargo test  failed  exit 101                                             │"

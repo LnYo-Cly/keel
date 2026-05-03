@@ -1,8 +1,8 @@
 use crate::app::{App, DetailTab};
 use crate::theme;
 use keel_core::{
-    ArtifactInfo, CheckResult, CheckStatus, RiskWarning, RiskWarningKind, RunArtifacts,
-    RunMetadata, RunStatus,
+    primary_next_action, ArtifactInfo, CheckResult, CheckStatus, ReviewNextActionKind, RiskWarning,
+    RiskWarningKind, RunArtifacts, RunMetadata, RunStatus,
 };
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -1139,12 +1139,14 @@ fn pr_detail(metadata: &RunMetadata) -> String {
 }
 
 fn review_next_action_text(metadata: &RunMetadata) -> String {
+    if let Some(action) = primary_next_action(metadata) {
+        return match action.kind {
+            ReviewNextActionKind::ReviewProvider => action.command.clone(),
+            _ => format!("CLI: {}", action.command),
+        };
+    }
+
     match metadata.status {
-        RunStatus::Ready if !metadata.committed => format!("CLI: keel commit {}", metadata.run_id),
-        RunStatus::Ready if !metadata.pushed => format!("CLI: keel push {}", metadata.run_id),
-        RunStatus::Ready if !metadata.pr_created => {
-            format!("CLI: keel pr {} --manual --dry-run", metadata.run_id)
-        }
         RunStatus::Ready => "review provider request; Keel will not merge".to_string(),
         RunStatus::NotReady => "fix or rerun; commit/push are blocked".to_string(),
         RunStatus::Discarded => "history only; no write action suggested".to_string(),
@@ -1493,16 +1495,17 @@ mod tests {
 
         run.pushed = true;
         run.push_remote = Some("origin".to_string());
+        run.push_remote_url = Some("git@github.com:example/repo.git".to_string());
         run.pushed_branch = Some("keel/run/run-1".to_string());
         let pushed = format!("{:?}", review_progress_lines(&run));
         assert!(pushed.contains("origin keel/run/run-1"));
-        assert!(pushed.contains("keel pr run-1 --manual --dry-run"));
+        assert!(pushed.contains("keel pr run-1 --provider github --dry-run"));
 
         run.pr_created = true;
         run.pr_url = Some("https://github.com/example/repo/pull/1".to_string());
         let pr = format!("{:?}", review_progress_lines(&run));
         assert!(pr.contains("github.com/example/repo/pull/1"));
-        assert!(pr.contains("review provider request"));
+        assert!(pr.contains("review PR/MR on provider"));
     }
 
     #[test]

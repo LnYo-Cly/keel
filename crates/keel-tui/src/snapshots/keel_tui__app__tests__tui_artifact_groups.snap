@@ -1,12 +1,13 @@
 ---
 source: crates/keel-tui/src/app.rs
+assertion_line: 1089
 expression: "crate::ui::render_to_string(&mut app, 120, 32)"
 ---
 "Keel review            Ready 1     Not Ready 0     Running 0      Discarded 0      Committed 1     Pushed 0      PR 0   "
 "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 "┌Review queue (1/1, newest first)─────────┐┌───────────────────────────────────────────────────────────────────────────┐"
 "│Run            Agent    State            ││run-...123  review  task                                                   │"
-"│run-...123     noop     review           ││Action: CLI: keel push run-123  Agent noop                                 │"
+"│run-...123     noop     review           ││Action: CLI: keel push run-123 --dry-run  Agent noop                       │"
 "│                                         │└───────────────────────────────────────────────────────────────────────────┘"
 "│                                         │ Report │ Diff + │ Log + │ Artifacts                                         "
 "│                                         │                                                                             "

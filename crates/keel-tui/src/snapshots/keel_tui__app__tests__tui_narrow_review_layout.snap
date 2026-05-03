@@ -1,5 +1,6 @@
 ---
 source: crates/keel-tui/src/app.rs
+assertion_line: 1042
 expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 ---
 "Keel review  Ready 0  NotReady 1  Running 0  Git c0 p0 pr0                                  "
@@ -14,7 +15,7 @@ expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 "└──────────────────────────────────────────────────────────────────────────────────────────┘"
 "┌──────────────────────────────────────────────────────────────────────────────────────────┐"
 "│run-...narrow  blocked  investigate failing narrow terminal review layou…                 │"
-"│Action: fix or rerun; commit/push are blocked  Agent noop                                 │"
+"│Action: CLI: keel log run-narrow  Agent noop                                              │"
 "└──────────────────────────────────────────────────────────────────────────────────────────┘"
 " Report │ Diff + │ Log + │ Artifacts                                                        "
 "                                                                                            "
@@ -28,7 +29,7 @@ expression: "crate::ui::render_to_string(&mut app, 92, 34)"
 "│                                                                                          │"
 "│Progress                                                                                  │"
 "│Git        commit:no  push:no  pr:no                                                      │"
-"│Next       fix or rerun; commit/push are blocked                                          │"
+"│Next       CLI: keel log run-narrow                                                       │"
 "│                                                                                          │"
 "│Checks                                                                                    │"
 "│✗ cargo test  failed  exit 101                                                            │"

@@ -266,61 +266,116 @@ pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
 fn render_suggested_next_actions(metadata: &RunMetadata) -> String {
     suggested_next_actions(metadata)
         .into_iter()
-        .map(|action| format!("- {action}\n"))
+        .map(|action| format!("- {}\n", action.command))
         .collect::<String>()
         + "\n"
 }
 
-pub(crate) fn suggested_next_actions(metadata: &RunMetadata) -> Vec<String> {
+pub fn suggested_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
     let run_id = &metadata.run_id;
     match metadata.status {
         RunStatus::Ready => ready_next_actions(metadata),
         RunStatus::NotReady => vec![
-            format!("keel log {run_id}"),
-            format!("keel diff {run_id}"),
-            format!("keel rerun {run_id}"),
-            format!("keel discard {run_id}"),
+            ReviewNextAction::new(format!("keel log {run_id}"), ReviewNextActionKind::Inspect),
+            ReviewNextAction::new(format!("keel diff {run_id}"), ReviewNextActionKind::Inspect),
+            ReviewNextAction::new(format!("keel rerun {run_id}"), ReviewNextActionKind::Rerun),
+            ReviewNextAction::new(
+                format!("keel discard {run_id}"),
+                ReviewNextActionKind::Discard,
+            ),
         ],
         RunStatus::Discarded => vec![
-            format!("keel report {run_id}"),
-            format!("keel diff {run_id}"),
-            format!("keel log {run_id}"),
-            format!("keel rerun {run_id}"),
+            ReviewNextAction::new(
+                format!("keel report {run_id}"),
+                ReviewNextActionKind::Inspect,
+            ),
+            ReviewNextAction::new(format!("keel diff {run_id}"), ReviewNextActionKind::Inspect),
+            ReviewNextAction::new(format!("keel log {run_id}"), ReviewNextActionKind::Inspect),
+            ReviewNextAction::new(format!("keel rerun {run_id}"), ReviewNextActionKind::Rerun),
         ],
-        RunStatus::Created | RunStatus::Running => {
-            vec![format!("keel status"), format!("keel log {run_id}")]
-        }
+        RunStatus::Created | RunStatus::Running => vec![
+            ReviewNextAction::new("keel status", ReviewNextActionKind::Wait),
+            ReviewNextAction::new(format!("keel log {run_id}"), ReviewNextActionKind::Inspect),
+        ],
     }
 }
 
-fn ready_next_actions(metadata: &RunMetadata) -> Vec<String> {
+pub fn primary_next_action(metadata: &RunMetadata) -> Option<ReviewNextAction> {
+    let actions = suggested_next_actions(metadata);
+    [
+        ReviewNextActionKind::Commit,
+        ReviewNextActionKind::Push,
+        ReviewNextActionKind::ProviderPr,
+        ReviewNextActionKind::ManualPr,
+        ReviewNextActionKind::ReviewProvider,
+        ReviewNextActionKind::Wait,
+        ReviewNextActionKind::Inspect,
+        ReviewNextActionKind::Rerun,
+        ReviewNextActionKind::Discard,
+    ]
+    .into_iter()
+    .find_map(|kind| actions.iter().find(|action| action.kind == kind).cloned())
+}
+
+fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
     let run_id = &metadata.run_id;
-    let mut actions = vec![format!("keel diff {run_id}"), format!("keel log {run_id}")];
+    let mut actions = vec![
+        ReviewNextAction::new(format!("keel diff {run_id}"), ReviewNextActionKind::Inspect),
+        ReviewNextAction::new(format!("keel log {run_id}"), ReviewNextActionKind::Inspect),
+    ];
 
     if !metadata.committed {
-        actions.push(format!("keel commit {run_id} --dry-run"));
-        actions.push(format!("keel commit {run_id}"));
+        actions.push(ReviewNextAction::new(
+            format!("keel commit {run_id} --dry-run"),
+            ReviewNextActionKind::Commit,
+        ));
+        actions.push(ReviewNextAction::new(
+            format!("keel commit {run_id}"),
+            ReviewNextActionKind::Commit,
+        ));
     } else if !metadata.pushed {
-        actions.push(format!("keel push {run_id} --dry-run"));
-        actions.push(format!("keel push {run_id}"));
+        actions.push(ReviewNextAction::new(
+            format!("keel push {run_id} --dry-run"),
+            ReviewNextActionKind::Push,
+        ));
+        actions.push(ReviewNextAction::new(
+            format!("keel push {run_id}"),
+            ReviewNextActionKind::Push,
+        ));
     } else if !metadata.pr_created {
-        actions.push(format!("keel pr {run_id} --manual --dry-run"));
+        actions.push(ReviewNextAction::new(
+            format!("keel pr {run_id} --manual --dry-run"),
+            ReviewNextActionKind::ManualPr,
+        ));
         if pushed_to_github(metadata) {
-            actions.push(format!("keel pr {run_id} --provider github --dry-run"));
-            actions.push(format!("keel pr {run_id} --provider github"));
+            actions.push(ReviewNextAction::new(
+                format!("keel pr {run_id} --provider github --dry-run"),
+                ReviewNextActionKind::ProviderPr,
+            ));
+            actions.push(ReviewNextAction::new(
+                format!("keel pr {run_id} --provider github"),
+                ReviewNextActionKind::ProviderPr,
+            ));
         }
     } else {
-        actions.push(
+        actions.push(ReviewNextAction::new(
             metadata
                 .pr_url
                 .as_deref()
                 .map(|url| format!("review PR/MR on provider: {url}"))
                 .unwrap_or_else(|| "review PR/MR on provider before merging".to_string()),
-        );
+            ReviewNextActionKind::ReviewProvider,
+        ));
     }
 
-    actions.push(format!("keel rerun {run_id}"));
-    actions.push(format!("keel discard {run_id}"));
+    actions.push(ReviewNextAction::new(
+        format!("keel rerun {run_id}"),
+        ReviewNextActionKind::Rerun,
+    ));
+    actions.push(ReviewNextAction::new(
+        format!("keel discard {run_id}"),
+        ReviewNextActionKind::Discard,
+    ));
     actions
 }
 
@@ -329,4 +384,32 @@ fn pushed_to_github(metadata: &RunMetadata) -> bool {
         return false;
     };
     infer_provider(remote_url) == Some(PrProvider::Github)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewNextAction {
+    pub command: String,
+    pub kind: ReviewNextActionKind,
+}
+
+impl ReviewNextAction {
+    fn new(command: impl Into<String>, kind: ReviewNextActionKind) -> Self {
+        Self {
+            command: command.into(),
+            kind,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewNextActionKind {
+    Inspect,
+    Commit,
+    Push,
+    ManualPr,
+    ProviderPr,
+    ReviewProvider,
+    Rerun,
+    Discard,
+    Wait,
 }

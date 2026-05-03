@@ -861,6 +861,9 @@ impl KeelProject {
 
 fn next_actions_for_report(metadata: &RunMetadata) -> Vec<String> {
     suggested_next_actions(metadata)
+        .into_iter()
+        .map(|action| action.command)
+        .collect()
 }
 
 fn compare_runs_newest_first(left: &RunMetadata, right: &RunMetadata) -> Ordering {

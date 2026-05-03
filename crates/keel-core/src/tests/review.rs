@@ -174,6 +174,51 @@ fn report_next_actions_offer_github_provider_pr_after_github_push() {
 }
 
 #[test]
+fn primary_next_action_follows_review_progress() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("primary next action", "noop").unwrap();
+
+    assert_eq!(
+        primary_next_action(&metadata).map(|action| action.command),
+        Some(format!("keel commit {} --dry-run", metadata.run_id))
+    );
+
+    let mut committed = metadata.clone();
+    committed.committed = true;
+    assert_eq!(
+        primary_next_action(&committed).map(|action| action.command),
+        Some(format!("keel push {} --dry-run", metadata.run_id))
+    );
+
+    let mut pushed = committed.clone();
+    pushed.pushed = true;
+    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    assert_eq!(
+        primary_next_action(&pushed).map(|action| action.command),
+        Some(format!(
+            "keel pr {} --provider github --dry-run",
+            metadata.run_id
+        ))
+    );
+
+    let mut not_ready = metadata.clone();
+    not_ready.status = RunStatus::NotReady;
+    assert_eq!(
+        primary_next_action(&not_ready).map(|action| action.command),
+        Some(format!("keel log {}", metadata.run_id))
+    );
+
+    let mut running = metadata.clone();
+    running.status = RunStatus::Running;
+    assert_eq!(
+        primary_next_action(&running).map(|action| action.command),
+        Some("keel status".to_string())
+    );
+}
+
+#[test]
 fn core_json_views_cover_status_and_report_shapes() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();
