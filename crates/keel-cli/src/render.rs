@@ -420,30 +420,30 @@ fn print_ledger_task_summary(task: &LedgerTaskSummary) {
 }
 
 pub(crate) fn print_ledger_checkpoint(task: &LedgerTask) {
-    let checkpoint = task
-        .checkpoints
-        .last()
-        .expect("checkpoint command returned task without checkpoint");
+    let Some(checkpoint) = task.checkpoints.last() else {
+        print_missing_ledger_payload(task, "checkpoint");
+        return;
+    };
     println!("Checkpoint recorded: {}", checkpoint.checkpoint_id);
     println!("Task: {}", task.title);
     println!("Message: {}", checkpoint.message);
 }
 
 pub(crate) fn print_ledger_note(task: &LedgerTask) {
-    let note = task
-        .notes
-        .last()
-        .expect("note command returned task without note");
+    let Some(note) = task.notes.last() else {
+        print_missing_ledger_payload(task, "note");
+        return;
+    };
     println!("Note recorded: {}", note.note_id);
     println!("Task: {}", task.title);
     println!("Message: {}", note.message);
 }
 
 pub(crate) fn print_ledger_evidence(task: &LedgerTask) {
-    let evidence = task
-        .evidence
-        .last()
-        .expect("evidence command returned task without evidence");
+    let Some(evidence) = task.evidence.last() else {
+        print_missing_ledger_payload(task, "evidence");
+        return;
+    };
     println!("Evidence recorded: {}", evidence.evidence_id);
     println!("Task: {}", task.title);
     println!("Command: {}", evidence.command);
@@ -464,6 +464,11 @@ pub(crate) fn print_ledger_evidence(task: &LedgerTask) {
             println!("Stderr was truncated to the most recent output.");
         }
     }
+}
+
+fn print_missing_ledger_payload(task: &LedgerTask, payload: &str) {
+    println!("No {payload} was returned for task: {}", task.title);
+    println!("Task ID: {}", task.task_id);
 }
 
 pub(crate) fn print_ledger_verify(review: &LedgerReview) {
