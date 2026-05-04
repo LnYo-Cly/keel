@@ -19,6 +19,9 @@ pub struct ReportInfo {
     pub path: PathBuf,
     pub summary: String,
     pub artifacts: Vec<ArtifactInfo>,
+    pub commit: Option<CommitArtifact>,
+    pub push: Option<PushArtifact>,
+    pub pr: Option<PrArtifact>,
     pub next_actions: Vec<String>,
     pub is_discarded: bool,
 }

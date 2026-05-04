@@ -140,7 +140,7 @@ fn render_artifacts() -> String {
 }
 
 pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
-    let Some(commit) = commit_artifact(metadata) else {
+    let Some(commit) = report_commit_artifact(metadata) else {
         return String::new();
     };
     let warnings = render_markdown_list(&metadata.warnings, "- none");
@@ -174,7 +174,7 @@ pub(crate) fn render_markdown_list(items: &[String], empty: &str) -> String {
 }
 
 pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
-    let Some(push) = push_artifact(metadata) else {
+    let Some(push) = report_push_artifact(metadata) else {
         return String::new();
     };
 
@@ -194,7 +194,7 @@ pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
 }
 
 pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
-    let Some(pr) = pr_artifact(metadata) else {
+    let Some(pr) = report_pr_artifact(metadata) else {
         return String::new();
     };
     let draft = if pr.draft { "yes" } else { "no" };
@@ -333,15 +333,15 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
     actions
 }
 
-fn commit_artifact(metadata: &RunMetadata) -> Option<CommitArtifact> {
+pub(crate) fn report_commit_artifact(metadata: &RunMetadata) -> Option<CommitArtifact> {
     CommitArtifact::from_metadata(metadata)
 }
 
-fn push_artifact(metadata: &RunMetadata) -> Option<PushArtifact> {
+pub(crate) fn report_push_artifact(metadata: &RunMetadata) -> Option<PushArtifact> {
     PushArtifact::from_metadata(metadata)
 }
 
-fn pr_artifact(metadata: &RunMetadata) -> Option<PrArtifact> {
+pub(crate) fn report_pr_artifact(metadata: &RunMetadata) -> Option<PrArtifact> {
     PrArtifact::from_metadata(metadata).ok().flatten()
 }
 

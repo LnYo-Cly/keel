@@ -1,9 +1,9 @@
 use anyhow::Result;
 use keel_core::{
-    CommitArtifact, CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo,
-    DoctorReport, DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
-    LedgerTaskReport, LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushArtifact,
-    PushResult, ReportInfo, RunMetadata, WorkspaceContext,
+    CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
+    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
+    LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
+    WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -45,14 +45,14 @@ pub(crate) fn print_status(runs: &[RunMetadata], filtered: bool) {
 pub(crate) fn print_report(report: ReportInfo) {
     println!("Report: {}", report.path.display());
     println!("{}", report.summary);
-    if let Some(commit) = report_commit(&report.metadata) {
+    if let Some(commit) = &report.commit {
         println!("Commit:");
         println!("- SHA: {}", commit.commit_sha);
         println!("- Branch: {}", commit.branch);
         println!("- Message: {}", commit.commit_message);
         println!("- Committed at: {}", commit.committed_at);
     }
-    if let Some(push) = report_push(&report.metadata) {
+    if let Some(push) = &report.push {
         println!("Push:");
         println!("- Remote: {}", push.remote);
         println!("- Remote URL: {}", push.remote_url);
@@ -60,7 +60,7 @@ pub(crate) fn print_report(report: ReportInfo) {
         println!("- Commit: {}", push.commit_sha);
         println!("- Pushed at: {}", push.pushed_at);
     }
-    if let Some(pr) = report_pr(&report.metadata) {
+    if let Some(pr) = &report.pr {
         println!("PR/MR:");
         println!("- Provider: {}", pr.provider_name);
         println!("- URL: {}", pr.url);
@@ -98,18 +98,6 @@ pub(crate) fn print_report(report: ReportInfo) {
     if report.is_discarded {
         println!("Run is already discarded.");
     }
-}
-
-fn report_commit(metadata: &RunMetadata) -> Option<CommitArtifact> {
-    CommitArtifact::from_metadata(metadata)
-}
-
-fn report_pr(metadata: &RunMetadata) -> Option<PrArtifact> {
-    PrArtifact::from_metadata(metadata).ok().flatten()
-}
-
-fn report_push(metadata: &RunMetadata) -> Option<PushArtifact> {
-    PushArtifact::from_metadata(metadata)
 }
 
 pub(crate) fn print_commit_result(result: &CommitResult) {

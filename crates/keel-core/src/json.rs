@@ -1,11 +1,9 @@
-use crate::commit::CommitArtifact;
 use crate::constants::artifact_labels;
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
-use crate::pr::PrArtifact;
-use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
+use crate::{CommitArtifact, PrArtifact, PushArtifact};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -53,9 +51,9 @@ pub fn report_json(report: &ReportInfo) -> ReportJson {
         readiness_reason: report.metadata.readiness_reason.clone(),
         warnings: report.metadata.warnings.clone(),
         risk_warnings: report.metadata.risk_warnings.clone(),
-        commit: report_commit_json(&report.metadata),
-        push: report_push_json(&report.metadata),
-        pr: report_pr_json(&report.metadata),
+        commit: report.commit.clone(),
+        push: report.push.clone(),
+        pr: report.pr.clone(),
         artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
         next_actions: report.next_actions.clone(),
     }
@@ -161,18 +159,6 @@ impl ArtifactSetJson {
             pr: artifact_json(artifacts, artifact_labels::PR),
         }
     }
-}
-
-fn report_commit_json(metadata: &RunMetadata) -> Option<CommitArtifact> {
-    CommitArtifact::from_metadata(metadata)
-}
-
-fn report_push_json(metadata: &RunMetadata) -> Option<PushArtifact> {
-    PushArtifact::from_metadata(metadata)
-}
-
-fn report_pr_json(metadata: &RunMetadata) -> Option<PrArtifact> {
-    PrArtifact::from_metadata(metadata).ok().flatten()
 }
 
 #[derive(Debug, Serialize)]

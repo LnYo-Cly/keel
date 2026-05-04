@@ -1586,6 +1586,9 @@ mod tests {
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
         RunArtifacts {
             report: ReportInfo {
+                commit: metadata.commit.clone(),
+                push: metadata.push.clone(),
+                pr: metadata.pr.clone(),
                 metadata,
                 path: PathBuf::from(".keel/runs/run-1/report.md"),
                 summary: String::new(),
