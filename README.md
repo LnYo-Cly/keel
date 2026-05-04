@@ -291,6 +291,9 @@ Keel writes new v0.5 runs with push/pr naming:
   `push`, `pr`, `artifacts`, `warnings`, `risk_warnings`, and `next_actions`.
 - Missing artifacts are represented as `state: "missing"` instead of causing
   report JSON rendering to fail.
+- Artifact JSON includes `required: true` for core review artifacts
+  (`metadata`, `log`, `diff`, `checks`, `report`) and `required: false` for
+  optional Git workflow artifacts (`commit`, `push`, `pr`).
 
 Compatibility policy:
 

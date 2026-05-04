@@ -985,6 +985,7 @@ fn report_json_is_parseable_and_includes_review_summary() {
     for key in ["metadata", "log", "diff", "checks", "report"] {
         assert_eq!(report["artifacts"][key]["exists"], true);
         assert_eq!(report["artifacts"][key]["state"], "present");
+        assert_eq!(report["artifacts"][key]["required"], true);
         assert!(report["artifacts"][key]["path"]
             .as_str()
             .unwrap()
@@ -996,6 +997,9 @@ fn report_json_is_parseable_and_includes_review_summary() {
                 "report" => "report.md",
                 _ => unreachable!(),
             }));
+    }
+    for key in ["commit", "push", "pr"] {
+        assert_eq!(report["artifacts"][key]["required"], false);
     }
 
     let actions = report["next_actions"].as_array().unwrap();
@@ -1124,6 +1128,7 @@ fn report_json_handles_discarded_and_missing_artifacts() {
     ));
     assert_eq!(missing_artifact["artifacts"]["checks"]["exists"], false);
     assert_eq!(missing_artifact["artifacts"]["checks"]["state"], "missing");
+    assert_eq!(missing_artifact["artifacts"]["checks"]["required"], true);
 
     run_keel(repo.path(), ["discard", run.run_id.as_str()])
         .assert()

@@ -169,6 +169,7 @@ pub struct ArtifactJson {
     path: String,
     exists: bool,
     state: &'static str,
+    required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -215,10 +216,12 @@ fn artifact_json(artifacts: &[ArtifactInfo], label: &str) -> ArtifactJson {
             path: artifact.path.display().to_string(),
             exists: artifact.exists,
             state: artifact.state(),
+            required: artifact.required,
         })
         .unwrap_or_else(|| ArtifactJson {
             path: String::new(),
             exists: false,
             state: "missing",
+            required: false,
         })
 }

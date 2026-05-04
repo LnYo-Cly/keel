@@ -64,17 +64,24 @@ fn report_includes_artifact_paths_and_next_actions() {
         artifact.label == "Metadata"
             && artifact.path == run_dir(&temp, &metadata.run_id).join(METADATA_FILE)
             && artifact.exists
+            && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.label == "Log"
             && artifact.path == run_dir(&temp, &metadata.run_id).join(LOG_FILE)
             && artifact.exists
+            && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.label == "Diff"
             && artifact.path == run_dir(&temp, &metadata.run_id).join(DIFF_FILE)
             && artifact.exists
+            && artifact.required
     }));
+    assert!(report
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.label == "Commit" && !artifact.required));
     assert!(report
         .next_actions
         .contains(&format!("keel diff {}", metadata.run_id)));
@@ -284,8 +291,10 @@ fn core_json_views_cover_status_and_report_shapes() {
     assert_eq!(report["agent"], "noop");
     assert_eq!(report["status"], "ready");
     assert_eq!(report["artifacts"]["metadata"]["exists"], true);
+    assert_eq!(report["artifacts"]["metadata"]["required"], true);
     assert_eq!(report["artifacts"]["log"]["exists"], true);
     assert_eq!(report["artifacts"]["diff"]["exists"], true);
+    assert_eq!(report["artifacts"]["commit"]["required"], false);
     assert!(report["next_actions"]
         .as_array()
         .unwrap()

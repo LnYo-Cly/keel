@@ -618,7 +618,7 @@ fn render_artifacts(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts,
     lines.extend(
         artifacts
             .iter()
-            .filter(|artifact| is_required_artifact(artifact.label))
+            .filter(|artifact| artifact.required)
             .map(|artifact| artifact_line(artifact)),
     );
 
@@ -630,7 +630,7 @@ fn render_artifacts(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts,
     lines.extend(
         artifacts
             .iter()
-            .filter(|artifact| !is_required_artifact(artifact.label))
+            .filter(|artifact| !artifact.required)
             .map(|artifact| artifact_line(artifact)),
     );
 
@@ -638,8 +638,7 @@ fn render_artifacts(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts,
 }
 
 fn artifact_line(artifact: &ArtifactInfo) -> Line<'static> {
-    let required = is_required_artifact(artifact.label);
-    let (state, color) = match (artifact.exists, required) {
+    let (state, color) = match (artifact.exists, artifact.required) {
         (true, _) => ("present", theme::GREEN),
         (false, true) => ("missing", theme::RED),
         (false, false) => ("not yet", theme::MUTED),
@@ -655,10 +654,6 @@ fn artifact_line(artifact: &ArtifactInfo) -> Line<'static> {
     ])
 }
 
-fn is_required_artifact(label: &str) -> bool {
-    matches!(label, "Metadata" | "Log" | "Diff" | "Checks" | "Report")
-}
-
 fn artifact_exists(detail: &RunArtifacts, label: &str) -> bool {
     detail
         .report
@@ -672,7 +667,7 @@ fn has_missing_required_artifact(detail: &RunArtifacts) -> bool {
         .report
         .artifacts
         .iter()
-        .any(|artifact| is_required_artifact(artifact.label) && !artifact.exists)
+        .any(|artifact| artifact.required && !artifact.exists)
 }
 
 fn missing_artifact_lines(file: &'static str) -> Vec<Line<'static>> {
@@ -1595,9 +1590,9 @@ mod tests {
                     artifact("Diff", true),
                     artifact("Checks", true),
                     artifact("Report", true),
-                    artifact("Commit", false),
-                    artifact("Push", false),
-                    artifact("PR/MR", false),
+                    optional_artifact("Commit", false),
+                    optional_artifact("Push", false),
+                    optional_artifact("PR/MR", false),
                 ],
                 Vec::new(),
             ),
@@ -1613,7 +1608,15 @@ mod tests {
     }
 
     fn artifact(label: &'static str, exists: bool) -> ArtifactInfo {
-        ArtifactInfo::new(
+        ArtifactInfo::required(
+            label,
+            PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
+            exists,
+        )
+    }
+
+    fn optional_artifact(label: &'static str, exists: bool) -> ArtifactInfo {
+        ArtifactInfo::optional(
             label,
             PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
             exists,

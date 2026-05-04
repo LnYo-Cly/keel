@@ -28,39 +28,48 @@ pub(crate) mod artifact_labels {
 pub(crate) struct RunArtifactSpec {
     pub(crate) label: &'static str,
     pub(crate) file: &'static str,
+    pub(crate) required: bool,
 }
 
 pub(crate) const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
     RunArtifactSpec {
         label: artifact_labels::METADATA,
         file: METADATA_FILE,
+        required: true,
     },
     RunArtifactSpec {
         label: artifact_labels::LOG,
         file: LOG_FILE,
+        required: true,
     },
     RunArtifactSpec {
         label: artifact_labels::DIFF,
         file: DIFF_FILE,
+        required: true,
     },
     RunArtifactSpec {
         label: artifact_labels::CHECKS,
         file: CHECKS_FILE,
+        required: true,
     },
     RunArtifactSpec {
         label: artifact_labels::REPORT,
         file: REPORT_FILE,
+        required: true,
     },
     RunArtifactSpec {
         label: artifact_labels::COMMIT,
         file: COMMIT_FILE,
+        required: false,
     },
     RunArtifactSpec {
         label: artifact_labels::PUSH,
         file: PUSH_FILE,
+        required: false,
     },
     RunArtifactSpec {
         label: artifact_labels::PR,
         file: PR_FILE,
+        required: false,
     },
 ];

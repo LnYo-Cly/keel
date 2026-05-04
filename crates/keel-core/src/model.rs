@@ -59,15 +59,25 @@ pub struct ArtifactInfo {
     pub label: &'static str,
     pub path: PathBuf,
     pub exists: bool,
+    pub required: bool,
 }
 
 impl ArtifactInfo {
-    pub fn new(label: &'static str, path: PathBuf, exists: bool) -> Self {
+    pub fn new(label: &'static str, path: PathBuf, exists: bool, required: bool) -> Self {
         Self {
             label,
             path,
             exists,
+            required,
         }
+    }
+
+    pub fn required(label: &'static str, path: PathBuf, exists: bool) -> Self {
+        Self::new(label, path, exists, true)
+    }
+
+    pub fn optional(label: &'static str, path: PathBuf, exists: bool) -> Self {
+        Self::new(label, path, exists, false)
     }
 
     pub fn state(&self) -> &'static str {

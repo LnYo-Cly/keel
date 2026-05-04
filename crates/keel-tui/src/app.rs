@@ -1182,9 +1182,9 @@ mod tests {
                     artifact("Diff", "diff.patch", true),
                     artifact("Checks", "checks.json", true),
                     artifact("Report", "report.md", true),
-                    artifact("Commit", "commit.json", metadata.committed),
-                    artifact("Push", "push.json", metadata.pushed),
-                    artifact("PR/MR", "pr.json", metadata.pr_created),
+                    optional_artifact("Commit", "commit.json", metadata.committed),
+                    optional_artifact("Push", "push.json", metadata.pushed),
+                    optional_artifact("PR/MR", "pr.json", metadata.pr_created),
                 ],
                 vec!["keel diff run-123".to_string()],
             ),
@@ -1233,9 +1233,9 @@ mod tests {
                     artifact_for(&metadata.run_id, "Diff", "diff.patch", true),
                     artifact_for(&metadata.run_id, "Checks", "checks.json", true),
                     artifact_for(&metadata.run_id, "Report", "report.md", true),
-                    artifact_for(&metadata.run_id, "Commit", "commit.json", false),
-                    artifact_for(&metadata.run_id, "Push", "push.json", false),
-                    artifact_for(&metadata.run_id, "PR/MR", "pr.json", false),
+                    optional_artifact_for(&metadata.run_id, "Commit", "commit.json", false),
+                    optional_artifact_for(&metadata.run_id, "Push", "push.json", false),
+                    optional_artifact_for(&metadata.run_id, "PR/MR", "pr.json", false),
                 ],
                 vec!["keel log run-failed".to_string()],
             ),
@@ -1285,8 +1285,25 @@ mod tests {
         artifact_for("run-123", label, file, exists)
     }
 
+    fn optional_artifact(label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
+        optional_artifact_for("run-123", label, file, exists)
+    }
+
     fn artifact_for(run_id: &str, label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
-        ArtifactInfo::new(
+        ArtifactInfo::required(
+            label,
+            PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
+            exists,
+        )
+    }
+
+    fn optional_artifact_for(
+        run_id: &str,
+        label: &'static str,
+        file: &str,
+        exists: bool,
+    ) -> ArtifactInfo {
+        ArtifactInfo::optional(
             label,
             PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
             exists,
