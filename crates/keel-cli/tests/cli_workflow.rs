@@ -377,13 +377,7 @@ fn init_and_noop_run_create_run_artifacts() {
     let run = run_noop(&repo, "cli smoke task");
 
     assert!(run_dir(&repo, &run.run_id).is_dir());
-    for artifact in [
-        "metadata.json",
-        "log.txt",
-        "diff.patch",
-        "checks.json",
-        "report.md",
-    ] {
+    for artifact in required_run_artifact_files() {
         assert!(
             run_artifact_path(&repo, &run.run_id, artifact).is_file(),
             "missing artifact {artifact}"
@@ -934,13 +928,7 @@ fn report_outputs_artifacts_and_suggested_next_actions() {
     let output = run_keel_output(repo.path(), ["report", run.run_id.as_str()]);
     assert!(output.contains("Report:"));
     assert!(output.contains("report.md"));
-    for artifact in [
-        "metadata.json",
-        "log.txt",
-        "diff.patch",
-        "checks.json",
-        "report.md",
-    ] {
+    for artifact in required_run_artifact_files() {
         assert!(
             output.contains(artifact),
             "report output missing artifact {artifact}"
@@ -2245,13 +2233,7 @@ fn discard_preserves_history_and_keeps_report_and_diff_available() {
 
     assert!(!worktree_dir(&repo, &run.run_id).exists());
     assert!(run_dir(&repo, &run.run_id).is_dir());
-    for artifact in [
-        "metadata.json",
-        "log.txt",
-        "diff.patch",
-        "checks.json",
-        "report.md",
-    ] {
+    for artifact in required_run_artifact_files() {
         assert!(
             run_artifact_path(&repo, &run.run_id, artifact).is_file(),
             "discard removed artifact {artifact}"
@@ -2544,6 +2526,14 @@ fn check_issue_severity<'a>(report: &'a Value, id: &str) -> &'a str {
 
 fn run_artifact_path(repo: &TempDir, run_id: &str, artifact: &str) -> PathBuf {
     run_dir(repo, run_id).join(artifact)
+}
+
+fn required_run_artifact_files() -> Vec<&'static str> {
+    RUN_ARTIFACTS
+        .iter()
+        .filter(|artifact| artifact.required)
+        .map(|artifact| artifact.file)
+        .collect()
 }
 
 fn run_dir(repo: &TempDir, run_id: &str) -> PathBuf {
