@@ -26,6 +26,33 @@ pub struct ReportInfo {
     pub is_discarded: bool,
 }
 
+impl ReportInfo {
+    pub fn new(
+        metadata: RunMetadata,
+        path: PathBuf,
+        summary: impl Into<String>,
+        artifacts: Vec<ArtifactInfo>,
+        next_actions: Vec<String>,
+    ) -> Self {
+        let commit = CommitArtifact::from_metadata(&metadata);
+        let push = PushArtifact::from_metadata(&metadata);
+        let pr = PrArtifact::from_metadata(&metadata).ok().flatten();
+        let is_discarded = metadata.status == RunStatus::Discarded;
+
+        Self {
+            metadata,
+            path,
+            summary: summary.into(),
+            artifacts,
+            commit,
+            push,
+            pr,
+            next_actions,
+            is_discarded,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ArtifactInfo {
     pub label: &'static str,

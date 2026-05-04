@@ -93,6 +93,52 @@ fn report_includes_artifact_paths_and_next_actions() {
 }
 
 #[test]
+fn report_info_constructor_derives_review_state_from_metadata() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let metadata = project.run("constructor review state", "noop").unwrap();
+    project
+        .commit(
+            &metadata.run_id,
+            CommitOptions {
+                dry_run: false,
+                message: None,
+            },
+        )
+        .unwrap();
+
+    let mut metadata = read_metadata(&temp, &metadata.run_id);
+    metadata.status = RunStatus::Discarded;
+    metadata.pushed = true;
+    metadata.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    metadata.push_remote = Some("origin".to_string());
+    metadata.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
+    metadata.pushed_branch = Some(metadata.branch.clone());
+    metadata.push = None;
+    metadata.pr_created = true;
+    metadata.pr_created_at = Some("2026-04-30T01:00:00Z".to_string());
+    metadata.pr_provider = Some("github".to_string());
+    metadata.pr_url = Some("https://github.com/owner/repo/pull/1".to_string());
+    metadata.pr_target_branch = Some("main".to_string());
+    metadata.pr_source_branch = Some(metadata.branch.clone());
+    metadata.pr = None;
+
+    let report = crate::model::ReportInfo::new(
+        metadata,
+        PathBuf::from("report.md"),
+        "summary",
+        Vec::new(),
+        Vec::new(),
+    );
+
+    assert!(report.is_discarded);
+    assert!(report.commit.is_some());
+    assert!(report.push.is_some());
+    assert!(report.pr.is_some());
+}
+
+#[test]
 fn report_next_actions_follow_commit_push_pr_progress() {
     let temp = git_repo();
     let remote = bare_git_repo();

@@ -28,7 +28,7 @@ use crate::pr::{create_pr, plan_pr, write_pr_artifact, PrOptions, PrPlan, PrResu
 use crate::push::{push_run, write_push_artifact, PushOptions, PushResult};
 use crate::report::{
     render_commit_section, render_pr_section, render_push_section, render_report,
-    report_commit_artifact, report_pr_artifact, report_push_artifact, suggested_next_actions,
+    suggested_next_actions,
 };
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
@@ -321,17 +321,14 @@ impl KeelProject {
             metadata.created_at,
             metadata.worktree_path
         );
-        Ok(ReportInfo {
-            path: report_path,
-            summary,
-            artifacts: self.artifacts_for_run(run_id),
-            commit: report_commit_artifact(&metadata),
-            push: report_push_artifact(&metadata),
-            pr: report_pr_artifact(&metadata),
-            next_actions: next_actions_for_report(&metadata),
-            is_discarded: metadata.status == RunStatus::Discarded,
+        let next_actions = next_actions_for_report(&metadata);
+        Ok(ReportInfo::new(
             metadata,
-        })
+            report_path,
+            summary,
+            self.artifacts_for_run(run_id),
+            next_actions,
+        ))
     }
 
     pub fn commit(&self, run_id: &str, options: CommitOptions) -> Result<CommitResult> {

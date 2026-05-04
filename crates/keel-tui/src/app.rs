@@ -1206,11 +1206,11 @@ mod tests {
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
         let run_dir = PathBuf::from(format!(".keel/runs/{}", metadata.run_id));
         RunArtifacts {
-            report: ReportInfo {
-                metadata: metadata.clone(),
-                path: run_dir.join("report.md"),
-                summary: "sample summary".to_string(),
-                artifacts: vec![
+            report: sample_report_info(
+                metadata.clone(),
+                run_dir.join("report.md"),
+                "sample summary",
+                vec![
                     artifact("Metadata", "metadata.json", true),
                     artifact("Log", "log.txt", true),
                     artifact("Diff", "diff.patch", true),
@@ -1220,12 +1220,8 @@ mod tests {
                     artifact("Push", "push.json", metadata.pushed),
                     artifact("PR/MR", "pr.json", metadata.pr_created),
                 ],
-                commit: metadata.commit.clone(),
-                push: metadata.push.clone(),
-                pr: metadata.pr.clone(),
-                next_actions: vec!["keel diff run-123".to_string()],
-                is_discarded: false,
-            },
+                vec!["keel diff run-123".to_string()],
+            ),
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
                 path: run_dir.join("diff.patch"),
@@ -1261,11 +1257,11 @@ mod tests {
     fn sample_not_ready_artifacts(metadata: RunMetadata) -> RunArtifacts {
         let run_dir = PathBuf::from(format!(".keel/runs/{}", metadata.run_id));
         RunArtifacts {
-            report: ReportInfo {
-                metadata: metadata.clone(),
-                path: run_dir.join("report.md"),
-                summary: "failed checks: cargo test".to_string(),
-                artifacts: vec![
+            report: sample_report_info(
+                metadata.clone(),
+                run_dir.join("report.md"),
+                "failed checks: cargo test",
+                vec![
                     artifact_for(&metadata.run_id, "Metadata", "metadata.json", true),
                     artifact_for(&metadata.run_id, "Log", "log.txt", true),
                     artifact_for(&metadata.run_id, "Diff", "diff.patch", true),
@@ -1275,12 +1271,8 @@ mod tests {
                     artifact_for(&metadata.run_id, "Push", "push.json", false),
                     artifact_for(&metadata.run_id, "PR/MR", "pr.json", false),
                 ],
-                commit: metadata.commit.clone(),
-                push: metadata.push.clone(),
-                pr: metadata.pr.clone(),
-                next_actions: vec!["keel log run-failed".to_string()],
-                is_discarded: false,
-            },
+                vec!["keel log run-failed".to_string()],
+            ),
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
                 path: run_dir.join("diff.patch"),
@@ -1333,5 +1325,15 @@ mod tests {
             path: PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
             exists,
         }
+    }
+
+    fn sample_report_info(
+        metadata: RunMetadata,
+        path: PathBuf,
+        summary: &str,
+        artifacts: Vec<ArtifactInfo>,
+        next_actions: Vec<String>,
+    ) -> ReportInfo {
+        ReportInfo::new(metadata, path, summary, artifacts, next_actions)
     }
 }

@@ -1585,14 +1585,11 @@ mod tests {
 
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
         RunArtifacts {
-            report: ReportInfo {
-                commit: metadata.commit.clone(),
-                push: metadata.push.clone(),
-                pr: metadata.pr.clone(),
+            report: ReportInfo::new(
                 metadata,
-                path: PathBuf::from(".keel/runs/run-1/report.md"),
-                summary: String::new(),
-                artifacts: vec![
+                PathBuf::from(".keel/runs/run-1/report.md"),
+                String::new(),
+                vec![
                     artifact("Metadata", true),
                     artifact("Log", true),
                     artifact("Diff", true),
@@ -1602,9 +1599,8 @@ mod tests {
                     artifact("Push", false),
                     artifact("PR/MR", false),
                 ],
-                next_actions: Vec::new(),
-                is_discarded: false,
-            },
+                Vec::new(),
+            ),
             report_content: Some(String::new()),
             diff: Some(DiffInfo {
                 path: PathBuf::from(".keel/runs/run-1/diff.patch"),
