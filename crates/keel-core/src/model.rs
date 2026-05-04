@@ -3,6 +3,7 @@ use crate::constants::{KEEL_DIR, RUNS_DIR, WORKTREES_DIR};
 use crate::pr::PrArtifact;
 use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
+use crate::RunArtifactSpec;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -78,6 +79,10 @@ impl ArtifactInfo {
             exists,
             required,
         }
+    }
+
+    pub fn from_spec(spec: &RunArtifactSpec, path: PathBuf, exists: bool) -> Self {
+        Self::new(spec.key, spec.label, path, exists, spec.required)
     }
 
     pub fn required(key: &'static str, label: &'static str, path: PathBuf, exists: bool) -> Self {

@@ -607,9 +607,9 @@ impl DetailTab {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keel_core::artifact_files;
     use keel_core::{
-        ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo, RunMetadata,
+        ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo, RunArtifactSpec,
+        RunMetadata, RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -1177,21 +1177,7 @@ mod tests {
                 metadata.clone(),
                 run_dir.join("report.md"),
                 "sample summary",
-                vec![
-                    artifact("metadata", "Metadata", artifact_files::METADATA, true),
-                    artifact("log", "Log", artifact_files::LOG, true),
-                    artifact("diff", "Diff", artifact_files::DIFF, true),
-                    artifact("checks", "Checks", artifact_files::CHECKS, true),
-                    artifact("report", "Report", artifact_files::REPORT, true),
-                    optional_artifact(
-                        "commit",
-                        "Commit",
-                        artifact_files::COMMIT,
-                        metadata.committed,
-                    ),
-                    optional_artifact("push", "Push", artifact_files::PUSH, metadata.pushed),
-                    optional_artifact("pr", "PR/MR", artifact_files::PR, metadata.pr_created),
-                ],
+                artifacts_for(&metadata),
                 vec!["keel diff run-123".to_string()],
             ),
             report_content: Some("# Keel Run Report\n".to_string()),
@@ -1233,52 +1219,7 @@ mod tests {
                 metadata.clone(),
                 run_dir.join("report.md"),
                 "failed checks: cargo test",
-                vec![
-                    artifact_for(
-                        &metadata.run_id,
-                        "metadata",
-                        "Metadata",
-                        artifact_files::METADATA,
-                        true,
-                    ),
-                    artifact_for(&metadata.run_id, "log", "Log", artifact_files::LOG, true),
-                    artifact_for(&metadata.run_id, "diff", "Diff", artifact_files::DIFF, true),
-                    artifact_for(
-                        &metadata.run_id,
-                        "checks",
-                        "Checks",
-                        artifact_files::CHECKS,
-                        true,
-                    ),
-                    artifact_for(
-                        &metadata.run_id,
-                        "report",
-                        "Report",
-                        artifact_files::REPORT,
-                        true,
-                    ),
-                    optional_artifact_for(
-                        &metadata.run_id,
-                        "commit",
-                        "Commit",
-                        artifact_files::COMMIT,
-                        false,
-                    ),
-                    optional_artifact_for(
-                        &metadata.run_id,
-                        "push",
-                        "Push",
-                        artifact_files::PUSH,
-                        false,
-                    ),
-                    optional_artifact_for(
-                        &metadata.run_id,
-                        "pr",
-                        "PR/MR",
-                        artifact_files::PR,
-                        false,
-                    ),
-                ],
+                artifacts_for(&metadata),
                 vec!["keel log run-failed".to_string()],
             ),
             report_content: Some("# Keel Run Report\n".to_string()),
@@ -1323,52 +1264,28 @@ mod tests {
         }
     }
 
-    fn artifact(
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        artifact_for("run-123", key, label, file, exists)
+    fn artifacts_for(metadata: &RunMetadata) -> Vec<ArtifactInfo> {
+        RUN_ARTIFACTS
+            .iter()
+            .map(|spec| artifact_for_spec(metadata, spec))
+            .collect()
     }
 
-    fn optional_artifact(
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        optional_artifact_for("run-123", key, label, file, exists)
-    }
-
-    fn artifact_for(
-        run_id: &str,
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        ArtifactInfo::required(
-            key,
-            label,
-            PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
-            exists,
+    fn artifact_for_spec(metadata: &RunMetadata, spec: &RunArtifactSpec) -> ArtifactInfo {
+        ArtifactInfo::from_spec(
+            spec,
+            PathBuf::from(format!(".keel/runs/{}", metadata.run_id)).join(spec.file),
+            artifact_exists_for_metadata(metadata, spec),
         )
     }
 
-    fn optional_artifact_for(
-        run_id: &str,
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        ArtifactInfo::optional(
-            key,
-            label,
-            PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
-            exists,
-        )
+    fn artifact_exists_for_metadata(metadata: &RunMetadata, spec: &RunArtifactSpec) -> bool {
+        match spec.key {
+            "commit" => metadata.committed,
+            "push" => metadata.pushed,
+            "pr" => metadata.pr_created,
+            _ => true,
+        }
     }
 
     fn sample_report_info(

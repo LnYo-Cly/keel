@@ -1426,8 +1426,9 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keel_core::artifact_files;
-    use keel_core::{ArtifactInfo, DiffInfo, ReportInfo, RunArtifacts};
+    use keel_core::{
+        ArtifactInfo, DiffInfo, ReportInfo, RunArtifactSpec, RunArtifacts, RUN_ARTIFACTS,
+    };
     use std::path::PathBuf;
 
     #[test]
@@ -1585,16 +1586,7 @@ mod tests {
                 metadata,
                 PathBuf::from(".keel/runs/run-1/report.md"),
                 String::new(),
-                vec![
-                    artifact("metadata", "Metadata", artifact_files::METADATA, true),
-                    artifact("log", "Log", artifact_files::LOG, true),
-                    artifact("diff", "Diff", artifact_files::DIFF, true),
-                    artifact("checks", "Checks", artifact_files::CHECKS, true),
-                    artifact("report", "Report", artifact_files::REPORT, true),
-                    optional_artifact("commit", "Commit", artifact_files::COMMIT, false),
-                    optional_artifact("push", "Push", artifact_files::PUSH, false),
-                    optional_artifact("pr", "PR/MR", artifact_files::PR, false),
-                ],
+                artifacts_for_run_1(),
                 Vec::new(),
             ),
             report_content: Some(String::new()),
@@ -1608,31 +1600,15 @@ mod tests {
         }
     }
 
-    fn artifact(
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        ArtifactInfo::required(
-            key,
-            label,
-            PathBuf::from(".keel/runs/run-1").join(file),
-            exists,
-        )
+    fn artifacts_for_run_1() -> Vec<ArtifactInfo> {
+        RUN_ARTIFACTS.iter().map(artifact_for_spec).collect()
     }
 
-    fn optional_artifact(
-        key: &'static str,
-        label: &'static str,
-        file: &'static str,
-        exists: bool,
-    ) -> ArtifactInfo {
-        ArtifactInfo::optional(
-            key,
-            label,
-            PathBuf::from(".keel/runs/run-1").join(file),
-            exists,
+    fn artifact_for_spec(spec: &RunArtifactSpec) -> ArtifactInfo {
+        ArtifactInfo::from_spec(
+            spec,
+            PathBuf::from(".keel/runs/run-1").join(spec.file),
+            spec.required,
         )
     }
 

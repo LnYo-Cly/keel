@@ -510,13 +510,7 @@ impl KeelProject {
             .iter()
             .map(|artifact| {
                 let path = run_dir.join(artifact.file);
-                ArtifactInfo::new(
-                    artifact.key,
-                    artifact.label,
-                    path.clone(),
-                    path.exists(),
-                    artifact.required,
-                )
+                ArtifactInfo::from_spec(artifact, path.clone(), path.exists())
             })
             .collect::<Vec<_>>();
 
