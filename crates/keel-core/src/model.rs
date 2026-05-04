@@ -255,6 +255,33 @@ impl RunMetadata {
         self.readiness_reason = readiness_reason.into();
         self
     }
+
+    pub fn record_commit(&mut self, artifact: CommitArtifact) {
+        self.committed = true;
+        self.commit_sha = Some(artifact.commit_sha.clone());
+        self.commit_message = Some(artifact.commit_message.clone());
+        self.committed_at = Some(artifact.committed_at.clone());
+        self.commit = Some(artifact);
+    }
+
+    pub fn record_push(&mut self, artifact: PushArtifact) {
+        self.pushed = true;
+        self.pushed_at = Some(artifact.pushed_at.clone());
+        self.push_remote = Some(artifact.remote.clone());
+        self.push_remote_url = Some(artifact.remote_url.clone());
+        self.pushed_branch = Some(artifact.branch.clone());
+        self.push = Some(artifact);
+    }
+
+    pub fn record_pr(&mut self, artifact: PrArtifact) {
+        self.pr_created = true;
+        self.pr_created_at = Some(artifact.created_at.clone());
+        self.pr_provider = Some(artifact.provider.to_string());
+        self.pr_url = Some(artifact.url.clone());
+        self.pr_target_branch = Some(artifact.target_branch.clone());
+        self.pr_source_branch = Some(artifact.source_branch.clone());
+        self.pr = Some(artifact);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

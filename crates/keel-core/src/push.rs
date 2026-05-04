@@ -133,12 +133,7 @@ pub(crate) fn push_run(
         dry_run: false,
     };
 
-    metadata.pushed = true;
-    metadata.pushed_at = Some(pushed_at);
-    metadata.push_remote = Some(options.remote.clone());
-    metadata.push_remote_url = Some(remote_url.clone());
-    metadata.pushed_branch = Some(metadata.branch.clone());
-    metadata.push = Some(artifact);
+    metadata.record_push(artifact);
 
     Ok(PushResult {
         run_id: metadata.run_id.clone(),

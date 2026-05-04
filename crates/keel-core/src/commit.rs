@@ -160,11 +160,7 @@ pub(crate) fn commit_run(
         dry_run: false,
     };
 
-    metadata.committed = true;
-    metadata.commit_sha = Some(commit_sha.clone());
-    metadata.commit_message = Some(message.clone());
-    metadata.committed_at = Some(committed_at);
-    metadata.commit = Some(artifact);
+    metadata.record_commit(artifact);
 
     Ok(CommitResult {
         run_id: metadata.run_id.clone(),

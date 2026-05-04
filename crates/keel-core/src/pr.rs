@@ -680,13 +680,7 @@ pub(crate) fn write_pr_artifact(run_dir: &Path, artifact: &PrArtifact) -> Result
 }
 
 fn record_pr_metadata(metadata: &mut RunMetadata, artifact: &PrArtifact) {
-    metadata.pr_created = true;
-    metadata.pr_created_at = Some(artifact.created_at.clone());
-    metadata.pr_provider = Some(artifact.provider.to_string());
-    metadata.pr_url = Some(artifact.url.clone());
-    metadata.pr_target_branch = Some(artifact.target_branch.clone());
-    metadata.pr_source_branch = Some(artifact.source_branch.clone());
-    metadata.pr = Some(artifact.clone());
+    metadata.record_pr(artifact.clone());
 }
 
 fn created_at_now() -> String {
