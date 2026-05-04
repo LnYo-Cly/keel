@@ -1,4 +1,4 @@
-use crate::constants::RUN_ARTIFACTS;
+use crate::constants::{artifact_keys, RUN_ARTIFACTS};
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
@@ -152,14 +152,14 @@ pub struct ArtifactSetJson {
 impl From<&[ArtifactInfo]> for ArtifactSetJson {
     fn from(artifacts: &[ArtifactInfo]) -> Self {
         Self {
-            metadata: artifact_json_by_key(artifacts, "metadata"),
-            log: artifact_json_by_key(artifacts, "log"),
-            diff: artifact_json_by_key(artifacts, "diff"),
-            checks: artifact_json_by_key(artifacts, "checks"),
-            report: artifact_json_by_key(artifacts, "report"),
-            commit: artifact_json_by_key(artifacts, "commit"),
-            push: artifact_json_by_key(artifacts, "push"),
-            pr: artifact_json_by_key(artifacts, "pr"),
+            metadata: artifact_json_by_key(artifacts, artifact_keys::METADATA),
+            log: artifact_json_by_key(artifacts, artifact_keys::LOG),
+            diff: artifact_json_by_key(artifacts, artifact_keys::DIFF),
+            checks: artifact_json_by_key(artifacts, artifact_keys::CHECKS),
+            report: artifact_json_by_key(artifacts, artifact_keys::REPORT),
+            commit: artifact_json_by_key(artifacts, artifact_keys::COMMIT),
+            push: artifact_json_by_key(artifacts, artifact_keys::PUSH),
+            pr: artifact_json_by_key(artifacts, artifact_keys::PR),
         }
     }
 }

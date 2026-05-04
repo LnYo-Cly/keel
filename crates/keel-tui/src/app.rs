@@ -608,8 +608,8 @@ impl DetailTab {
 mod tests {
     use super::*;
     use keel_core::{
-        ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo, RunArtifactSpec,
-        RunMetadata, RUN_ARTIFACTS,
+        artifact_keys, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo,
+        RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -1281,9 +1281,9 @@ mod tests {
 
     fn artifact_exists_for_metadata(metadata: &RunMetadata, spec: &RunArtifactSpec) -> bool {
         match spec.key {
-            "commit" => metadata.committed,
-            "push" => metadata.pushed,
-            "pr" => metadata.pr_created,
+            artifact_keys::COMMIT => metadata.committed,
+            artifact_keys::PUSH => metadata.pushed,
+            artifact_keys::PR => metadata.pr_created,
             _ => true,
         }
     }

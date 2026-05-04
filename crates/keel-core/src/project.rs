@@ -6,7 +6,7 @@ use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    artifact_labels, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE,
+    artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE,
     METADATA_FILE, REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
 };
 use crate::fsio::write_text;
@@ -516,7 +516,7 @@ impl KeelProject {
 
         if let Some(push_artifact) = artifacts
             .iter_mut()
-            .find(|artifact| artifact.label == artifact_labels::PUSH)
+            .find(|artifact| artifact.key == artifact_keys::PUSH)
         {
             let legacy_path = run_dir.join(LEGACY_PUBLISH_FILE);
             if !push_artifact.exists && legacy_path.is_file() {

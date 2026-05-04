@@ -1,8 +1,8 @@
 use crate::app::{App, DetailTab};
 use crate::theme;
 use keel_core::{
-    primary_next_action, ArtifactInfo, CheckResult, CheckStatus, ReviewNextActionKind, RiskWarning,
-    RiskWarningKind, RunArtifacts, RunMetadata, RunStatus,
+    artifact_keys, primary_next_action, ArtifactInfo, CheckResult, CheckStatus,
+    ReviewNextActionKind, RiskWarning, RiskWarningKind, RunArtifacts, RunMetadata, RunStatus,
 };
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -1057,11 +1057,11 @@ fn compact_review_progress_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
             label("Git"),
-            progress_chip("commit", metadata.committed),
+            progress_chip(artifact_keys::COMMIT, metadata.committed),
             Span::raw("  "),
-            progress_chip("push", metadata.pushed),
+            progress_chip(artifact_keys::PUSH, metadata.pushed),
             Span::raw("  "),
-            progress_chip("pr", metadata.pr_created),
+            progress_chip(artifact_keys::PR, metadata.pr_created),
         ]),
         Line::from(vec![
             label("Next"),
@@ -1208,11 +1208,11 @@ fn check_marker(status: &CheckStatus) -> &'static str {
 
 fn git_state(run: &RunMetadata) -> String {
     if run.pr_created {
-        "pr".to_string()
+        artifact_keys::PR.to_string()
     } else if run.pushed {
         "pushed".to_string()
     } else if run.committed {
-        "commit".to_string()
+        artifact_keys::COMMIT.to_string()
     } else {
         "-".to_string()
     }
@@ -1437,11 +1437,11 @@ mod tests {
 
         assert_eq!(git_state(&run), "-");
         run.committed = true;
-        assert_eq!(git_state(&run), "commit");
+        assert_eq!(git_state(&run), artifact_keys::COMMIT);
         run.pushed = true;
         assert_eq!(git_state(&run), "pushed");
         run.pr_created = true;
-        assert_eq!(git_state(&run), "pr");
+        assert_eq!(git_state(&run), artifact_keys::PR);
     }
 
     #[test]

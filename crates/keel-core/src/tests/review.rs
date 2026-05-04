@@ -302,9 +302,9 @@ fn core_json_views_cover_status_and_report_shapes() {
             artifact.required
         );
     }
-    assert_eq!(report["artifacts"]["metadata"]["exists"], true);
-    assert_eq!(report["artifacts"]["log"]["exists"], true);
-    assert_eq!(report["artifacts"]["diff"]["exists"], true);
+    assert_eq!(report["artifacts"][artifact_keys::METADATA]["exists"], true);
+    assert_eq!(report["artifacts"][artifact_keys::LOG]["exists"], true);
+    assert_eq!(report["artifacts"][artifact_keys::DIFF]["exists"], true);
     assert!(report["next_actions"]
         .as_array()
         .unwrap()
@@ -322,14 +322,14 @@ fn report_json_artifacts_are_keyed_independent_of_input_order() {
     let temp = git_repo();
     let run_dir = run_dir(&temp, "run-keyed");
     let artifacts = vec![
-        artifact_info(&run_dir, "push", false),
-        artifact_info(&run_dir, "metadata", true),
-        artifact_info(&run_dir, "pr", false),
-        artifact_info(&run_dir, "log", true),
-        artifact_info(&run_dir, "commit", false),
-        artifact_info(&run_dir, "report", true),
-        artifact_info(&run_dir, "checks", true),
-        artifact_info(&run_dir, "diff", true),
+        artifact_info(&run_dir, artifact_keys::PUSH, false),
+        artifact_info(&run_dir, artifact_keys::METADATA, true),
+        artifact_info(&run_dir, artifact_keys::PR, false),
+        artifact_info(&run_dir, artifact_keys::LOG, true),
+        artifact_info(&run_dir, artifact_keys::COMMIT, false),
+        artifact_info(&run_dir, artifact_keys::REPORT, true),
+        artifact_info(&run_dir, artifact_keys::CHECKS, true),
+        artifact_info(&run_dir, artifact_keys::DIFF, true),
     ];
     let report = crate::model::ReportInfo::new(
         RunMetadata::new(

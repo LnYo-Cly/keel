@@ -25,6 +25,17 @@ pub(crate) mod artifact_labels {
     pub(crate) const PR: &str = "PR/MR";
 }
 
+pub mod artifact_keys {
+    pub const METADATA: &str = "metadata";
+    pub const LOG: &str = "log";
+    pub const DIFF: &str = "diff";
+    pub const CHECKS: &str = "checks";
+    pub const REPORT: &str = "report";
+    pub const COMMIT: &str = "commit";
+    pub const PUSH: &str = "push";
+    pub const PR: &str = "pr";
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct RunArtifactSpec {
     pub key: &'static str,
@@ -35,49 +46,49 @@ pub struct RunArtifactSpec {
 
 pub const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
     RunArtifactSpec {
-        key: "metadata",
+        key: artifact_keys::METADATA,
         label: artifact_labels::METADATA,
         file: METADATA_FILE,
         required: true,
     },
     RunArtifactSpec {
-        key: "log",
+        key: artifact_keys::LOG,
         label: artifact_labels::LOG,
         file: LOG_FILE,
         required: true,
     },
     RunArtifactSpec {
-        key: "diff",
+        key: artifact_keys::DIFF,
         label: artifact_labels::DIFF,
         file: DIFF_FILE,
         required: true,
     },
     RunArtifactSpec {
-        key: "checks",
+        key: artifact_keys::CHECKS,
         label: artifact_labels::CHECKS,
         file: CHECKS_FILE,
         required: true,
     },
     RunArtifactSpec {
-        key: "report",
+        key: artifact_keys::REPORT,
         label: artifact_labels::REPORT,
         file: REPORT_FILE,
         required: true,
     },
     RunArtifactSpec {
-        key: "commit",
+        key: artifact_keys::COMMIT,
         label: artifact_labels::COMMIT,
         file: COMMIT_FILE,
         required: false,
     },
     RunArtifactSpec {
-        key: "push",
+        key: artifact_keys::PUSH,
         label: artifact_labels::PUSH,
         file: PUSH_FILE,
         required: false,
     },
     RunArtifactSpec {
-        key: "pr",
+        key: artifact_keys::PR,
         label: artifact_labels::PR,
         file: PR_FILE,
         required: false,
