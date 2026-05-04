@@ -318,6 +318,47 @@ fn core_json_views_cover_status_and_report_shapes() {
 }
 
 #[test]
+fn report_json_artifacts_are_keyed_independent_of_input_order() {
+    let temp = git_repo();
+    let run_dir = run_dir(&temp, "run-keyed");
+    let artifacts = vec![
+        artifact_info(&run_dir, "push", false),
+        artifact_info(&run_dir, "metadata", true),
+        artifact_info(&run_dir, "pr", false),
+        artifact_info(&run_dir, "log", true),
+        artifact_info(&run_dir, "commit", false),
+        artifact_info(&run_dir, "report", true),
+        artifact_info(&run_dir, "checks", true),
+        artifact_info(&run_dir, "diff", true),
+    ];
+    let report = crate::model::ReportInfo::new(
+        RunMetadata::new(
+            "run-keyed",
+            "keyed artifacts",
+            "noop",
+            RunStatus::Ready,
+            "1",
+        ),
+        run_dir.join(REPORT_FILE),
+        "summary",
+        artifacts,
+        Vec::new(),
+    );
+
+    let json = serde_json::to_value(report_json(&report)).unwrap();
+
+    for spec in RUN_ARTIFACTS {
+        assert_eq!(json["artifacts"][spec.key]["key"], spec.key);
+        assert_eq!(json["artifacts"][spec.key]["label"], spec.label);
+        assert_eq!(json["artifacts"][spec.key]["required"], spec.required);
+        assert_eq!(
+            json["artifacts"][spec.key]["path"],
+            run_dir.join(spec.file).display().to_string()
+        );
+    }
+}
+
+#[test]
 fn report_marks_missing_artifacts_without_failing() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();
@@ -410,4 +451,12 @@ fn diff_errors_when_run_or_patch_is_missing() {
 
     let missing_diff = project.diff(&metadata.run_id).unwrap_err().to_string();
     assert!(missing_diff.contains("diff for run"));
+}
+
+fn artifact_info(run_dir: &Path, key: &'static str, exists: bool) -> crate::ArtifactInfo {
+    let spec = RUN_ARTIFACTS
+        .iter()
+        .find(|artifact| artifact.key == key)
+        .expect("test artifact spec should exist");
+    crate::ArtifactInfo::from_spec(spec, run_dir.join(spec.file), exists)
 }

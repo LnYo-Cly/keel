@@ -151,18 +151,15 @@ pub struct ArtifactSetJson {
 
 impl From<&[ArtifactInfo]> for ArtifactSetJson {
     fn from(artifacts: &[ArtifactInfo]) -> Self {
-        let mut artifacts = RUN_ARTIFACTS
-            .iter()
-            .map(|spec| artifact_json(artifacts, spec));
         Self {
-            metadata: artifacts.next().expect("metadata artifact spec"),
-            log: artifacts.next().expect("log artifact spec"),
-            diff: artifacts.next().expect("diff artifact spec"),
-            checks: artifacts.next().expect("checks artifact spec"),
-            report: artifacts.next().expect("report artifact spec"),
-            commit: artifacts.next().expect("commit artifact spec"),
-            push: artifacts.next().expect("push artifact spec"),
-            pr: artifacts.next().expect("pr artifact spec"),
+            metadata: artifact_json_by_key(artifacts, "metadata"),
+            log: artifact_json_by_key(artifacts, "log"),
+            diff: artifact_json_by_key(artifacts, "diff"),
+            checks: artifact_json_by_key(artifacts, "checks"),
+            report: artifact_json_by_key(artifacts, "report"),
+            commit: artifact_json_by_key(artifacts, "commit"),
+            push: artifact_json_by_key(artifacts, "push"),
+            pr: artifact_json_by_key(artifacts, "pr"),
         }
     }
 }
@@ -233,4 +230,19 @@ fn artifact_json(artifacts: &[ArtifactInfo], spec: &crate::RunArtifactSpec) -> A
             state: "missing",
             required: spec.required,
         })
+}
+
+fn artifact_json_by_key(artifacts: &[ArtifactInfo], key: &'static str) -> ArtifactJson {
+    let Some(spec) = RUN_ARTIFACTS.iter().find(|spec| spec.key == key) else {
+        return ArtifactJson {
+            key,
+            label: key,
+            path: String::new(),
+            exists: false,
+            state: "missing",
+            required: false,
+        };
+    };
+
+    artifact_json(artifacts, spec)
 }
