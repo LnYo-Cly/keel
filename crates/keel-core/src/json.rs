@@ -1,4 +1,4 @@
-use crate::constants::artifact_labels;
+use crate::constants::RUN_ARTIFACTS;
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
@@ -151,21 +151,26 @@ pub struct ArtifactSetJson {
 
 impl From<&[ArtifactInfo]> for ArtifactSetJson {
     fn from(artifacts: &[ArtifactInfo]) -> Self {
+        let mut artifacts = RUN_ARTIFACTS
+            .iter()
+            .map(|spec| artifact_json(artifacts, spec));
         Self {
-            metadata: artifact_json(artifacts, artifact_labels::METADATA),
-            log: artifact_json(artifacts, artifact_labels::LOG),
-            diff: artifact_json(artifacts, artifact_labels::DIFF),
-            checks: artifact_json(artifacts, artifact_labels::CHECKS),
-            report: artifact_json(artifacts, artifact_labels::REPORT),
-            commit: artifact_json(artifacts, artifact_labels::COMMIT),
-            push: artifact_json(artifacts, artifact_labels::PUSH),
-            pr: artifact_json(artifacts, artifact_labels::PR),
+            metadata: artifacts.next().expect("metadata artifact spec"),
+            log: artifacts.next().expect("log artifact spec"),
+            diff: artifacts.next().expect("diff artifact spec"),
+            checks: artifacts.next().expect("checks artifact spec"),
+            report: artifacts.next().expect("report artifact spec"),
+            commit: artifacts.next().expect("commit artifact spec"),
+            push: artifacts.next().expect("push artifact spec"),
+            pr: artifacts.next().expect("pr artifact spec"),
         }
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct ArtifactJson {
+    key: &'static str,
+    label: &'static str,
     path: String,
     exists: bool,
     state: &'static str,
@@ -208,20 +213,24 @@ fn evidence_brief(evidence: &crate::ledger::LedgerEvidence) -> LedgerEvidenceBri
     }
 }
 
-fn artifact_json(artifacts: &[ArtifactInfo], label: &str) -> ArtifactJson {
+fn artifact_json(artifacts: &[ArtifactInfo], spec: &crate::RunArtifactSpec) -> ArtifactJson {
     artifacts
         .iter()
-        .find(|artifact| artifact.label == label)
+        .find(|artifact| artifact.key == spec.key)
         .map(|artifact| ArtifactJson {
+            key: artifact.key,
+            label: artifact.label,
             path: artifact.path.display().to_string(),
             exists: artifact.exists,
             state: artifact.state(),
             required: artifact.required,
         })
         .unwrap_or_else(|| ArtifactJson {
+            key: spec.key,
+            label: spec.label,
             path: String::new(),
             exists: false,
             state: "missing",
-            required: false,
+            required: spec.required,
         })
 }

@@ -1426,6 +1426,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use keel_core::artifact_files;
     use keel_core::{ArtifactInfo, DiffInfo, ReportInfo, RunArtifacts};
     use std::path::PathBuf;
 
@@ -1585,14 +1586,14 @@ mod tests {
                 PathBuf::from(".keel/runs/run-1/report.md"),
                 String::new(),
                 vec![
-                    artifact("Metadata", true),
-                    artifact("Log", true),
-                    artifact("Diff", true),
-                    artifact("Checks", true),
-                    artifact("Report", true),
-                    optional_artifact("Commit", false),
-                    optional_artifact("Push", false),
-                    optional_artifact("PR/MR", false),
+                    artifact("metadata", "Metadata", artifact_files::METADATA, true),
+                    artifact("log", "Log", artifact_files::LOG, true),
+                    artifact("diff", "Diff", artifact_files::DIFF, true),
+                    artifact("checks", "Checks", artifact_files::CHECKS, true),
+                    artifact("report", "Report", artifact_files::REPORT, true),
+                    optional_artifact("commit", "Commit", artifact_files::COMMIT, false),
+                    optional_artifact("push", "Push", artifact_files::PUSH, false),
+                    optional_artifact("pr", "PR/MR", artifact_files::PR, false),
                 ],
                 Vec::new(),
             ),
@@ -1607,18 +1608,30 @@ mod tests {
         }
     }
 
-    fn artifact(label: &'static str, exists: bool) -> ArtifactInfo {
+    fn artifact(
+        key: &'static str,
+        label: &'static str,
+        file: &'static str,
+        exists: bool,
+    ) -> ArtifactInfo {
         ArtifactInfo::required(
+            key,
             label,
-            PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
+            PathBuf::from(".keel/runs/run-1").join(file),
             exists,
         )
     }
 
-    fn optional_artifact(label: &'static str, exists: bool) -> ArtifactInfo {
+    fn optional_artifact(
+        key: &'static str,
+        label: &'static str,
+        file: &'static str,
+        exists: bool,
+    ) -> ArtifactInfo {
         ArtifactInfo::optional(
+            key,
             label,
-            PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
+            PathBuf::from(".keel/runs/run-1").join(file),
             exists,
         )
     }

@@ -18,12 +18,24 @@ mod risk;
 mod run;
 mod time;
 
+pub mod artifact_files {
+    pub const METADATA: &str = crate::constants::METADATA_FILE;
+    pub const LOG: &str = crate::constants::LOG_FILE;
+    pub const DIFF: &str = crate::constants::DIFF_FILE;
+    pub const CHECKS: &str = crate::constants::CHECKS_FILE;
+    pub const REPORT: &str = crate::constants::REPORT_FILE;
+    pub const COMMIT: &str = crate::constants::COMMIT_FILE;
+    pub const PUSH: &str = crate::constants::PUSH_FILE;
+    pub const PR: &str = crate::constants::PR_FILE;
+}
+
 pub use commit::{CommitArtifact, CommitOptions, CommitResult};
 pub use config::{
     validate_config, AgentConfig, AgentsConfig, ChecksConfig, Config, ConfigValidationIssue,
     ConfigValidationReport, ConfigValidationSeverity, ConfigValidationSummary, ReadinessConfig,
     RiskConfig,
 };
+pub use constants::{RunArtifactSpec, RUN_ARTIFACTS};
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use json::{
     ledger_handoff_json, ledger_review_json, report_json, status_json, ArtifactJson,

@@ -290,11 +290,21 @@ fn core_json_views_cover_status_and_report_shapes() {
     assert_eq!(report["run_id"], metadata.run_id);
     assert_eq!(report["agent"], "noop");
     assert_eq!(report["status"], "ready");
+    for artifact in RUN_ARTIFACTS {
+        assert_eq!(
+            report["artifacts"][artifact.key]["key"], artifact.key,
+            "artifact key mismatch for {}",
+            artifact.key
+        );
+        assert_eq!(report["artifacts"][artifact.key]["label"], artifact.label);
+        assert_eq!(
+            report["artifacts"][artifact.key]["required"],
+            artifact.required
+        );
+    }
     assert_eq!(report["artifacts"]["metadata"]["exists"], true);
-    assert_eq!(report["artifacts"]["metadata"]["required"], true);
     assert_eq!(report["artifacts"]["log"]["exists"], true);
     assert_eq!(report["artifacts"]["diff"]["exists"], true);
-    assert_eq!(report["artifacts"]["commit"]["required"], false);
     assert!(report["next_actions"]
         .as_array()
         .unwrap()

@@ -511,6 +511,7 @@ impl KeelProject {
             .map(|artifact| {
                 let path = run_dir.join(artifact.file);
                 ArtifactInfo::new(
+                    artifact.key,
                     artifact.label,
                     path.clone(),
                     path.exists(),

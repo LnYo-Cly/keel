@@ -25,49 +25,59 @@ pub(crate) mod artifact_labels {
     pub(crate) const PR: &str = "PR/MR";
 }
 
-pub(crate) struct RunArtifactSpec {
-    pub(crate) label: &'static str,
-    pub(crate) file: &'static str,
-    pub(crate) required: bool,
+#[derive(Debug, Clone, Copy)]
+pub struct RunArtifactSpec {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub file: &'static str,
+    pub required: bool,
 }
 
-pub(crate) const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
+pub const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
     RunArtifactSpec {
+        key: "metadata",
         label: artifact_labels::METADATA,
         file: METADATA_FILE,
         required: true,
     },
     RunArtifactSpec {
+        key: "log",
         label: artifact_labels::LOG,
         file: LOG_FILE,
         required: true,
     },
     RunArtifactSpec {
+        key: "diff",
         label: artifact_labels::DIFF,
         file: DIFF_FILE,
         required: true,
     },
     RunArtifactSpec {
+        key: "checks",
         label: artifact_labels::CHECKS,
         file: CHECKS_FILE,
         required: true,
     },
     RunArtifactSpec {
+        key: "report",
         label: artifact_labels::REPORT,
         file: REPORT_FILE,
         required: true,
     },
     RunArtifactSpec {
+        key: "commit",
         label: artifact_labels::COMMIT,
         file: COMMIT_FILE,
         required: false,
     },
     RunArtifactSpec {
+        key: "push",
         label: artifact_labels::PUSH,
         file: PUSH_FILE,
         required: false,
     },
     RunArtifactSpec {
+        key: "pr",
         label: artifact_labels::PR,
         file: PR_FILE,
         required: false,

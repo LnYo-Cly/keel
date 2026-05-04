@@ -56,6 +56,7 @@ impl ReportInfo {
 
 #[derive(Debug, Clone)]
 pub struct ArtifactInfo {
+    pub key: &'static str,
     pub label: &'static str,
     pub path: PathBuf,
     pub exists: bool,
@@ -63,8 +64,15 @@ pub struct ArtifactInfo {
 }
 
 impl ArtifactInfo {
-    pub fn new(label: &'static str, path: PathBuf, exists: bool, required: bool) -> Self {
+    pub fn new(
+        key: &'static str,
+        label: &'static str,
+        path: PathBuf,
+        exists: bool,
+        required: bool,
+    ) -> Self {
         Self {
+            key,
             label,
             path,
             exists,
@@ -72,12 +80,12 @@ impl ArtifactInfo {
         }
     }
 
-    pub fn required(label: &'static str, path: PathBuf, exists: bool) -> Self {
-        Self::new(label, path, exists, true)
+    pub fn required(key: &'static str, label: &'static str, path: PathBuf, exists: bool) -> Self {
+        Self::new(key, label, path, exists, true)
     }
 
-    pub fn optional(label: &'static str, path: PathBuf, exists: bool) -> Self {
-        Self::new(label, path, exists, false)
+    pub fn optional(key: &'static str, label: &'static str, path: PathBuf, exists: bool) -> Self {
+        Self::new(key, label, path, exists, false)
     }
 
     pub fn state(&self) -> &'static str {

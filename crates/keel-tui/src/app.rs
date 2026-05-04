@@ -607,6 +607,7 @@ impl DetailTab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use keel_core::artifact_files;
     use keel_core::{
         ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo, RunMetadata,
     };
@@ -1177,14 +1178,19 @@ mod tests {
                 run_dir.join("report.md"),
                 "sample summary",
                 vec![
-                    artifact("Metadata", "metadata.json", true),
-                    artifact("Log", "log.txt", true),
-                    artifact("Diff", "diff.patch", true),
-                    artifact("Checks", "checks.json", true),
-                    artifact("Report", "report.md", true),
-                    optional_artifact("Commit", "commit.json", metadata.committed),
-                    optional_artifact("Push", "push.json", metadata.pushed),
-                    optional_artifact("PR/MR", "pr.json", metadata.pr_created),
+                    artifact("metadata", "Metadata", artifact_files::METADATA, true),
+                    artifact("log", "Log", artifact_files::LOG, true),
+                    artifact("diff", "Diff", artifact_files::DIFF, true),
+                    artifact("checks", "Checks", artifact_files::CHECKS, true),
+                    artifact("report", "Report", artifact_files::REPORT, true),
+                    optional_artifact(
+                        "commit",
+                        "Commit",
+                        artifact_files::COMMIT,
+                        metadata.committed,
+                    ),
+                    optional_artifact("push", "Push", artifact_files::PUSH, metadata.pushed),
+                    optional_artifact("pr", "PR/MR", artifact_files::PR, metadata.pr_created),
                 ],
                 vec!["keel diff run-123".to_string()],
             ),
@@ -1228,14 +1234,50 @@ mod tests {
                 run_dir.join("report.md"),
                 "failed checks: cargo test",
                 vec![
-                    artifact_for(&metadata.run_id, "Metadata", "metadata.json", true),
-                    artifact_for(&metadata.run_id, "Log", "log.txt", true),
-                    artifact_for(&metadata.run_id, "Diff", "diff.patch", true),
-                    artifact_for(&metadata.run_id, "Checks", "checks.json", true),
-                    artifact_for(&metadata.run_id, "Report", "report.md", true),
-                    optional_artifact_for(&metadata.run_id, "Commit", "commit.json", false),
-                    optional_artifact_for(&metadata.run_id, "Push", "push.json", false),
-                    optional_artifact_for(&metadata.run_id, "PR/MR", "pr.json", false),
+                    artifact_for(
+                        &metadata.run_id,
+                        "metadata",
+                        "Metadata",
+                        artifact_files::METADATA,
+                        true,
+                    ),
+                    artifact_for(&metadata.run_id, "log", "Log", artifact_files::LOG, true),
+                    artifact_for(&metadata.run_id, "diff", "Diff", artifact_files::DIFF, true),
+                    artifact_for(
+                        &metadata.run_id,
+                        "checks",
+                        "Checks",
+                        artifact_files::CHECKS,
+                        true,
+                    ),
+                    artifact_for(
+                        &metadata.run_id,
+                        "report",
+                        "Report",
+                        artifact_files::REPORT,
+                        true,
+                    ),
+                    optional_artifact_for(
+                        &metadata.run_id,
+                        "commit",
+                        "Commit",
+                        artifact_files::COMMIT,
+                        false,
+                    ),
+                    optional_artifact_for(
+                        &metadata.run_id,
+                        "push",
+                        "Push",
+                        artifact_files::PUSH,
+                        false,
+                    ),
+                    optional_artifact_for(
+                        &metadata.run_id,
+                        "pr",
+                        "PR/MR",
+                        artifact_files::PR,
+                        false,
+                    ),
                 ],
                 vec!["keel log run-failed".to_string()],
             ),
@@ -1281,16 +1323,33 @@ mod tests {
         }
     }
 
-    fn artifact(label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
-        artifact_for("run-123", label, file, exists)
+    fn artifact(
+        key: &'static str,
+        label: &'static str,
+        file: &'static str,
+        exists: bool,
+    ) -> ArtifactInfo {
+        artifact_for("run-123", key, label, file, exists)
     }
 
-    fn optional_artifact(label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
-        optional_artifact_for("run-123", label, file, exists)
+    fn optional_artifact(
+        key: &'static str,
+        label: &'static str,
+        file: &'static str,
+        exists: bool,
+    ) -> ArtifactInfo {
+        optional_artifact_for("run-123", key, label, file, exists)
     }
 
-    fn artifact_for(run_id: &str, label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
+    fn artifact_for(
+        run_id: &str,
+        key: &'static str,
+        label: &'static str,
+        file: &'static str,
+        exists: bool,
+    ) -> ArtifactInfo {
         ArtifactInfo::required(
+            key,
             label,
             PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
             exists,
@@ -1299,11 +1358,13 @@ mod tests {
 
     fn optional_artifact_for(
         run_id: &str,
+        key: &'static str,
         label: &'static str,
-        file: &str,
+        file: &'static str,
         exists: bool,
     ) -> ArtifactInfo {
         ArtifactInfo::optional(
+            key,
             label,
             PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
             exists,

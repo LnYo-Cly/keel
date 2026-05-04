@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use keel_core::RUN_ARTIFACTS;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
@@ -982,23 +983,22 @@ fn report_json_is_parseable_and_includes_review_summary() {
     assert!(report["warnings"].is_array());
     assert!(report["risk_warnings"].is_array());
 
-    for key in ["metadata", "log", "diff", "checks", "report"] {
+    for artifact in RUN_ARTIFACTS.iter().filter(|artifact| artifact.required) {
+        let key = artifact.key;
+        assert_eq!(report["artifacts"][key]["key"], key);
+        assert_eq!(report["artifacts"][key]["label"], artifact.label);
         assert_eq!(report["artifacts"][key]["exists"], true);
         assert_eq!(report["artifacts"][key]["state"], "present");
         assert_eq!(report["artifacts"][key]["required"], true);
         assert!(report["artifacts"][key]["path"]
             .as_str()
             .unwrap()
-            .contains(match key {
-                "metadata" => "metadata.json",
-                "log" => "log.txt",
-                "diff" => "diff.patch",
-                "checks" => "checks.json",
-                "report" => "report.md",
-                _ => unreachable!(),
-            }));
+            .contains(artifact.file));
     }
-    for key in ["commit", "push", "pr"] {
+    for artifact in RUN_ARTIFACTS.iter().filter(|artifact| !artifact.required) {
+        let key = artifact.key;
+        assert_eq!(report["artifacts"][key]["key"], key);
+        assert_eq!(report["artifacts"][key]["label"], artifact.label);
         assert_eq!(report["artifacts"][key]["required"], false);
     }
 
