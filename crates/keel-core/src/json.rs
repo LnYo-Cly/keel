@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::constants::artifact_labels;
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
@@ -150,14 +151,14 @@ pub struct ArtifactSetJson {
 impl ArtifactSetJson {
     fn from_artifacts(artifacts: &[ArtifactInfo]) -> Self {
         Self {
-            metadata: artifact_json(artifacts, "Metadata"),
-            log: artifact_json(artifacts, "Log"),
-            diff: artifact_json(artifacts, "Diff"),
-            checks: artifact_json(artifacts, "Checks"),
-            report: artifact_json(artifacts, "Report"),
-            commit: artifact_json(artifacts, "Commit"),
-            push: artifact_json(artifacts, "Push"),
-            pr: artifact_json(artifacts, "PR/MR"),
+            metadata: artifact_json(artifacts, artifact_labels::METADATA),
+            log: artifact_json(artifacts, artifact_labels::LOG),
+            diff: artifact_json(artifacts, artifact_labels::DIFF),
+            checks: artifact_json(artifacts, artifact_labels::CHECKS),
+            report: artifact_json(artifacts, artifact_labels::REPORT),
+            commit: artifact_json(artifacts, artifact_labels::COMMIT),
+            push: artifact_json(artifacts, artifact_labels::PUSH),
+            pr: artifact_json(artifacts, artifact_labels::PR),
         }
     }
 }

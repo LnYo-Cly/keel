@@ -6,8 +6,8 @@ use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, PR_FILE,
-    PUSH_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
+    artifact_labels, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE,
+    METADATA_FILE, REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
 };
 use crate::fsio::write_text;
 use crate::git::{
@@ -505,32 +505,24 @@ impl KeelProject {
     }
 
     fn artifacts_for_run(&self, run_id: &str) -> Vec<ArtifactInfo> {
-        let mut artifacts = [
-            ("Metadata", METADATA_FILE),
-            ("Log", LOG_FILE),
-            ("Diff", DIFF_FILE),
-            ("Checks", CHECKS_FILE),
-            ("Report", REPORT_FILE),
-            ("Commit", COMMIT_FILE),
-            ("Push", PUSH_FILE),
-            ("PR/MR", PR_FILE),
-        ]
-        .into_iter()
-        .map(|(label, file)| {
-            let path = self.run_dir(run_id).join(file);
-            ArtifactInfo {
-                label,
-                exists: path.exists(),
-                path,
-            }
-        })
-        .collect::<Vec<_>>();
+        let run_dir = self.run_dir(run_id);
+        let mut artifacts = RUN_ARTIFACTS
+            .iter()
+            .map(|artifact| {
+                let path = run_dir.join(artifact.file);
+                ArtifactInfo {
+                    label: artifact.label,
+                    exists: path.exists(),
+                    path,
+                }
+            })
+            .collect::<Vec<_>>();
 
         if let Some(push_artifact) = artifacts
             .iter_mut()
-            .find(|artifact| artifact.label == "Push")
+            .find(|artifact| artifact.label == artifact_labels::PUSH)
         {
-            let legacy_path = self.run_dir(run_id).join(LEGACY_PUBLISH_FILE);
+            let legacy_path = run_dir.join(LEGACY_PUBLISH_FILE);
             if !push_artifact.exists && legacy_path.is_file() {
                 push_artifact.exists = true;
                 push_artifact.path = legacy_path;

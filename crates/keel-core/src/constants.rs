@@ -13,3 +13,54 @@ pub(crate) const PR_FILE: &str = "pr.json";
 pub(crate) const NOOP_OUTPUT_FILE: &str = "keel-noop-output.txt";
 pub(crate) const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 900;
 pub(crate) const REPORT_OUTPUT_LIMIT: usize = 4000;
+
+pub(crate) mod artifact_labels {
+    pub(crate) const METADATA: &str = "Metadata";
+    pub(crate) const LOG: &str = "Log";
+    pub(crate) const DIFF: &str = "Diff";
+    pub(crate) const CHECKS: &str = "Checks";
+    pub(crate) const REPORT: &str = "Report";
+    pub(crate) const COMMIT: &str = "Commit";
+    pub(crate) const PUSH: &str = "Push";
+    pub(crate) const PR: &str = "PR/MR";
+}
+
+pub(crate) struct RunArtifactSpec {
+    pub(crate) label: &'static str,
+    pub(crate) file: &'static str,
+}
+
+pub(crate) const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
+    RunArtifactSpec {
+        label: artifact_labels::METADATA,
+        file: METADATA_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::LOG,
+        file: LOG_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::DIFF,
+        file: DIFF_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::CHECKS,
+        file: CHECKS_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::REPORT,
+        file: REPORT_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::COMMIT,
+        file: COMMIT_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::PUSH,
+        file: PUSH_FILE,
+    },
+    RunArtifactSpec {
+        label: artifact_labels::PR,
+        file: PR_FILE,
+    },
+];

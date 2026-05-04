@@ -1,9 +1,6 @@
 use crate::command::{exit_code_text, format_command_line};
 use crate::commit::CommitArtifact;
-use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PR_FILE, PUSH_FILE, REPORT_FILE,
-    REPORT_OUTPUT_LIMIT,
-};
+use crate::constants::{REPORT_OUTPUT_LIMIT, RUN_ARTIFACTS};
 use crate::model::{CheckResult, RunMetadata, RunStatus};
 use crate::pr::{infer_provider, PrArtifact, PrProvider};
 use crate::push::PushArtifact;
@@ -136,19 +133,10 @@ fn render_checks_table(checks: &[CheckResult]) -> String {
 }
 
 fn render_artifacts() -> String {
-    [
-        ("Metadata", METADATA_FILE),
-        ("Log", LOG_FILE),
-        ("Diff", DIFF_FILE),
-        ("Checks", CHECKS_FILE),
-        ("Report", REPORT_FILE),
-        ("Commit", COMMIT_FILE),
-        ("Push", PUSH_FILE),
-        ("PR/MR", PR_FILE),
-    ]
-    .iter()
-    .map(|(label, file)| format!("- {label}: `{file}`\n"))
-    .collect()
+    RUN_ARTIFACTS
+        .iter()
+        .map(|artifact| format!("- {}: `{}`\n", artifact.label, artifact.file))
+        .collect()
 }
 
 pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
