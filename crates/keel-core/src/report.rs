@@ -1,10 +1,12 @@
 use crate::command::{exit_code_text, format_command_line};
+use crate::commit::CommitArtifact;
 use crate::constants::{
     CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PR_FILE, PUSH_FILE, REPORT_FILE,
     REPORT_OUTPUT_LIMIT,
 };
 use crate::model::{CheckResult, RunMetadata, RunStatus};
-use crate::pr::{infer_provider, PrProvider};
+use crate::pr::{infer_provider, PrArtifact, PrProvider};
+use crate::push::PushArtifact;
 
 pub(crate) fn render_report(
     metadata: &RunMetadata,
@@ -150,27 +152,28 @@ fn render_artifacts() -> String {
 }
 
 pub(crate) fn render_commit_section(metadata: &RunMetadata) -> String {
-    if !metadata.committed {
+    let Some(commit) = CommitArtifact::from_metadata(metadata) else {
         return String::new();
-    }
-
-    let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
-    let commit_message = metadata.commit_message.as_deref().unwrap_or("unknown");
-    let committed_at = metadata.committed_at.as_deref().unwrap_or("unknown");
+    };
     let warnings = render_markdown_list(&metadata.warnings, "- none");
 
     format!(
         "## Commit\n\n\
-         - Commit: `{commit_sha}`\n\
+         - Commit: `{}`\n\
          - Branch: `{}`\n\
-         - Message: `{commit_message}`\n\
-         - Committed at: `{committed_at}`\n\n\
+         - Message: `{}`\n\
+         - Committed at: `{}`\n\n\
          ### Warnings\n\n\
          {}\
          ### Next\n\n\
          - Use `keel push {}` when you want to push this candidate branch.\n\
          - Keel did not push or merge anything.\n\n",
-        metadata.branch, warnings, metadata.run_id
+        commit.commit_sha,
+        commit.branch,
+        commit.commit_message,
+        commit.committed_at,
+        warnings,
+        metadata.run_id
     )
 }
 
@@ -183,72 +186,46 @@ pub(crate) fn render_markdown_list(items: &[String], empty: &str) -> String {
 }
 
 pub(crate) fn render_push_section(metadata: &RunMetadata) -> String {
-    if !metadata.pushed {
+    let Some(push) = PushArtifact::from_metadata(metadata) else {
         return String::new();
-    }
-
-    let remote = metadata.push_remote.as_deref().unwrap_or("unknown");
-    let remote_url = metadata.push_remote_url.as_deref().unwrap_or("unknown");
-    let branch = metadata
-        .pushed_branch
-        .as_deref()
-        .unwrap_or(&metadata.branch);
-    let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
-    let pushed_at = metadata.pushed_at.as_deref().unwrap_or("unknown");
+    };
 
     format!(
         "## Push\n\n\
-         - Remote: `{remote}`\n\
-         - Remote URL: `{remote_url}`\n\
-         - Branch: `{branch}`\n\
-         - Commit: `{commit_sha}`\n\
-         - Pushed at: `{pushed_at}`\n\n\
+         - Remote: `{}`\n\
+         - Remote URL: `{}`\n\
+         - Branch: `{}`\n\
+         - Commit: `{}`\n\
+         - Pushed at: `{}`\n\n\
          ### Next\n\n\
          - Use `keel pr {} --manual --dry-run` to prepare a Pull Request or Merge Request.\n\
          - Keel did not create a PR/MR.\n\
          - Keel did not merge anything.\n\n",
-        metadata.run_id
+        push.remote, push.remote_url, push.branch, push.commit_sha, push.pushed_at, metadata.run_id
     )
 }
 
 pub(crate) fn render_pr_section(metadata: &RunMetadata) -> String {
-    if !metadata.pr_created {
+    let Some(pr) = PrArtifact::from_metadata(metadata).ok().flatten() else {
         return String::new();
-    }
-
-    let provider = metadata.pr_provider.as_deref().unwrap_or("unknown");
-    let url = metadata.pr_url.as_deref().unwrap_or("unknown");
-    let source_branch = metadata
-        .pr_source_branch
-        .as_deref()
-        .unwrap_or(&metadata.branch);
-    let target_branch = metadata.pr_target_branch.as_deref().unwrap_or("unknown");
-    let commit_sha = metadata.commit_sha.as_deref().unwrap_or("unknown");
-    let created_at = metadata.pr_created_at.as_deref().unwrap_or("unknown");
-    let draft = metadata
-        .pr
-        .as_ref()
-        .map(|pr| if pr.draft { "yes" } else { "no" })
-        .unwrap_or("unknown");
-    let reused_existing = metadata
-        .pr
-        .as_ref()
-        .map(|pr| if pr.reused_existing { "yes" } else { "no" })
-        .unwrap_or("unknown");
+    };
+    let draft = if pr.draft { "yes" } else { "no" };
+    let reused_existing = if pr.reused_existing { "yes" } else { "no" };
 
     format!(
         "## PR/MR\n\n\
-         - Provider: `{provider}`\n\
-         - URL: `{url}`\n\
-         - Source branch: `{source_branch}`\n\
-         - Target branch: `{target_branch}`\n\
-         - Commit: `{commit_sha}`\n\
+         - Provider: `{}`\n\
+         - URL: `{}`\n\
+         - Source branch: `{}`\n\
+         - Target branch: `{}`\n\
+         - Commit: `{}`\n\
          - Draft: `{draft}`\n\
          - Reused existing: `{reused_existing}`\n\
-         - Created at: `{created_at}`\n\n\
+         - Created at: `{}`\n\n\
          ### Next\n\n\
          - Review this request on the provider before merging.\n\
-         - Keel did not merge anything.\n\n"
+         - Keel did not merge anything.\n\n",
+        pr.provider_name, pr.url, pr.source_branch, pr.target_branch, pr.commit_sha, pr.created_at
     )
 }
 
