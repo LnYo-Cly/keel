@@ -1161,46 +1161,12 @@ mod tests {
         pushed: bool,
         pr_created: bool,
     ) -> RunMetadata {
-        RunMetadata {
-            run_id: run_id.to_string(),
-            parent_run_id: None,
-            task: task.to_string(),
-            agent: agent.to_string(),
-            status,
-            created_at: "2026-05-01T00:00:00Z".to_string(),
-            updated_at: "2026-05-01T00:00:00Z".to_string(),
-            started_at: None,
-            finished_at: None,
-            duration_ms: None,
-            worktree_path: format!(".keel/worktrees/{run_id}"),
-            run_dir: format!(".keel/runs/{run_id}"),
-            branch: format!("keel/run/{run_id}"),
-            base_commit: "base".to_string(),
-            agent_command: Vec::new(),
-            exit_code: None,
-            failure_reason: None,
-            readiness_reason: String::new(),
-            warnings: Vec::new(),
-            risk_warnings: Vec::new(),
-            committed,
-            commit_sha: None,
-            commit_message: None,
-            committed_at: None,
-            commit: None,
-            pushed,
-            pushed_at: None,
-            push_remote: None,
-            push_remote_url: None,
-            pushed_branch: None,
-            push: None,
-            pr_created,
-            pr_created_at: None,
-            pr_provider: None,
-            pr_url: None,
-            pr_target_branch: None,
-            pr_source_branch: None,
-            pr: None,
-        }
+        let mut metadata = RunMetadata::new(run_id, task, agent, status, "2026-05-01T00:00:00Z")
+            .with_base_commit("base");
+        metadata.committed = committed;
+        metadata.pushed = pushed;
+        metadata.pr_created = pr_created;
+        metadata
     }
 
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {

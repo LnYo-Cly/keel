@@ -367,45 +367,8 @@ mod tests {
     }
 
     fn metadata_with_task(task: &str) -> RunMetadata {
-        RunMetadata {
-            run_id: "run-test".to_string(),
-            parent_run_id: None,
-            task: task.to_string(),
-            agent: "noop".to_string(),
-            status: RunStatus::Ready,
-            created_at: "1".to_string(),
-            updated_at: "1".to_string(),
-            started_at: None,
-            finished_at: None,
-            duration_ms: None,
-            worktree_path: ".keel/worktrees/run-test".to_string(),
-            run_dir: ".keel/runs/run-test".to_string(),
-            branch: "keel/run/run-test".to_string(),
-            base_commit: String::new(),
-            agent_command: Vec::new(),
-            exit_code: Some(0),
-            failure_reason: None,
-            readiness_reason: String::new(),
-            warnings: Vec::new(),
-            risk_warnings: Vec::new(),
-            committed: false,
-            commit_sha: None,
-            commit_message: None,
-            committed_at: None,
-            commit: None,
-            pushed: false,
-            pushed_at: None,
-            push_remote: None,
-            push_remote_url: None,
-            pushed_branch: None,
-            push: None,
-            pr_created: false,
-            pr_created_at: None,
-            pr_provider: None,
-            pr_url: None,
-            pr_target_branch: None,
-            pr_source_branch: None,
-            pr: None,
-        }
+        let mut metadata = RunMetadata::new("run-test", task, "noop", RunStatus::Ready, "1");
+        metadata.exit_code = Some(0);
+        metadata
     }
 }

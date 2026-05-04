@@ -3,9 +3,7 @@ use crate::checks::RunClassification;
 use crate::command::{
     exit_code_text, failure_reason_from_error, format_command_line, CommandCapture,
 };
-use crate::constants::{
-    CHECKS_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR, WORKTREES_DIR,
-};
+use crate::constants::{CHECKS_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, REPORT_FILE};
 use crate::fsio::write_text;
 use crate::json::write_json_pretty;
 use crate::model::{CheckResult, FailureReason, RunMetadata, RunStatus};
@@ -71,46 +69,10 @@ impl RunSession {
             .with_context(|| format!("failed to create run directory {}", run_dir.display()))?;
 
         let created_at = now_timestamp();
-        let metadata = RunMetadata {
-            run_id: run_id.clone(),
-            parent_run_id,
-            task: task.to_string(),
-            agent: agent.to_string(),
-            status: RunStatus::Created,
-            created_at: created_at.clone(),
-            updated_at: created_at,
-            worktree_path: format!("{KEEL_DIR}/{WORKTREES_DIR}/{run_id}"),
-            run_dir: format!("{KEEL_DIR}/{RUNS_DIR}/{run_id}"),
-            branch: format!("keel/run/{run_id}"),
-            base_commit: String::new(),
-            started_at: None,
-            finished_at: None,
-            duration_ms: None,
-            agent_command: Vec::new(),
-            exit_code: None,
-            failure_reason: None,
-            readiness_reason: "run has not started".to_string(),
-            warnings: Vec::new(),
-            risk_warnings: Vec::new(),
-            committed: false,
-            commit_sha: None,
-            commit_message: None,
-            committed_at: None,
-            commit: None,
-            pushed: false,
-            pushed_at: None,
-            push_remote: None,
-            push_remote_url: None,
-            pushed_branch: None,
-            push: None,
-            pr_created: false,
-            pr_created_at: None,
-            pr_provider: None,
-            pr_url: None,
-            pr_target_branch: None,
-            pr_source_branch: None,
-            pr: None,
-        };
+        let metadata =
+            RunMetadata::new(run_id.clone(), task, agent, RunStatus::Created, created_at)
+                .with_parent_run_id(parent_run_id)
+                .with_readiness_reason("run has not started");
         let session = Self {
             run_id,
             run_dir,

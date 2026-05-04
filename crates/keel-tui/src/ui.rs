@@ -1621,45 +1621,13 @@ mod tests {
     }
 
     fn sample_run() -> RunMetadata {
-        RunMetadata {
-            run_id: "run-1".to_string(),
-            parent_run_id: None,
-            task: "task".to_string(),
-            agent: "noop".to_string(),
-            status: RunStatus::Ready,
-            created_at: "2026-05-01T00:00:00Z".to_string(),
-            updated_at: "2026-05-01T00:00:00Z".to_string(),
-            started_at: None,
-            finished_at: None,
-            duration_ms: None,
-            worktree_path: ".keel/worktrees/run-1".to_string(),
-            run_dir: ".keel/runs/run-1".to_string(),
-            branch: "keel/run/run-1".to_string(),
-            base_commit: "base".to_string(),
-            agent_command: Vec::new(),
-            exit_code: None,
-            failure_reason: None,
-            readiness_reason: String::new(),
-            warnings: Vec::new(),
-            risk_warnings: Vec::new(),
-            committed: false,
-            commit_sha: None,
-            commit_message: None,
-            committed_at: None,
-            commit: None,
-            pushed: false,
-            pushed_at: None,
-            push_remote: None,
-            push_remote_url: None,
-            pushed_branch: None,
-            push: None,
-            pr_created: false,
-            pr_created_at: None,
-            pr_provider: None,
-            pr_url: None,
-            pr_target_branch: None,
-            pr_source_branch: None,
-            pr: None,
-        }
+        RunMetadata::new(
+            "run-1",
+            "task",
+            "noop",
+            RunStatus::Ready,
+            "2026-05-01T00:00:00Z",
+        )
+        .with_base_commit("base")
     }
 }

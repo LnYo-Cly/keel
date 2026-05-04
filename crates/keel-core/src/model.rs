@@ -1,4 +1,5 @@
 use crate::commit::CommitArtifact;
+use crate::constants::{KEEL_DIR, RUNS_DIR, WORKTREES_DIR};
 use crate::pr::PrArtifact;
 use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
@@ -185,6 +186,75 @@ pub struct RunMetadata {
     pub pr_source_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr: Option<PrArtifact>,
+}
+
+impl RunMetadata {
+    pub fn new(
+        run_id: impl Into<String>,
+        task: impl Into<String>,
+        agent: impl Into<String>,
+        status: RunStatus,
+        created_at: impl Into<String>,
+    ) -> Self {
+        let run_id = run_id.into();
+        let created_at = created_at.into();
+
+        Self {
+            parent_run_id: None,
+            task: task.into(),
+            agent: agent.into(),
+            status,
+            created_at: created_at.clone(),
+            updated_at: created_at,
+            worktree_path: format!("{KEEL_DIR}/{WORKTREES_DIR}/{run_id}"),
+            run_dir: format!("{KEEL_DIR}/{RUNS_DIR}/{run_id}"),
+            branch: format!("keel/run/{run_id}"),
+            base_commit: String::new(),
+            run_id,
+            started_at: None,
+            finished_at: None,
+            duration_ms: None,
+            agent_command: Vec::new(),
+            exit_code: None,
+            failure_reason: None,
+            readiness_reason: String::new(),
+            warnings: Vec::new(),
+            risk_warnings: Vec::new(),
+            committed: false,
+            commit_sha: None,
+            commit_message: None,
+            committed_at: None,
+            commit: None,
+            pushed: false,
+            pushed_at: None,
+            push_remote: None,
+            push_remote_url: None,
+            pushed_branch: None,
+            push: None,
+            pr_created: false,
+            pr_created_at: None,
+            pr_provider: None,
+            pr_url: None,
+            pr_target_branch: None,
+            pr_source_branch: None,
+            pr: None,
+        }
+    }
+
+    pub fn with_parent_run_id(mut self, parent_run_id: Option<String>) -> Self {
+        self.parent_run_id = parent_run_id;
+        self
+    }
+
+    pub fn with_base_commit(mut self, base_commit: impl Into<String>) -> Self {
+        self.base_commit = base_commit.into();
+        self
+    }
+
+    pub fn with_readiness_reason(mut self, readiness_reason: impl Into<String>) -> Self {
+        self.readiness_reason = readiness_reason.into();
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
