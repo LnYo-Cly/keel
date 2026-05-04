@@ -33,30 +33,7 @@ pub fn status_json(runs: &[RunMetadata]) -> Vec<RunSummaryJson> {
 }
 
 pub fn report_json(report: &ReportInfo) -> ReportJson {
-    ReportJson {
-        run_id: report.metadata.run_id.clone(),
-        parent_run_id: report.metadata.parent_run_id.clone(),
-        task: report.metadata.task.clone(),
-        agent: report.metadata.agent.clone(),
-        status: report.metadata.status.to_string(),
-        created_at: report.metadata.created_at.clone(),
-        worktree: report.metadata.worktree_path.clone(),
-        branch: report.metadata.branch.clone(),
-        base_commit: report.metadata.base_commit.clone(),
-        failure_reason: report
-            .metadata
-            .failure_reason
-            .as_ref()
-            .map(ToString::to_string),
-        readiness_reason: report.metadata.readiness_reason.clone(),
-        warnings: report.metadata.warnings.clone(),
-        risk_warnings: report.metadata.risk_warnings.clone(),
-        commit: report.commit.clone(),
-        push: report.push.clone(),
-        pr: report.pr.clone(),
-        artifacts: ArtifactSetJson::from_artifacts(&report.artifacts),
-        next_actions: report.next_actions.clone(),
-    }
+    ReportJson::from(report)
 }
 
 pub fn ledger_review_json(review: &LedgerReview) -> LedgerReviewJson {
@@ -134,6 +111,32 @@ pub struct ReportJson {
     next_actions: Vec<String>,
 }
 
+impl From<&ReportInfo> for ReportJson {
+    fn from(report: &ReportInfo) -> Self {
+        let metadata = &report.metadata;
+        Self {
+            run_id: metadata.run_id.clone(),
+            parent_run_id: metadata.parent_run_id.clone(),
+            task: metadata.task.clone(),
+            agent: metadata.agent.clone(),
+            status: metadata.status.to_string(),
+            created_at: metadata.created_at.clone(),
+            worktree: metadata.worktree_path.clone(),
+            branch: metadata.branch.clone(),
+            base_commit: metadata.base_commit.clone(),
+            failure_reason: metadata.failure_reason.as_ref().map(ToString::to_string),
+            readiness_reason: metadata.readiness_reason.clone(),
+            warnings: metadata.warnings.clone(),
+            risk_warnings: metadata.risk_warnings.clone(),
+            commit: report.commit.clone(),
+            push: report.push.clone(),
+            pr: report.pr.clone(),
+            artifacts: ArtifactSetJson::from(report.artifacts.as_slice()),
+            next_actions: report.next_actions.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ArtifactSetJson {
     metadata: ArtifactJson,
@@ -146,8 +149,8 @@ pub struct ArtifactSetJson {
     pr: ArtifactJson,
 }
 
-impl ArtifactSetJson {
-    fn from_artifacts(artifacts: &[ArtifactInfo]) -> Self {
+impl From<&[ArtifactInfo]> for ArtifactSetJson {
+    fn from(artifacts: &[ArtifactInfo]) -> Self {
         Self {
             metadata: artifact_json(artifacts, artifact_labels::METADATA),
             log: artifact_json(artifacts, artifact_labels::LOG),
