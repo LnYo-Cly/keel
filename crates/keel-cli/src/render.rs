@@ -1,9 +1,9 @@
 use anyhow::Result;
 use keel_core::{
-    CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
-    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
-    LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushArtifact, PushResult, ReportInfo,
-    RunMetadata, WorkspaceContext,
+    CommitArtifact, CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo,
+    DoctorReport, DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
+    LedgerTaskReport, LedgerTaskSummary, LogInfo, PrArtifact, PrPlan, PrResult, PushArtifact,
+    PushResult, ReportInfo, RunMetadata, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -45,26 +45,12 @@ pub(crate) fn print_status(runs: &[RunMetadata], filtered: bool) {
 pub(crate) fn print_report(report: ReportInfo) {
     println!("Report: {}", report.path.display());
     println!("{}", report.summary);
-    if let Some(commit) = &report.metadata.commit {
+    if let Some(commit) = report_commit(&report.metadata) {
         println!("Commit:");
         println!("- SHA: {}", commit.commit_sha);
         println!("- Branch: {}", commit.branch);
         println!("- Message: {}", commit.commit_message);
         println!("- Committed at: {}", commit.committed_at);
-    } else if report.metadata.committed {
-        println!("Commit:");
-        println!(
-            "- SHA: {}",
-            report.metadata.commit_sha.as_deref().unwrap_or("unknown")
-        );
-        println!(
-            "- Message: {}",
-            report
-                .metadata
-                .commit_message
-                .as_deref()
-                .unwrap_or("unknown")
-        );
     }
     if let Some(push) = report_push(&report.metadata) {
         println!("Push:");
@@ -73,20 +59,6 @@ pub(crate) fn print_report(report: ReportInfo) {
         println!("- Branch: {}", push.branch);
         println!("- Commit: {}", push.commit_sha);
         println!("- Pushed at: {}", push.pushed_at);
-    } else if report.metadata.pushed {
-        println!("Push:");
-        println!(
-            "- Remote: {}",
-            report.metadata.push_remote.as_deref().unwrap_or("unknown")
-        );
-        println!(
-            "- Branch: {}",
-            report
-                .metadata
-                .pushed_branch
-                .as_deref()
-                .unwrap_or("unknown")
-        );
     }
     if let Some(pr) = report_pr(&report.metadata) {
         println!("PR/MR:");
@@ -98,16 +70,6 @@ pub(crate) fn print_report(report: ReportInfo) {
         if pr.reused_existing {
             println!("- Reused existing: yes");
         }
-    } else if report.metadata.pr_created {
-        println!("PR/MR:");
-        println!(
-            "- Provider: {}",
-            report.metadata.pr_provider.as_deref().unwrap_or("unknown")
-        );
-        println!(
-            "- URL: {}",
-            report.metadata.pr_url.as_deref().unwrap_or("unknown")
-        );
     }
     if !report.metadata.warnings.is_empty() {
         println!("Warnings:");
@@ -136,6 +98,10 @@ pub(crate) fn print_report(report: ReportInfo) {
     if report.is_discarded {
         println!("Run is already discarded.");
     }
+}
+
+fn report_commit(metadata: &RunMetadata) -> Option<CommitArtifact> {
+    CommitArtifact::from_metadata(metadata)
 }
 
 fn report_pr(metadata: &RunMetadata) -> Option<PrArtifact> {
