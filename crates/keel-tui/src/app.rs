@@ -1286,11 +1286,11 @@ mod tests {
     }
 
     fn artifact_for(run_id: &str, label: &'static str, file: &str, exists: bool) -> ArtifactInfo {
-        ArtifactInfo {
+        ArtifactInfo::new(
             label,
-            path: PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
+            PathBuf::from(format!(".keel/runs/{run_id}")).join(file),
             exists,
-        }
+        )
     }
 
     fn sample_report_info(

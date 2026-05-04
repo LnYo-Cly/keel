@@ -79,16 +79,11 @@ pub(crate) fn print_report(report: ReportInfo) {
     }
     println!("Artifacts:");
     for artifact in report.artifacts {
-        let state = if artifact.exists {
-            "present"
-        } else {
-            "missing"
-        };
         println!(
             "- {}: {} ({})",
             artifact.label,
             artifact.path.display(),
-            state
+            artifact.state()
         );
     }
     println!("Suggested next actions:");

@@ -1613,11 +1613,11 @@ mod tests {
     }
 
     fn artifact(label: &'static str, exists: bool) -> ArtifactInfo {
-        ArtifactInfo {
+        ArtifactInfo::new(
             label,
-            path: PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
+            PathBuf::from(".keel/runs/run-1").join(format!("{label}.json")),
             exists,
-        }
+        )
     }
 
     fn sample_run() -> RunMetadata {

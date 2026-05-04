@@ -61,6 +61,24 @@ pub struct ArtifactInfo {
     pub exists: bool,
 }
 
+impl ArtifactInfo {
+    pub fn new(label: &'static str, path: PathBuf, exists: bool) -> Self {
+        Self {
+            label,
+            path,
+            exists,
+        }
+    }
+
+    pub fn state(&self) -> &'static str {
+        if self.exists {
+            "present"
+        } else {
+            "missing"
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DiffInfo {
     pub path: PathBuf,

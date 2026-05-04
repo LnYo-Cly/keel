@@ -214,11 +214,7 @@ fn artifact_json(artifacts: &[ArtifactInfo], label: &str) -> ArtifactJson {
         .map(|artifact| ArtifactJson {
             path: artifact.path.display().to_string(),
             exists: artifact.exists,
-            state: if artifact.exists {
-                "present"
-            } else {
-                "missing"
-            },
+            state: artifact.state(),
         })
         .unwrap_or_else(|| ArtifactJson {
             path: String::new(),
