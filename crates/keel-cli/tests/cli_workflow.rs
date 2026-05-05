@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use keel_core::RUN_ARTIFACTS;
+use keel_core::{artifact_files, RUN_ARTIFACTS};
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
@@ -11,6 +11,7 @@ use tempfile::TempDir;
 const RUN_CREATED_PREFIX: &str = "Run created: ";
 const NO_MATCHES_MESSAGE: &str = "No runs matched the provided filters.";
 const NOOP_OUTPUT_FILE: &str = "keel-noop-output.txt";
+const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 #[test]
 fn doctor_reports_errors_outside_git_repo() {
@@ -384,7 +385,7 @@ fn init_and_noop_run_create_run_artifacts() {
         );
     }
 
-    let metadata = read_run_artifact(&repo, &run.run_id, "metadata.json");
+    let metadata = read_run_artifact(&repo, &run.run_id, artifact_files::METADATA);
     assert!(metadata.contains("\"task\": \"cli smoke task\""));
     assert!(metadata.contains("\"agent\": \"noop\""));
 }
@@ -927,7 +928,7 @@ fn report_outputs_artifacts_and_suggested_next_actions() {
 
     let output = run_keel_output(repo.path(), ["report", run.run_id.as_str()]);
     assert!(output.contains("Report:"));
-    assert!(output.contains("report.md"));
+    assert!(output.contains(artifact_files::REPORT));
     for artifact in required_run_artifact_files() {
         assert!(
             output.contains(artifact),
@@ -1108,7 +1109,12 @@ fn report_json_handles_discarded_and_missing_artifacts() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
     let run = run_noop(&repo, "discarded report json task");
-    fs::remove_file(run_artifact_path(&repo, &run.run_id, "checks.json")).unwrap();
+    fs::remove_file(run_artifact_path(
+        &repo,
+        &run.run_id,
+        artifact_files::CHECKS,
+    ))
+    .unwrap();
 
     let missing_artifact = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1151,8 +1157,12 @@ fn commit_rejects_missing_not_ready_and_discarded_runs() {
         ));
 
     let run = run_noop(&repo, "not ready cli commit task");
-    let metadata_path = run_artifact_path(&repo, &run.run_id, "metadata.json");
-    let mut metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let metadata_path = run_artifact_path(&repo, &run.run_id, artifact_files::METADATA);
+    let mut metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     metadata["status"] = Value::String("not_ready".to_string());
     fs::write(
         &metadata_path,
@@ -1184,8 +1194,8 @@ fn commit_dry_run_outputs_plan_and_does_not_write_artifacts() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
     let run = run_noop(&repo, "cli dry run commit task");
-    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
-    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, artifact_files::METADATA);
+    let report_before = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
 
     run_keel(repo.path(), ["commit", run.run_id.as_str(), "--dry-run"])
         .assert()
@@ -1194,13 +1204,13 @@ fn commit_dry_run_outputs_plan_and_does_not_write_artifacts() {
         .stdout(predicate::str::contains("Would run: git add -A"))
         .stdout(predicate::str::contains("Would run: git commit"));
 
-    assert!(!run_artifact_path(&repo, &run.run_id, "commit.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::COMMIT).exists());
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "report.md"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::REPORT),
         report_before
     );
 }
@@ -1246,14 +1256,18 @@ fn commit_success_is_idempotent_and_updates_report_surfaces() {
         "Keel did not push or merge anything.",
     ));
 
-    assert!(run_artifact_path(&repo, &run.run_id, "commit.json").is_file());
-    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert!(run_artifact_path(&repo, &run.run_id, artifact_files::COMMIT).is_file());
+    let metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     assert_eq!(metadata["committed"], true);
     let commit_sha = metadata["commit_sha"].as_str().unwrap().to_string();
     assert!(!commit_sha.is_empty());
     assert_eq!(metadata["commit_message"], "keel: cli local commit");
 
-    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(report.contains("## Commit"));
     assert!(report.contains("Keel did not push or merge anything."));
     assert!(report.contains(&commit_sha));
@@ -1266,7 +1280,11 @@ fn commit_success_is_idempotent_and_updates_report_surfaces() {
 
     let second = run_keel_output(repo.path(), ["commit", run.run_id.as_str()]);
     assert!(second.contains("This run is already committed"));
-    let after_second = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let after_second = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     assert_eq!(after_second["commit_sha"], commit_sha);
 
     run_keel(repo.path(), ["report", run.run_id.as_str()])
@@ -1274,7 +1292,7 @@ fn commit_success_is_idempotent_and_updates_report_surfaces() {
         .success()
         .stdout(predicate::str::contains("Commit:"))
         .stdout(predicate::str::contains(&commit_sha))
-        .stdout(predicate::str::contains("commit.json"));
+        .stdout(predicate::str::contains(artifact_files::COMMIT));
 
     let report_json = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1297,7 +1315,7 @@ fn commit_success_is_idempotent_and_updates_report_surfaces() {
         .success();
     assert!(!worktree_dir(&repo, &run.run_id).exists());
     assert!(branch_exists(&repo, metadata["branch"].as_str().unwrap()));
-    let discarded_report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let discarded_report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(discarded_report.contains("Branch cleanup: `preserved committed branch`"));
 }
 
@@ -1328,9 +1346,9 @@ paths = ["keel-noop-output.txt"]
         .stdout(predicate::str::contains("Warnings:"))
         .stdout(predicate::str::contains("touched risk path"));
 
-    let commit = read_run_artifact(&repo, &run.run_id, "commit.json");
+    let commit = read_run_artifact(&repo, &run.run_id, artifact_files::COMMIT);
     assert!(commit.contains("touched risk path"));
-    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(report.contains("touched risk path"));
 }
 
@@ -1390,8 +1408,8 @@ fn push_dry_run_outputs_plan_and_does_not_write_artifacts() {
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
-    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
-    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, artifact_files::METADATA);
+    let report_before = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
 
     run_keel(repo.path(), ["push", run.run_id.as_str(), "--dry-run"])
         .assert()
@@ -1400,13 +1418,13 @@ fn push_dry_run_outputs_plan_and_does_not_write_artifacts() {
         .stdout(predicate::str::contains("Would run: git push -u origin"))
         .stdout(predicate::str::contains("Remote URL:"));
 
-    assert!(!run_artifact_path(&repo, &run.run_id, "push.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::PUSH).exists());
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "report.md"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::REPORT),
         report_before
     );
 }
@@ -1454,8 +1472,11 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
     run_keel(repo.path(), ["commit", run.run_id.as_str()])
         .assert()
         .success();
-    let metadata_before_push =
-        parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let metadata_before_push = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     let branch = metadata_before_push["branch"].as_str().unwrap().to_string();
     let commit_sha = metadata_before_push["commit_sha"]
         .as_str()
@@ -1469,13 +1490,17 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
         .stdout(predicate::str::contains("Keel did not create a PR/MR."))
         .stdout(predicate::str::contains("Keel did not merge anything."));
 
-    assert!(run_artifact_path(&repo, &run.run_id, "push.json").is_file());
-    assert!(!run_artifact_path(&repo, &run.run_id, "publish.json").exists());
+    assert!(run_artifact_path(&repo, &run.run_id, artifact_files::PUSH).is_file());
+    assert!(!run_artifact_path(&repo, &run.run_id, LEGACY_PUBLISH_FILE).exists());
     assert_eq!(
         git_output(remote.path(), ["rev-parse", branch.as_str()]).trim(),
         commit_sha
     );
-    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     assert_eq!(metadata["pushed"], true);
     assert_eq!(metadata["push_remote"], "origin");
     assert_eq!(metadata["pushed_branch"], branch);
@@ -1483,21 +1508,21 @@ fn push_success_is_idempotent_and_updates_report_surfaces() {
     assert!(metadata.get("publish_remote").is_none());
     assert!(metadata.get("publish").is_none());
 
-    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(report.contains("## Push"));
     assert!(report.contains("Keel did not create a PR/MR."));
     assert!(report.contains("Keel did not merge anything."));
 
     let second = run_keel_output(repo.path(), ["push", run.run_id.as_str()]);
     assert!(second.contains("This run is already pushed"));
-    let after_second = read_run_artifact(&repo, &run.run_id, "report.md");
+    let after_second = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert_eq!(after_second, report);
 
     run_keel(repo.path(), ["report", run.run_id.as_str()])
         .assert()
         .success()
         .stdout(predicate::str::contains("Push:"))
-        .stdout(predicate::str::contains("push.json"));
+        .stdout(predicate::str::contains(artifact_files::PUSH));
 
     let report_json = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1535,8 +1560,8 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
         .assert()
         .success();
     mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
-    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
-    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, artifact_files::METADATA);
+    let report_before = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
 
     run_keel(
         repo.path(),
@@ -1561,13 +1586,13 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
     .stdout(predicate::str::contains("Keel did not write pr.json."))
     .stdout(predicate::str::contains("Keel did not merge anything."));
 
-    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::PR).exists());
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "report.md"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::REPORT),
         report_before
     );
 
@@ -1613,15 +1638,15 @@ fn pr_manual_dry_run_outputs_human_and_json_plan_without_writing_artifacts() {
     assert!(json["artifacts"]["metadata"]
         .as_str()
         .unwrap()
-        .contains("metadata.json"));
+        .contains(artifact_files::METADATA));
     assert!(json["artifacts"]["commit"]
         .as_str()
         .unwrap()
-        .contains("commit.json"));
+        .contains(artifact_files::COMMIT));
     assert!(json["artifacts"]["push"]
         .as_str()
         .unwrap()
-        .contains("push.json"));
+        .contains(artifact_files::PUSH));
     assert_eq!(json["would_create_request"], false);
     assert_eq!(json["would_write_artifact"], false);
     assert_eq!(json["would_push"], false);
@@ -1688,8 +1713,8 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
         .assert()
         .success();
     mark_run_pushed(&repo, &run.run_id, "git@github.com:owner/repo.git");
-    let metadata_before = read_run_artifact(&repo, &run.run_id, "metadata.json");
-    let report_before = read_run_artifact(&repo, &run.run_id, "report.md");
+    let metadata_before = read_run_artifact(&repo, &run.run_id, artifact_files::METADATA);
+    let report_before = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
 
     run_keel_with_path(
         repo.path(),
@@ -1720,13 +1745,13 @@ fn pr_provider_dry_run_outputs_plan_without_calling_provider_or_writing_artifact
     .stdout(predicate::str::contains("Draft: yes"))
     .stdout(predicate::str::contains("Keel would not merge anything."));
 
-    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::PR).exists());
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "metadata.json"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_artifact(&repo, &run.run_id, "report.md"),
+        read_run_artifact(&repo, &run.run_id, artifact_files::REPORT),
         report_before
     );
 
@@ -1831,7 +1856,7 @@ fn pr_provider_rejects_missing_cli_and_unsupported_provider() {
     .assert()
     .failure()
     .stderr(predicate::str::contains("gh CLI not found"));
-    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").exists());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::PR).exists());
 
     run_keel(
         repo.path(),
@@ -1879,15 +1904,19 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
     ))
     .stdout(predicate::str::contains("Keel did not merge anything."));
 
-    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
-    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    assert!(run_artifact_path(&repo, &run.run_id, artifact_files::PR).is_file());
+    let metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     assert_eq!(metadata["pr_created"], true);
     assert_eq!(metadata["pr_provider"], "github");
     assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/42");
     assert_eq!(metadata["pr"]["draft"], true);
     assert_eq!(metadata["pr"]["reused_existing"], false);
 
-    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(report.contains("## PR/MR"));
     assert!(report.contains("https://github.com/owner/repo/pull/42"));
     assert!(report.contains("Draft: `yes`"));
@@ -1900,13 +1929,16 @@ fn pr_provider_github_success_is_idempotent_and_updates_report_surfaces() {
         true,
     );
     assert!(second.contains("already has a PR/MR"));
-    assert_eq!(read_run_artifact(&repo, &run.run_id, "report.md"), report);
+    assert_eq!(
+        read_run_artifact(&repo, &run.run_id, artifact_files::REPORT),
+        report
+    );
 
     run_keel(repo.path(), ["report", run.run_id.as_str()])
         .assert()
         .success()
         .stdout(predicate::str::contains("PR/MR:"))
-        .stdout(predicate::str::contains("pr.json"));
+        .stdout(predicate::str::contains(artifact_files::PR));
 
     let report_json = parse_json_object(&run_keel_output(
         repo.path(),
@@ -1950,8 +1982,11 @@ fn pr_workflow_runs_noop_commit_real_push_then_github_provider_boundary() {
         .assert()
         .success();
 
-    let pushed_metadata =
-        parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let pushed_metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     let branch = pushed_metadata["branch"].as_str().unwrap();
     let commit_sha = pushed_metadata["commit_sha"].as_str().unwrap();
     let remote_ref = format!("refs/heads/{branch}");
@@ -1960,7 +1995,7 @@ fn pr_workflow_runs_noop_commit_real_push_then_github_provider_boundary() {
         commit_sha
     );
     assert_eq!(pushed_metadata["push_remote_url"], github_remote);
-    assert!(run_artifact_path(&repo, &run.run_id, "push.json").is_file());
+    assert!(run_artifact_path(&repo, &run.run_id, artifact_files::PUSH).is_file());
 
     let bin = tempfile::tempdir().unwrap();
     create_fake_provider_cli(bin.path(), "gh", "https://github.com/owner/repo/pull/123");
@@ -1977,7 +2012,7 @@ fn pr_workflow_runs_noop_commit_real_push_then_github_provider_boundary() {
     assert_eq!(pr_json["url"], "https://github.com/owner/repo/pull/123");
     assert_eq!(pr_json["would_push"], false);
     assert_eq!(pr_json["would_merge"], false);
-    assert!(run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+    assert!(run_artifact_path(&repo, &run.run_id, artifact_files::PR).is_file());
 
     let gh_calls = fs::read_to_string(bin.path().join("gh-args.txt")).unwrap();
     assert!(gh_calls.contains("pr list"));
@@ -2040,14 +2075,18 @@ fn pr_provider_github_reuses_existing_open_pr_before_create() {
     assert!(calls.contains("pr list"));
     assert!(!calls.contains("pr create"));
 
-    let metadata = parse_json_object(&read_run_artifact(&repo, &run.run_id, "metadata.json"));
+    let metadata = parse_json_object(&read_run_artifact(
+        &repo,
+        &run.run_id,
+        artifact_files::METADATA,
+    ));
     assert_eq!(metadata["pr_created"], true);
     assert_eq!(metadata["pr_url"], "https://github.com/owner/repo/pull/99");
     assert_eq!(metadata["pr"]["title"], "existing pr title");
     assert_eq!(metadata["pr"]["draft"], true);
     assert_eq!(metadata["pr"]["reused_existing"], true);
 
-    let report = read_run_artifact(&repo, &run.run_id, "report.md");
+    let report = read_run_artifact(&repo, &run.run_id, artifact_files::REPORT);
     assert!(report.contains("Reused existing: `yes`"));
 
     let report_json = parse_json_object(&run_keel_output(
@@ -2148,7 +2187,7 @@ fn pr_provider_gitlab_auto_create_is_not_supported_but_manual_plan_works() {
         .as_str()
         .unwrap()
         .contains("/-/merge_requests/new"));
-    assert!(!run_artifact_path(&repo, &run.run_id, "pr.json").is_file());
+    assert!(!run_artifact_path(&repo, &run.run_id, artifact_files::PR).is_file());
 }
 
 #[test]
@@ -2184,7 +2223,7 @@ fn diff_outputs_saved_patch_and_clear_missing_errors() {
             "run `run-does-not-exist` does not exist",
         ));
 
-    fs::remove_file(run_artifact_path(&repo, &run.run_id, "diff.patch")).unwrap();
+    fs::remove_file(run_artifact_path(&repo, &run.run_id, artifact_files::DIFF)).unwrap();
     run_keel(repo.path(), ["diff", run.run_id.as_str()])
         .assert()
         .failure()
@@ -2202,7 +2241,11 @@ fn log_outputs_saved_log_and_clear_missing_or_empty_messages() {
         .success()
         .stdout(predicate::str::contains("created run"));
 
-    fs::write(run_artifact_path(&repo, &run.run_id, "log.txt"), "").unwrap();
+    fs::write(
+        run_artifact_path(&repo, &run.run_id, artifact_files::LOG),
+        "",
+    )
+    .unwrap();
     run_keel(repo.path(), ["log", run.run_id.as_str()])
         .assert()
         .success()
@@ -2323,7 +2366,7 @@ fn run_real_provider_pr_smoke(provider: RealPrSmokeProvider) {
         "provider PR smoke did not print a URL:\n{stdout}"
     );
 
-    let pr_artifact = run_artifact_path(&repo, &run.run_id, "pr.json");
+    let pr_artifact = run_artifact_path(&repo, &run.run_id, artifact_files::PR);
     assert!(pr_artifact.is_file());
     let report = parse_json_object(&run_keel_output(
         repo.path(),
@@ -2435,7 +2478,7 @@ fn read_run_artifact(repo: &TempDir, run_id: &str, artifact: &str) -> String {
 }
 
 fn mark_run_pushed(repo: &TempDir, run_id: &str, remote_url: &str) {
-    let metadata_path = run_artifact_path(repo, run_id, "metadata.json");
+    let metadata_path = run_artifact_path(repo, run_id, artifact_files::METADATA);
     let mut metadata = parse_json_object(&fs::read_to_string(&metadata_path).unwrap());
     let branch = metadata["branch"].as_str().unwrap().to_string();
     let commit_sha = metadata["commit_sha"].as_str().unwrap().to_string();
