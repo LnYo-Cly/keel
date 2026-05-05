@@ -204,7 +204,7 @@ fn push_reads_legacy_publish_metadata_and_artifact_without_rewriting() {
         .unwrap();
     let commit_sha = commit.commit_sha.unwrap();
     let run_dir = run_dir(&temp, &metadata.run_id);
-    let legacy_publish_path = run_dir.join("publish.json");
+    let legacy_publish_path = run_dir.join(LEGACY_PUBLISH_FILE);
     let legacy_remote_url = temp.path().join("legacy-remote.git");
 
     let mut legacy_metadata = read_metadata(&temp, &metadata.run_id);
@@ -279,7 +279,7 @@ fn push_reads_legacy_publish_metadata_and_artifact_without_rewriting() {
     let push_artifact = report
         .artifacts
         .iter()
-        .find(|artifact| artifact.label == "Push")
+        .find(|artifact| artifact.key == artifact_keys::PUSH)
         .unwrap();
     assert!(push_artifact.exists);
     assert_eq!(push_artifact.path, legacy_publish_path);

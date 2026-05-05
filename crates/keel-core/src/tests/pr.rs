@@ -106,7 +106,7 @@ fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
     assert!(!plan.would_write_artifact);
     assert!(!plan.would_push);
     assert!(!plan.would_merge);
-    assert!(!run_dir(&temp, &metadata.run_id).join("pr.json").exists());
+    assert!(!run_dir(&temp, &metadata.run_id).join(PR_FILE).exists());
     assert_eq!(
         read_run_file(&temp, &metadata.run_id, METADATA_FILE),
         before_metadata
@@ -380,7 +380,7 @@ fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
     assert!(!result.would_write_artifact);
     assert!(!result.would_push);
     assert!(!result.would_merge);
-    assert!(!run_dir(&temp, &metadata.run_id).join("pr.json").exists());
+    assert!(!run_dir(&temp, &metadata.run_id).join(PR_FILE).exists());
 }
 
 #[test]

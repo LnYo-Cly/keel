@@ -61,27 +61,28 @@ fn report_includes_artifact_paths_and_next_actions() {
         run_dir(&temp, &metadata.run_id).join(REPORT_FILE)
     );
     assert!(report.artifacts.iter().any(|artifact| {
-        artifact.label == "Metadata"
+        artifact.key == artifact_keys::METADATA
             && artifact.path == run_dir(&temp, &metadata.run_id).join(METADATA_FILE)
             && artifact.exists
             && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
-        artifact.label == "Log"
+        artifact.key == artifact_keys::LOG
             && artifact.path == run_dir(&temp, &metadata.run_id).join(LOG_FILE)
             && artifact.exists
             && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
-        artifact.label == "Diff"
+        artifact.key == artifact_keys::DIFF
             && artifact.path == run_dir(&temp, &metadata.run_id).join(DIFF_FILE)
             && artifact.exists
             && artifact.required
     }));
-    assert!(report
-        .artifacts
-        .iter()
-        .any(|artifact| artifact.label == "Commit" && !artifact.required));
+    assert!(report.artifacts.iter().any(|artifact| {
+        artifact.key == artifact_keys::COMMIT
+            && artifact.path.ends_with(COMMIT_FILE)
+            && !artifact.required
+    }));
     assert!(report
         .next_actions
         .contains(&format!("keel diff {}", metadata.run_id)));
@@ -133,7 +134,7 @@ fn report_info_constructor_derives_review_state_from_metadata() {
 
     let report = crate::model::ReportInfo::new(
         metadata,
-        PathBuf::from("report.md"),
+        PathBuf::from(REPORT_FILE),
         "summary",
         Vec::new(),
         Vec::new(),
@@ -371,7 +372,7 @@ fn report_marks_missing_artifacts_without_failing() {
     assert!(report
         .artifacts
         .iter()
-        .any(|artifact| artifact.label == "Log" && !artifact.exists));
+        .any(|artifact| artifact.key == artifact_keys::LOG && !artifact.exists));
 }
 
 #[test]

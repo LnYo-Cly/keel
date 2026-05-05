@@ -25,6 +25,8 @@ use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
 
+const LEGACY_PUBLISH_FILE: &str = "publish.json";
+
 mod agents;
 mod commit;
 mod config;
