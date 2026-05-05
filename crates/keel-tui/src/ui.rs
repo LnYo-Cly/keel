@@ -1587,17 +1587,18 @@ mod tests {
     }
 
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
+        let run_dir = PathBuf::from(".keel/runs/run-1");
         RunArtifacts {
             report: ReportInfo::new(
                 metadata,
-                PathBuf::from(".keel/runs/run-1/report.md"),
+                run_dir.join(artifact_files::REPORT),
                 String::new(),
                 artifacts_for_run_1(),
                 Vec::new(),
             ),
             report_content: Some(String::new()),
             diff: Some(DiffInfo {
-                path: PathBuf::from(".keel/runs/run-1/diff.patch"),
+                path: run_dir.join(artifact_files::DIFF),
                 content: "diff --git a/file b/file".to_string(),
                 is_empty: false,
             }),
@@ -1611,11 +1612,8 @@ mod tests {
     }
 
     fn artifact_for_spec(spec: &RunArtifactSpec) -> ArtifactInfo {
-        ArtifactInfo::from_spec(
-            spec,
-            PathBuf::from(".keel/runs/run-1").join(spec.file),
-            spec.required,
-        )
+        let run_dir = PathBuf::from(".keel/runs/run-1");
+        ArtifactInfo::from_spec(spec, run_dir.join(spec.file), spec.required)
     }
 
     fn sample_run() -> RunMetadata {

@@ -440,6 +440,7 @@ fn encode_query_value(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact_files;
     use crate::pr::PrArtifactPaths;
 
     #[test]
@@ -595,6 +596,7 @@ mod tests {
 
     #[test]
     fn provider_command_preserves_markdown_body() {
+        let run_dir = ".keel/runs/run-1";
         let plan = PrPlan {
             run_id: "run-1".to_string(),
             provider: PrProvider::Github,
@@ -614,11 +616,11 @@ mod tests {
             copyable_summary: "summary".to_string(),
             draft: false,
             artifacts: PrArtifactPaths {
-                metadata: ".keel/runs/run-1/metadata.json".to_string(),
-                log: ".keel/runs/run-1/log.txt".to_string(),
-                diff: ".keel/runs/run-1/diff.patch".to_string(),
-                checks: ".keel/runs/run-1/checks.json".to_string(),
-                report: ".keel/runs/run-1/report.md".to_string(),
+                metadata: format!("{run_dir}/{}", artifact_files::METADATA),
+                log: format!("{run_dir}/{}", artifact_files::LOG),
+                diff: format!("{run_dir}/{}", artifact_files::DIFF),
+                checks: format!("{run_dir}/{}", artifact_files::CHECKS),
+                report: format!("{run_dir}/{}", artifact_files::REPORT),
                 commit: None,
                 push: None,
                 pr: None,
