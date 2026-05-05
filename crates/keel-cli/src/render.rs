@@ -1,9 +1,9 @@
 use anyhow::Result;
 use keel_core::{
-    CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo, DoctorReport,
-    DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask, LedgerTaskReport,
-    LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo, RunMetadata,
-    WorkspaceContext,
+    artifact_files, CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo,
+    DoctorReport, DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
+    LedgerTaskReport, LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo,
+    RunMetadata, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -12,7 +12,7 @@ pub(crate) fn print_run_created(label: &str, metadata: &RunMetadata) {
     println!("{label}: {}", metadata.run_id);
     println!("Status: {}", metadata.status);
     println!("Worktree: {}", metadata.worktree_path);
-    println!("Report: {}/report.md", metadata.run_dir);
+    println!("Report: {}/{}", metadata.run_dir, artifact_files::REPORT);
 }
 
 pub(crate) fn print_status(runs: &[RunMetadata], filtered: bool) {
@@ -194,7 +194,7 @@ pub(crate) fn print_pr_plan(plan: &PrPlan) {
         println!("- {step}");
     }
     println!("Keel did not create a PR/MR.");
-    println!("Keel did not write pr.json.");
+    println!("Keel did not write {}.", artifact_files::PR);
     println!("Keel did not merge anything.");
 }
 
@@ -251,7 +251,10 @@ pub(crate) fn print_pr_result(result: &PrResult) {
         println!("Draft: {}", if result.draft { "yes" } else { "no" });
         println!("Would run: {}", result.provider_command_display);
         println!("Keel would create a PR/MR through the provider CLI.");
-        println!("Keel would not write pr.json during dry-run.");
+        println!(
+            "Keel would not write {} during dry-run.",
+            artifact_files::PR
+        );
         println!("Keel would not merge anything.");
         return;
     }
