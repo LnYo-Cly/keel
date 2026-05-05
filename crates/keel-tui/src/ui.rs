@@ -1,7 +1,7 @@
 use crate::app::{App, DetailTab};
 use crate::theme;
 use keel_core::{
-    artifact_keys, primary_next_action, ArtifactInfo, CheckResult, CheckStatus,
+    artifact_files, artifact_keys, primary_next_action, ArtifactInfo, CheckResult, CheckStatus,
     ReviewNextActionKind, RiskWarning, RiskWarningKind, RunArtifacts, RunMetadata, RunStatus,
 };
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -354,7 +354,9 @@ fn tab_label(tab: DetailTab, detail: Option<&RunArtifacts>) -> Line<'static> {
 
 fn tab_state_marker(tab: DetailTab, detail: &RunArtifacts) -> Option<(&'static str, Color)> {
     match tab {
-        DetailTab::Report if !artifact_exists(detail, "Report") => Some(("missing", theme::RED)),
+        DetailTab::Report if !artifact_exists(detail, artifact_keys::REPORT) => {
+            Some(("missing", theme::RED))
+        }
         DetailTab::Report => None,
         DetailTab::Diff => match &detail.diff {
             Some(diff) if diff.is_empty => Some(("empty", theme::AMBER)),
@@ -435,7 +437,7 @@ fn render_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, ar
         .checks
         .as_deref()
         .map(check_lines)
-        .unwrap_or_else(|| vec![Line::from("checks.json missing")]);
+        .unwrap_or_else(missing_checks_lines);
     frame.render_widget(section("Checks", checks), chunks[2]);
 
     let warnings = warning_lines(metadata);
@@ -457,7 +459,7 @@ fn render_compact_report(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtif
             .checks
             .as_deref()
             .map(check_lines)
-            .unwrap_or_else(|| vec![Line::from("checks.json missing")])
+            .unwrap_or_else(missing_checks_lines)
             .into_iter()
             .take(3),
     );
@@ -592,18 +594,18 @@ fn check_summary(checks: Option<&[CheckResult]>, failed_checks: usize) -> String
 
 fn render_diff(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.diff {
-        Some(diff) if diff.is_empty => ("Diff", empty_artifact_lines("diff.patch")),
+        Some(diff) if diff.is_empty => ("Diff", empty_artifact_lines(artifact_files::DIFF)),
         Some(diff) => ("Diff Review", diff_lines(&diff.content)),
-        None => ("Diff", missing_artifact_lines("diff.patch")),
+        None => ("Diff", missing_artifact_lines(artifact_files::DIFF)),
     };
     render_lines_panel(frame, area, title, lines, app);
 }
 
 fn render_log(frame: &mut Frame<'_>, app: &mut App, detail: &RunArtifacts, area: Rect) {
     let (title, lines) = match &detail.log {
-        Some(log) if log.is_empty => ("Log", empty_artifact_lines("log.txt")),
+        Some(log) if log.is_empty => ("Log", empty_artifact_lines(artifact_files::LOG)),
         Some(log) => ("Log", text_lines(&log.content)),
-        None => ("Log", missing_artifact_lines("log.txt")),
+        None => ("Log", missing_artifact_lines(artifact_files::LOG)),
     };
     render_lines_panel(frame, area, title, lines, app);
 }
@@ -654,12 +656,12 @@ fn artifact_line(artifact: &ArtifactInfo) -> Line<'static> {
     ])
 }
 
-fn artifact_exists(detail: &RunArtifacts, label: &str) -> bool {
+fn artifact_exists(detail: &RunArtifacts, key: &str) -> bool {
     detail
         .report
         .artifacts
         .iter()
-        .any(|artifact| artifact.label == label && artifact.exists)
+        .any(|artifact| artifact.key == key && artifact.exists)
 }
 
 fn has_missing_required_artifact(detail: &RunArtifacts) -> bool {
@@ -689,6 +691,10 @@ fn empty_artifact_lines(file: &'static str) -> Vec<Line<'static>> {
         ]),
         Line::from("The artifact exists but has no reviewable content."),
     ]
+}
+
+fn missing_checks_lines() -> Vec<Line<'static>> {
+    missing_artifact_lines(artifact_files::CHECKS)
 }
 
 fn render_lines_panel(
@@ -1508,8 +1514,8 @@ mod tests {
 
     #[test]
     fn artifact_empty_and_missing_messages_are_actionable() {
-        let missing = format!("{:?}", missing_artifact_lines("diff.patch"));
-        let empty = format!("{:?}", empty_artifact_lines("log.txt"));
+        let missing = format!("{:?}", missing_artifact_lines(artifact_files::DIFF));
+        let empty = format!("{:?}", empty_artifact_lines(artifact_files::LOG));
 
         assert!(missing.contains("missing"));
         assert!(missing.contains("Artifacts tab"));
