@@ -608,8 +608,8 @@ impl DetailTab {
 mod tests {
     use super::*;
     use keel_core::{
-        artifact_keys, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo,
-        RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
+        artifact_files, artifact_keys, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo,
+        ReportInfo, RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -1175,14 +1175,14 @@ mod tests {
         RunArtifacts {
             report: sample_report_info(
                 metadata.clone(),
-                run_dir.join("report.md"),
+                run_dir.join(artifact_files::REPORT),
                 "sample summary",
                 artifacts_for(&metadata),
                 vec!["keel diff run-123".to_string()],
             ),
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
-                path: run_dir.join("diff.patch"),
+                path: run_dir.join(artifact_files::DIFF),
                 content: [
                     "diff --git a/file b/file",
                     "index 1111111..2222222 100644",
@@ -1197,7 +1197,7 @@ mod tests {
                 is_empty: false,
             }),
             log: Some(LogInfo {
-                path: run_dir.join("log.txt"),
+                path: run_dir.join(artifact_files::LOG),
                 content: "created run run-123\n".to_string(),
                 is_empty: false,
             }),
@@ -1217,14 +1217,14 @@ mod tests {
         RunArtifacts {
             report: sample_report_info(
                 metadata.clone(),
-                run_dir.join("report.md"),
+                run_dir.join(artifact_files::REPORT),
                 "failed checks: cargo test",
                 artifacts_for(&metadata),
                 vec!["keel log run-failed".to_string()],
             ),
             report_content: Some("# Keel Run Report\n".to_string()),
             diff: Some(DiffInfo {
-                path: run_dir.join("diff.patch"),
+                path: run_dir.join(artifact_files::DIFF),
                 content: [
                     "diff --git a/file b/file",
                     "index 1111111..2222222 100644",
@@ -1239,7 +1239,7 @@ mod tests {
                 is_empty: false,
             }),
             log: Some(LogInfo {
-                path: run_dir.join("log.txt"),
+                path: run_dir.join(artifact_files::LOG),
                 content: "cargo test failed\n".to_string(),
                 is_empty: false,
             }),
