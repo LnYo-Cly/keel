@@ -1,6 +1,6 @@
 use crate::command::{format_command, run_command};
 use crate::commit::CommitArtifact;
-use crate::constants::{COMMIT_FILE, PUSH_FILE};
+use crate::constants::{COMMIT_FILE, LEGACY_PUBLISH_FILE, PUSH_FILE};
 use crate::git::{ensure_safe_run_id, expected_run_branch};
 use crate::json::read_json;
 use crate::model::{RunMetadata, RunStatus};
@@ -8,8 +8,6 @@ use crate::time::now_timestamp;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-
-const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 #[derive(Debug, Clone)]
 pub struct PushOptions {

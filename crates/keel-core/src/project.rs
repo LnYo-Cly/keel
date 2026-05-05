@@ -6,8 +6,8 @@ use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LOG_FILE,
-    METADATA_FILE, REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
+    artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LEGACY_PUBLISH_FILE,
+    LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
 };
 use crate::fsio::write_text;
 use crate::git::{
@@ -40,8 +40,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-
-const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 #[derive(Debug, Clone)]
 pub struct KeelProject {

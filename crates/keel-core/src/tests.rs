@@ -6,8 +6,8 @@ use crate::commit::CommitOptions;
 use crate::config::{validate_config, ConfigValidationSeverity};
 use crate::constants::{
     artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE,
-    KEEL_DIR, LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, PR_FILE, PUSH_FILE, REPORT_FILE, RUNS_DIR,
-    RUN_ARTIFACTS, WORKTREES_DIR,
+    KEEL_DIR, LEGACY_PUBLISH_FILE, LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, PR_FILE, PUSH_FILE,
+    REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
 };
 use crate::json::{read_json, report_json, status_json};
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
@@ -24,8 +24,6 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
-
-const LEGACY_PUBLISH_FILE: &str = "publish.json";
 
 mod agents;
 mod commit;
