@@ -140,12 +140,7 @@ fn pr_manual_dry_run_infers_provider_from_remote_url() {
         )
         .unwrap();
     let mut pushed = read_metadata(&temp, &metadata.run_id);
-    pushed.pushed = true;
-    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    pushed.push_remote = Some("origin".to_string());
-    pushed.push_remote_url = Some("git@gitlab.com:owner/repo.git".to_string());
-    pushed.pushed_branch = Some(pushed.branch.clone());
-    pushed.push = None;
+    mark_legacy_push(&mut pushed, "git@gitlab.com:owner/repo.git");
     project.write_metadata(&pushed).unwrap();
 
     let plan = project.pr_plan(&metadata.run_id, pr_options(None)).unwrap();
@@ -188,12 +183,7 @@ fn pr_manual_dry_run_builds_github_web_url_with_overrides() {
         )
         .unwrap();
     let mut pushed = read_metadata(&temp, &metadata.run_id);
-    pushed.pushed = true;
-    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    pushed.push_remote = Some("origin".to_string());
-    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
-    pushed.pushed_branch = Some(pushed.branch.clone());
-    pushed.push = None;
+    mark_legacy_push(&mut pushed, "git@github.com:owner/repo.git");
     project.write_metadata(&pushed).unwrap();
 
     let plan = project
@@ -251,12 +241,7 @@ paths = ["keel-noop-output.txt"]
         )
         .unwrap();
     let mut pushed = read_metadata(&temp, &metadata.run_id);
-    pushed.pushed = true;
-    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    pushed.push_remote = Some("origin".to_string());
-    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
-    pushed.pushed_branch = Some(pushed.branch.clone());
-    pushed.push = None;
+    mark_legacy_push(&mut pushed, "git@github.com:owner/repo.git");
     project.write_metadata(&pushed).unwrap();
 
     let plan = project
@@ -336,12 +321,7 @@ fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
         )
         .unwrap();
     let mut pushed = read_metadata(&temp, &metadata.run_id);
-    pushed.pushed = true;
-    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    pushed.push_remote = Some("origin".to_string());
-    pushed.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
-    pushed.pushed_branch = Some(pushed.branch.clone());
-    pushed.push = None;
+    mark_legacy_push(&mut pushed, "git@github.com:owner/repo.git");
     project.write_metadata(&pushed).unwrap();
 
     let result = project
@@ -408,12 +388,7 @@ fn pr_provider_rejects_unsupported_gitee_creation() {
         )
         .unwrap();
     let mut pushed = read_metadata(&temp, &metadata.run_id);
-    pushed.pushed = true;
-    pushed.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    pushed.push_remote = Some("origin".to_string());
-    pushed.push_remote_url = Some("git@gitee.com:owner/repo.git".to_string());
-    pushed.pushed_branch = Some(pushed.branch.clone());
-    pushed.push = None;
+    mark_legacy_push(&mut pushed, "git@gitee.com:owner/repo.git");
     project.write_metadata(&pushed).unwrap();
 
     let error = project
@@ -453,19 +428,12 @@ fn pr_legacy_metadata_is_used_by_report_and_json_views() {
         .unwrap();
 
     let mut legacy = read_metadata(&temp, &metadata.run_id);
-    legacy.pushed = true;
-    legacy.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
-    legacy.push_remote = Some("origin".to_string());
-    legacy.push_remote_url = Some("git@github.com:owner/repo.git".to_string());
-    legacy.pushed_branch = Some(legacy.branch.clone());
-    legacy.push = None;
-    legacy.pr_created = true;
-    legacy.pr_created_at = Some("2026-04-30T01:00:00Z".to_string());
-    legacy.pr_provider = Some("github".to_string());
-    legacy.pr_url = Some("https://github.com/owner/repo/pull/1".to_string());
-    legacy.pr_target_branch = Some("main".to_string());
-    legacy.pr_source_branch = Some(legacy.branch.clone());
-    legacy.pr = None;
+    mark_legacy_push(&mut legacy, "git@github.com:owner/repo.git");
+    mark_legacy_pr(
+        &mut legacy,
+        PrProvider::Github,
+        "https://github.com/owner/repo/pull/1",
+    );
     project.write_metadata(&legacy).unwrap();
 
     let report = project.report(&metadata.run_id).unwrap();

@@ -103,6 +103,89 @@ fn read_metadata(temp: &TempDir, run_id: &str) -> RunMetadata {
     read_json(&run_dir(temp, run_id).join(artifact_files::METADATA)).unwrap()
 }
 
+fn sample_commit_artifact(metadata: &RunMetadata, commit_sha: &str) -> crate::CommitArtifact {
+    crate::CommitArtifact {
+        run_id: metadata.run_id.clone(),
+        branch: metadata.branch.clone(),
+        worktree: metadata.worktree_path.clone(),
+        commit_sha: commit_sha.to_string(),
+        commit_message: format!("keel: {}", metadata.task),
+        committed_at: "2026-05-01T00:01:00Z".to_string(),
+        had_uncommitted_changes: true,
+        warnings: Vec::new(),
+        dry_run: false,
+    }
+}
+
+fn sample_push_artifact(metadata: &RunMetadata, remote_url: &str) -> crate::PushArtifact {
+    crate::PushArtifact {
+        run_id: metadata.run_id.clone(),
+        remote: "origin".to_string(),
+        remote_url: remote_url.to_string(),
+        branch: metadata.branch.clone(),
+        commit_sha: metadata
+            .recorded_commit_sha()
+            .unwrap_or("abc123")
+            .to_string(),
+        pushed: true,
+        pushed_at: "2026-05-01T00:02:00Z".to_string(),
+        dry_run: false,
+    }
+}
+
+fn sample_pr_artifact(
+    metadata: &RunMetadata,
+    provider: PrProvider,
+    url: &str,
+) -> crate::PrArtifact {
+    let remote_url = metadata
+        .recorded_push_remote_url()
+        .unwrap_or("git@github.com:owner/repo.git");
+    crate::PrArtifact {
+        run_id: metadata.run_id.clone(),
+        provider,
+        provider_name: provider.display_name().to_string(),
+        request_kind: provider.request_kind().to_string(),
+        remote: metadata
+            .recorded_push_remote()
+            .unwrap_or("origin")
+            .to_string(),
+        remote_url: remote_url.to_string(),
+        repository_url: Some("https://github.com/owner/repo".to_string()),
+        source_branch: metadata.branch.clone(),
+        target_branch: "main".to_string(),
+        commit_sha: metadata
+            .recorded_commit_sha()
+            .unwrap_or("abc123")
+            .to_string(),
+        title: format!("keel: {}", metadata.task),
+        url: url.to_string(),
+        created_at: "2026-05-01T00:03:00Z".to_string(),
+        draft: true,
+        reused_existing: false,
+        dry_run: false,
+    }
+}
+
+fn mark_legacy_push(metadata: &mut RunMetadata, remote_url: &str) {
+    metadata.pushed = true;
+    metadata.pushed_at = Some("2026-04-30T00:00:00Z".to_string());
+    metadata.push_remote = Some("origin".to_string());
+    metadata.push_remote_url = Some(remote_url.to_string());
+    metadata.pushed_branch = Some(metadata.branch.clone());
+    metadata.push = None;
+}
+
+fn mark_legacy_pr(metadata: &mut RunMetadata, provider: PrProvider, url: &str) {
+    metadata.pr_created = true;
+    metadata.pr_created_at = Some("2026-04-30T01:00:00Z".to_string());
+    metadata.pr_provider = Some(provider.to_string());
+    metadata.pr_url = Some(url.to_string());
+    metadata.pr_target_branch = Some("main".to_string());
+    metadata.pr_source_branch = Some(metadata.branch.clone());
+    metadata.pr = None;
+}
+
 fn real_codex_smoke_enabled() -> bool {
     std::env::var("KEEL_REAL_CODEX_SMOKE").ok().as_deref() == Some("1")
 }
