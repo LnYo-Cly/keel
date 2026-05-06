@@ -494,26 +494,7 @@ impl App {
             return true;
         }
 
-        let haystacks = vec![
-            run.run_id.clone(),
-            run.task.clone(),
-            run.agent.clone(),
-            run.status.to_string(),
-            run.branch.clone(),
-            run.base_commit.clone(),
-            run.failure_reason
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-            run.readiness_reason.clone(),
-            run.commit_sha.clone().unwrap_or_default(),
-            run.push_remote.clone().unwrap_or_default(),
-            run.push_remote_url.clone().unwrap_or_default(),
-            run.pr_provider.clone().unwrap_or_default(),
-            run.pr_url.clone().unwrap_or_default(),
-        ];
-
-        haystacks
+        run.review_search_terms()
             .iter()
             .any(|haystack| haystack.to_ascii_lowercase().contains(&filter))
             || run
@@ -850,6 +831,57 @@ mod tests {
             app.active_filter_label().unwrap(),
             "agent: noop, status: ready"
         );
+    }
+
+    #[test]
+    fn text_filter_uses_nested_review_artifact_terms() {
+        let mut app = empty_app();
+        let mut run = sample_run("run-review-state", RunStatus::Ready, false, false, false);
+        run.commit = Some(keel_core::CommitArtifact {
+            run_id: run.run_id.clone(),
+            branch: run.branch.clone(),
+            worktree: run.worktree_path.clone(),
+            commit_sha: "abc123".to_string(),
+            commit_message: "keel: task".to_string(),
+            committed_at: "2026-05-01T00:01:00Z".to_string(),
+            had_uncommitted_changes: true,
+            warnings: Vec::new(),
+            dry_run: false,
+        });
+        run.push = Some(keel_core::PushArtifact {
+            run_id: run.run_id.clone(),
+            remote: "origin".to_string(),
+            remote_url: "git@github.com:owner/repo.git".to_string(),
+            branch: run.branch.clone(),
+            commit_sha: "abc123".to_string(),
+            pushed: true,
+            pushed_at: "2026-05-01T00:02:00Z".to_string(),
+            dry_run: false,
+        });
+        run.pr = Some(keel_core::PrArtifact {
+            run_id: run.run_id.clone(),
+            provider: keel_core::PrProvider::Github,
+            provider_name: "GitHub".to_string(),
+            request_kind: "pull_request".to_string(),
+            remote: "origin".to_string(),
+            remote_url: "git@github.com:owner/repo.git".to_string(),
+            repository_url: Some("https://github.com/owner/repo".to_string()),
+            source_branch: run.branch.clone(),
+            target_branch: "main".to_string(),
+            commit_sha: "abc123".to_string(),
+            title: "keel: task".to_string(),
+            url: "https://github.com/owner/repo/pull/1".to_string(),
+            created_at: "2026-05-01T00:03:00Z".to_string(),
+            draft: true,
+            reused_existing: false,
+            dry_run: false,
+        });
+        app.runs = vec![run];
+
+        app.apply_filter("pull/1");
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_run().unwrap().run_id, "run-review-state");
     }
 
     #[test]

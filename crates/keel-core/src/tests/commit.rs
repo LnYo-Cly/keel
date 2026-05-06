@@ -163,6 +163,13 @@ fn metadata_review_state_accessors_handle_nested_artifacts_and_legacy_fields() {
         metadata.recorded_pr_url(),
         Some("https://github.com/owner/repo/pull/1")
     );
+    assert_eq!(metadata.recorded_pr_provider().as_deref(), Some("github"));
+    assert!(metadata
+        .review_search_terms()
+        .contains(&"git@github.com:owner/repo.git".to_string()));
+    assert!(metadata
+        .review_search_terms()
+        .contains(&"https://github.com/owner/repo/pull/1".to_string()));
     assert!(metadata.has_commit_record());
     assert!(metadata.has_push_record());
     assert!(metadata.has_pr_record());

@@ -1131,8 +1131,7 @@ fn pr_detail(metadata: &RunMetadata) -> String {
         return compact_path(url);
     }
     metadata
-        .pr_provider
-        .as_deref()
+        .recorded_pr_provider()
         .map(|provider| format!("{provider} request created"))
         .unwrap_or_else(|| "request artifact recorded".to_string())
 }

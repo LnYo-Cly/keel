@@ -342,12 +342,53 @@ impl RunMetadata {
             .or_else(|| non_empty(self.pushed_branch.as_deref()))
     }
 
+    pub fn recorded_pr_provider(&self) -> Option<String> {
+        self.pr
+            .as_ref()
+            .map(|pr| pr.provider.to_string())
+            .filter(|provider| !provider.trim().is_empty())
+            .or_else(|| non_empty(self.pr_provider.as_deref()).map(str::to_string))
+    }
+
     pub fn recorded_pr_url(&self) -> Option<&str> {
         self.pr
             .as_ref()
             .map(|pr| pr.url.as_str())
             .and_then(|url| non_empty(Some(url)))
             .or_else(|| non_empty(self.pr_url.as_deref()))
+    }
+
+    pub fn review_search_terms(&self) -> Vec<String> {
+        let mut terms = vec![
+            self.run_id.clone(),
+            self.task.clone(),
+            self.agent.clone(),
+            self.status.to_string(),
+            self.branch.clone(),
+            self.base_commit.clone(),
+            self.failure_reason
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            self.readiness_reason.clone(),
+        ];
+
+        terms.extend(
+            [
+                self.recorded_commit_sha(),
+                self.recorded_push_remote(),
+                self.recorded_push_remote_url(),
+                self.recorded_pr_url(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(str::to_string),
+        );
+        if let Some(provider) = self.recorded_pr_provider() {
+            terms.push(provider);
+        }
+
+        terms
     }
 
     pub fn has_commit_record(&self) -> bool {
