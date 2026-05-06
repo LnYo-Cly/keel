@@ -278,7 +278,7 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
         ReviewNextAction::new(format!("keel log {run_id}"), ReviewNextActionKind::Inspect),
     ];
 
-    if !metadata.committed {
+    if !metadata.has_commit_record() {
         actions.push(ReviewNextAction::new(
             format!("keel commit {run_id} --dry-run"),
             ReviewNextActionKind::Commit,
@@ -287,7 +287,7 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
             format!("keel commit {run_id}"),
             ReviewNextActionKind::Commit,
         ));
-    } else if !metadata.pushed {
+    } else if !metadata.has_push_record() {
         actions.push(ReviewNextAction::new(
             format!("keel push {run_id} --dry-run"),
             ReviewNextActionKind::Push,
@@ -296,7 +296,7 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
             format!("keel push {run_id}"),
             ReviewNextActionKind::Push,
         ));
-    } else if !metadata.pr_created {
+    } else if !metadata.has_pr_record() {
         actions.push(ReviewNextAction::new(
             format!("keel pr {run_id} --manual --dry-run"),
             ReviewNextActionKind::ManualPr,
@@ -314,8 +314,7 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
     } else {
         actions.push(ReviewNextAction::new(
             metadata
-                .pr_url
-                .as_deref()
+                .recorded_pr_url()
                 .map(|url| format!("review PR/MR on provider: {url}"))
                 .unwrap_or_else(|| "review PR/MR on provider before merging".to_string()),
             ReviewNextActionKind::ReviewProvider,
@@ -334,19 +333,19 @@ fn ready_next_actions(metadata: &RunMetadata) -> Vec<ReviewNextAction> {
 }
 
 pub(crate) fn report_commit_artifact(metadata: &RunMetadata) -> Option<CommitArtifact> {
-    CommitArtifact::from_metadata(metadata)
+    metadata.recorded_commit_artifact()
 }
 
 pub(crate) fn report_push_artifact(metadata: &RunMetadata) -> Option<PushArtifact> {
-    PushArtifact::from_metadata(metadata)
+    metadata.recorded_push_artifact()
 }
 
 pub(crate) fn report_pr_artifact(metadata: &RunMetadata) -> Option<PrArtifact> {
-    PrArtifact::from_metadata(metadata).ok().flatten()
+    metadata.recorded_pr_artifact()
 }
 
 fn pushed_to_github(metadata: &RunMetadata) -> bool {
-    let Some(remote_url) = metadata.push_remote_url.as_deref() else {
+    let Some(remote_url) = metadata.recorded_push_remote_url() else {
         return false;
     };
     infer_provider(remote_url) == Some(PrProvider::Github)

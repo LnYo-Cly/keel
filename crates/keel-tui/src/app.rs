@@ -397,13 +397,13 @@ impl App {
                     RunStatus::Discarded => counts.discarded += 1,
                     RunStatus::Created => {}
                 }
-                if run.committed {
+                if run.has_commit_record() {
                     counts.committed += 1;
                 }
-                if run.pushed {
+                if run.has_push_record() {
                     counts.pushed += 1;
                 }
-                if run.pr_created {
+                if run.has_pr_record() {
                     counts.pr += 1;
                 }
                 counts
@@ -608,8 +608,8 @@ impl DetailTab {
 mod tests {
     use super::*;
     use keel_core::{
-        artifact_files, artifact_keys, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo,
-        ReportInfo, RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
+        artifact_files, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo,
+        RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -1280,12 +1280,7 @@ mod tests {
     }
 
     fn artifact_exists_for_metadata(metadata: &RunMetadata, spec: &RunArtifactSpec) -> bool {
-        match spec.key {
-            artifact_keys::COMMIT => metadata.committed,
-            artifact_keys::PUSH => metadata.pushed,
-            artifact_keys::PR => metadata.pr_created,
-            _ => true,
-        }
+        metadata.run_artifact_recorded(spec.key)
     }
 
     fn sample_report_info(

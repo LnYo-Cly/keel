@@ -43,13 +43,11 @@ impl PushArtifact {
             return None;
         }
 
-        let (pushed_at, remote, remote_url, branch, commit_sha) = (
-            metadata.pushed_at.clone()?,
-            metadata.push_remote.clone()?,
-            metadata.push_remote_url.clone()?,
-            metadata.pushed_branch.clone()?,
-            metadata.commit_sha.clone()?,
-        );
+        let pushed_at = metadata.pushed_at.clone()?;
+        let remote = metadata.recorded_push_remote()?.to_string();
+        let remote_url = metadata.recorded_push_remote_url()?.to_string();
+        let branch = metadata.recorded_pushed_branch()?.to_string();
+        let commit_sha = metadata.recorded_commit_sha()?.to_string();
 
         Some(Self {
             run_id: metadata.run_id.clone(),

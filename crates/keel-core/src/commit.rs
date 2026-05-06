@@ -36,19 +36,7 @@ impl CommitArtifact {
     }
 
     pub(crate) fn commit_sha_from_metadata(metadata: &RunMetadata) -> Option<String> {
-        metadata
-            .commit_sha
-            .as_deref()
-            .filter(|commit_sha| !commit_sha.trim().is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                metadata
-                    .commit
-                    .as_ref()
-                    .map(|commit| commit.commit_sha.as_str())
-                    .filter(|commit_sha| !commit_sha.trim().is_empty())
-                    .map(str::to_string)
-            })
+        metadata.recorded_commit_sha().map(str::to_string)
     }
 
     pub(crate) fn from_legacy_metadata(metadata: &RunMetadata) -> Option<Self> {

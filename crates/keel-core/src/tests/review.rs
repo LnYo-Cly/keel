@@ -273,6 +273,67 @@ fn primary_next_action_follows_review_progress() {
 }
 
 #[test]
+fn primary_next_action_uses_nested_review_artifacts() {
+    let mut metadata = RunMetadata::new(
+        "run-nested",
+        "nested review state",
+        "noop",
+        RunStatus::Ready,
+        "2026-05-01T00:00:00Z",
+    );
+    metadata.commit = Some(crate::CommitArtifact {
+        run_id: metadata.run_id.clone(),
+        branch: metadata.branch.clone(),
+        worktree: metadata.worktree_path.clone(),
+        commit_sha: "abc123".to_string(),
+        commit_message: "keel: nested review state".to_string(),
+        committed_at: "2026-05-01T00:01:00Z".to_string(),
+        had_uncommitted_changes: true,
+        warnings: Vec::new(),
+        dry_run: false,
+    });
+    metadata.push = Some(crate::PushArtifact {
+        run_id: metadata.run_id.clone(),
+        remote: "origin".to_string(),
+        remote_url: "git@github.com:owner/repo.git".to_string(),
+        branch: metadata.branch.clone(),
+        commit_sha: "abc123".to_string(),
+        pushed: true,
+        pushed_at: "2026-05-01T00:02:00Z".to_string(),
+        dry_run: false,
+    });
+
+    assert_eq!(
+        primary_next_action(&metadata).map(|action| action.command),
+        Some("keel pr run-nested --provider github --dry-run".to_string())
+    );
+
+    metadata.pr = Some(crate::PrArtifact {
+        run_id: metadata.run_id.clone(),
+        provider: PrProvider::Github,
+        provider_name: "GitHub".to_string(),
+        request_kind: "pull_request".to_string(),
+        remote: "origin".to_string(),
+        remote_url: "git@github.com:owner/repo.git".to_string(),
+        repository_url: Some("https://github.com/owner/repo".to_string()),
+        source_branch: metadata.branch.clone(),
+        target_branch: "main".to_string(),
+        commit_sha: "abc123".to_string(),
+        title: "keel: nested review state".to_string(),
+        url: "https://github.com/owner/repo/pull/1".to_string(),
+        created_at: "2026-05-01T00:03:00Z".to_string(),
+        draft: true,
+        reused_existing: false,
+        dry_run: false,
+    });
+
+    assert_eq!(
+        primary_next_action(&metadata).map(|action| action.command),
+        Some("review PR/MR on provider: https://github.com/owner/repo/pull/1".to_string())
+    );
+}
+
+#[test]
 fn core_json_views_cover_status_and_report_shapes() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();

@@ -603,22 +603,20 @@ impl KeelProject {
             false
         };
 
-        let branch_cleanup = if metadata.committed
-            || metadata.commit_sha.is_some()
-            || run_dir.join(artifact_files::COMMIT).is_file()
-        {
-            log.push(format!(
-                "candidate branch {} preserved because run {run_id} is committed",
-                metadata.branch
-            ));
-            BranchCleanup {
-                branch: metadata.branch.clone(),
-                result: BranchCleanupResult::PreservedCommitted,
-                warning: None,
-            }
-        } else {
-            self.cleanup_candidate_branch(run_id, &metadata.branch, &mut log)?
-        };
+        let branch_cleanup =
+            if metadata.has_commit_record() || run_dir.join(artifact_files::COMMIT).is_file() {
+                log.push(format!(
+                    "candidate branch {} preserved because run {run_id} is committed",
+                    metadata.branch
+                ));
+                BranchCleanup {
+                    branch: metadata.branch.clone(),
+                    result: BranchCleanupResult::PreservedCommitted,
+                    warning: None,
+                }
+            } else {
+                self.cleanup_candidate_branch(run_id, &metadata.branch, &mut log)?
+            };
         if let Some(warning) = &branch_cleanup.warning {
             metadata.warnings.push(warning.clone());
         }

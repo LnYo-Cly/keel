@@ -1,5 +1,5 @@
 use crate::commit::CommitArtifact;
-use crate::constants::{KEEL_DIR, RUNS_DIR, WORKTREES_DIR};
+use crate::constants::{artifact_keys, KEEL_DIR, RUNS_DIR, WORKTREES_DIR};
 use crate::pr::PrArtifact;
 use crate::push::PushArtifact;
 use crate::risk::RiskWarning;
@@ -297,6 +297,80 @@ impl RunMetadata {
         self
     }
 
+    pub fn recorded_commit_artifact(&self) -> Option<CommitArtifact> {
+        CommitArtifact::from_metadata(self)
+    }
+
+    pub fn recorded_push_artifact(&self) -> Option<PushArtifact> {
+        PushArtifact::from_metadata(self)
+    }
+
+    pub fn recorded_pr_artifact(&self) -> Option<PrArtifact> {
+        PrArtifact::from_metadata(self).ok().flatten()
+    }
+
+    pub fn recorded_commit_sha(&self) -> Option<&str> {
+        non_empty(self.commit_sha.as_deref()).or_else(|| {
+            self.commit
+                .as_ref()
+                .map(|commit| commit.commit_sha.as_str())
+                .and_then(|commit_sha| non_empty(Some(commit_sha)))
+        })
+    }
+
+    pub fn recorded_push_remote(&self) -> Option<&str> {
+        self.push
+            .as_ref()
+            .map(|push| push.remote.as_str())
+            .and_then(|remote| non_empty(Some(remote)))
+            .or_else(|| non_empty(self.push_remote.as_deref()))
+    }
+
+    pub fn recorded_push_remote_url(&self) -> Option<&str> {
+        self.push
+            .as_ref()
+            .map(|push| push.remote_url.as_str())
+            .and_then(|remote_url| non_empty(Some(remote_url)))
+            .or_else(|| non_empty(self.push_remote_url.as_deref()))
+    }
+
+    pub fn recorded_pushed_branch(&self) -> Option<&str> {
+        self.push
+            .as_ref()
+            .map(|push| push.branch.as_str())
+            .and_then(|branch| non_empty(Some(branch)))
+            .or_else(|| non_empty(self.pushed_branch.as_deref()))
+    }
+
+    pub fn recorded_pr_url(&self) -> Option<&str> {
+        self.pr
+            .as_ref()
+            .map(|pr| pr.url.as_str())
+            .and_then(|url| non_empty(Some(url)))
+            .or_else(|| non_empty(self.pr_url.as_deref()))
+    }
+
+    pub fn has_commit_record(&self) -> bool {
+        self.committed || self.recorded_commit_sha().is_some() || self.commit.is_some()
+    }
+
+    pub fn has_push_record(&self) -> bool {
+        self.pushed || self.push.is_some()
+    }
+
+    pub fn has_pr_record(&self) -> bool {
+        self.pr_created || self.pr.is_some()
+    }
+
+    pub fn run_artifact_recorded(&self, artifact_key: &str) -> bool {
+        match artifact_key {
+            artifact_keys::COMMIT => self.has_commit_record(),
+            artifact_keys::PUSH => self.has_push_record(),
+            artifact_keys::PR => self.has_pr_record(),
+            _ => true,
+        }
+    }
+
     pub fn record_commit(&mut self, artifact: CommitArtifact) {
         self.committed = true;
         self.commit_sha = Some(artifact.commit_sha.clone());
@@ -323,6 +397,10 @@ impl RunMetadata {
         self.pr_source_branch = Some(artifact.source_branch.clone());
         self.pr = Some(artifact);
     }
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.trim().is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

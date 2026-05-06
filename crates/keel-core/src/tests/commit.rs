@@ -121,6 +121,86 @@ fn commit_is_idempotent() {
 }
 
 #[test]
+fn metadata_review_state_accessors_handle_nested_artifacts_and_legacy_fields() {
+    let mut metadata = RunMetadata::new(
+        "run-accessors",
+        "metadata accessors",
+        "noop",
+        RunStatus::Ready,
+        "2026-05-01T00:00:00Z",
+    );
+
+    assert!(!metadata.has_commit_record());
+    assert!(!metadata.has_push_record());
+    assert!(!metadata.has_pr_record());
+    assert!(!metadata.run_artifact_recorded(artifact_keys::COMMIT));
+    assert!(!metadata.run_artifact_recorded(artifact_keys::PUSH));
+    assert!(!metadata.run_artifact_recorded(artifact_keys::PR));
+    assert!(metadata.run_artifact_recorded(artifact_keys::REPORT));
+
+    metadata.commit = Some(crate::CommitArtifact {
+        run_id: metadata.run_id.clone(),
+        branch: metadata.branch.clone(),
+        worktree: metadata.worktree_path.clone(),
+        commit_sha: "abc123".to_string(),
+        commit_message: "keel: metadata accessors".to_string(),
+        committed_at: "2026-05-01T00:01:00Z".to_string(),
+        had_uncommitted_changes: true,
+        warnings: Vec::new(),
+        dry_run: false,
+    });
+    metadata.push = Some(crate::PushArtifact {
+        run_id: metadata.run_id.clone(),
+        remote: "origin".to_string(),
+        remote_url: "git@github.com:owner/repo.git".to_string(),
+        branch: metadata.branch.clone(),
+        commit_sha: "abc123".to_string(),
+        pushed: true,
+        pushed_at: "2026-05-01T00:02:00Z".to_string(),
+        dry_run: false,
+    });
+    metadata.pr = Some(crate::PrArtifact {
+        run_id: metadata.run_id.clone(),
+        provider: PrProvider::Github,
+        provider_name: "GitHub".to_string(),
+        request_kind: "pull_request".to_string(),
+        remote: "origin".to_string(),
+        remote_url: "git@github.com:owner/repo.git".to_string(),
+        repository_url: Some("https://github.com/owner/repo".to_string()),
+        source_branch: metadata.branch.clone(),
+        target_branch: "main".to_string(),
+        commit_sha: "abc123".to_string(),
+        title: "keel: metadata accessors".to_string(),
+        url: "https://github.com/owner/repo/pull/1".to_string(),
+        created_at: "2026-05-01T00:03:00Z".to_string(),
+        draft: true,
+        reused_existing: false,
+        dry_run: false,
+    });
+
+    assert_eq!(metadata.recorded_commit_sha(), Some("abc123"));
+    assert_eq!(metadata.recorded_push_remote(), Some("origin"));
+    assert_eq!(
+        metadata.recorded_push_remote_url(),
+        Some("git@github.com:owner/repo.git")
+    );
+    assert_eq!(
+        metadata.recorded_pushed_branch(),
+        Some(metadata.branch.as_str())
+    );
+    assert_eq!(
+        metadata.recorded_pr_url(),
+        Some("https://github.com/owner/repo/pull/1")
+    );
+    assert!(metadata.has_commit_record());
+    assert!(metadata.has_push_record());
+    assert!(metadata.has_pr_record());
+    assert!(metadata.run_artifact_recorded(artifact_keys::COMMIT));
+    assert!(metadata.run_artifact_recorded(artifact_keys::PUSH));
+    assert!(metadata.run_artifact_recorded(artifact_keys::PR));
+}
+
+#[test]
 fn discard_after_commit_removes_worktree_but_preserves_candidate_branch() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();

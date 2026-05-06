@@ -106,13 +106,15 @@ impl PrArtifact {
             provider_name: provider.display_name().to_string(),
             request_kind: provider.request_kind().to_string(),
             remote: metadata
-                .push_remote
-                .clone()
+                .recorded_push_remote()
+                .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string()),
-            remote_url: metadata.push_remote_url.clone().unwrap_or_default(),
+            remote_url: metadata
+                .recorded_push_remote_url()
+                .unwrap_or_default()
+                .to_string(),
             repository_url: metadata
-                .push_remote_url
-                .as_deref()
+                .recorded_push_remote_url()
                 .and_then(repository_web_url),
             source_branch: legacy.source_branch,
             target_branch: legacy.target_branch,
@@ -149,20 +151,19 @@ impl LegacyPrMetadata {
             return Ok(None);
         };
 
-        let (
-            Some(created_at),
-            Some(url),
-            Some(target_branch),
-            Some(source_branch),
-            Some(commit_sha),
-        ) = (
-            metadata.pr_created_at.clone(),
-            metadata.pr_url.clone(),
-            metadata.pr_target_branch.clone(),
-            metadata.pr_source_branch.clone(),
-            metadata.commit_sha.clone(),
-        )
-        else {
+        let Some(created_at) = metadata.pr_created_at.clone() else {
+            return Ok(None);
+        };
+        let Some(target_branch) = metadata.pr_target_branch.clone() else {
+            return Ok(None);
+        };
+        let Some(source_branch) = metadata.pr_source_branch.clone() else {
+            return Ok(None);
+        };
+        let Some(url) = metadata.recorded_pr_url().map(str::to_string) else {
+            return Ok(None);
+        };
+        let Some(commit_sha) = metadata.recorded_commit_sha().map(str::to_string) else {
             return Ok(None);
         };
 

@@ -1033,19 +1033,19 @@ fn review_progress_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
     vec![
         progress_line(
             "Commit",
-            metadata.committed,
+            metadata.has_commit_record(),
             committed_detail(metadata),
             "not committed",
         ),
         progress_line(
             "Push",
-            metadata.pushed,
+            metadata.has_push_record(),
             pushed_detail(metadata),
             "not pushed",
         ),
         progress_line(
             "PR/MR",
-            metadata.pr_created,
+            metadata.has_pr_record(),
             pr_detail(metadata),
             "not created",
         ),
@@ -1063,11 +1063,11 @@ fn compact_review_progress_lines(metadata: &RunMetadata) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
             label("Git"),
-            progress_chip(artifact_keys::COMMIT, metadata.committed),
+            progress_chip(artifact_keys::COMMIT, metadata.has_commit_record()),
             Span::raw("  "),
-            progress_chip(artifact_keys::PUSH, metadata.pushed),
+            progress_chip(artifact_keys::PUSH, metadata.has_push_record()),
             Span::raw("  "),
-            progress_chip(artifact_keys::PR, metadata.pr_created),
+            progress_chip(artifact_keys::PR, metadata.has_pr_record()),
         ]),
         Line::from(vec![
             label("Next"),
@@ -1113,23 +1113,21 @@ fn progress_line(
 
 fn committed_detail(metadata: &RunMetadata) -> String {
     metadata
-        .commit_sha
-        .as_deref()
+        .recorded_commit_sha()
         .map(short_sha)
         .unwrap_or_else(|| "local commit recorded".to_string())
 }
 
 fn pushed_detail(metadata: &RunMetadata) -> String {
-    let remote = metadata.push_remote.as_deref().unwrap_or("remote");
+    let remote = metadata.recorded_push_remote().unwrap_or("remote");
     let branch = metadata
-        .pushed_branch
-        .as_deref()
+        .recorded_pushed_branch()
         .unwrap_or(metadata.branch.as_str());
     format!("{remote} {}", compact_branch(branch))
 }
 
 fn pr_detail(metadata: &RunMetadata) -> String {
-    if let Some(url) = metadata.pr_url.as_deref() {
+    if let Some(url) = metadata.recorded_pr_url() {
         return compact_path(url);
     }
     metadata
@@ -1213,11 +1211,11 @@ fn check_marker(status: &CheckStatus) -> &'static str {
 }
 
 fn git_state(run: &RunMetadata) -> String {
-    if run.pr_created {
+    if run.has_pr_record() {
         artifact_keys::PR.to_string()
-    } else if run.pushed {
+    } else if run.has_push_record() {
         "pushed".to_string()
-    } else if run.committed {
+    } else if run.has_commit_record() {
         artifact_keys::COMMIT.to_string()
     } else {
         "-".to_string()
