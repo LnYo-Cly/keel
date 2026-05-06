@@ -1,4 +1,4 @@
-use crate::constants::{artifact_keys, RUN_ARTIFACTS};
+use crate::constants::{artifact_keys, run_artifact_spec};
 use crate::fsio::write_text;
 use crate::ledger::{LedgerEvidenceBrief, LedgerHandoff, LedgerReview, LedgerTaskSummary};
 use crate::model::{ArtifactInfo, ReportInfo, RunMetadata};
@@ -233,7 +233,7 @@ fn artifact_json(artifacts: &[ArtifactInfo], spec: &crate::RunArtifactSpec) -> A
 }
 
 fn artifact_json_by_key(artifacts: &[ArtifactInfo], key: &'static str) -> ArtifactJson {
-    let Some(spec) = RUN_ARTIFACTS.iter().find(|spec| spec.key == key) else {
+    let Some(spec) = run_artifact_spec(key) else {
         return ArtifactJson {
             key,
             label: key,

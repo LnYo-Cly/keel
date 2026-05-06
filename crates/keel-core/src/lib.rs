@@ -35,7 +35,7 @@ pub use config::{
     ConfigValidationReport, ConfigValidationSeverity, ConfigValidationSummary, ReadinessConfig,
     RiskConfig,
 };
-pub use constants::{artifact_keys, RunArtifactSpec, RUN_ARTIFACTS};
+pub use constants::{artifact_keys, run_artifact_spec, RunArtifactSpec, RUN_ARTIFACTS};
 pub use doctor::{run_doctor, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use json::{
     ledger_handoff_json, ledger_review_json, report_json, status_json, ArtifactJson,

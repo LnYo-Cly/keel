@@ -95,3 +95,7 @@ pub const RUN_ARTIFACTS: &[RunArtifactSpec] = &[
         required: false,
     },
 ];
+
+pub fn run_artifact_spec(key: &str) -> Option<&'static RunArtifactSpec> {
+    RUN_ARTIFACTS.iter().find(|artifact| artifact.key == key)
+}
