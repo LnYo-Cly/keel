@@ -1,13 +1,14 @@
 use crate::agents::{
     AgentAdapter, AgentRunContext, ClaudeAgent, CodexAgent, NoopAgent, OpenCodeAgent,
 };
+use crate::artifact_files;
 use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
 use crate::config::{default_checks, default_config_toml, KeelConfig};
 use crate::constants::{
-    artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DIFF_FILE, KEEL_DIR, LEGACY_PUBLISH_FILE,
-    LOG_FILE, METADATA_FILE, REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
+    artifact_keys, CONFIG_FILE, KEEL_DIR, LEGACY_PUBLISH_FILE, RUNS_DIR, RUN_ARTIFACTS,
+    WORKTREES_DIR,
 };
 use crate::fsio::write_text;
 use crate::git::{
@@ -295,7 +296,7 @@ impl KeelProject {
             if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let metadata_path = entry.path().join(METADATA_FILE);
+            let metadata_path = entry.path().join(artifact_files::METADATA);
             if metadata_path.exists() {
                 runs.push(read_json(&metadata_path)?);
             }
@@ -308,7 +309,7 @@ impl KeelProject {
         ensure_safe_run_id(run_id)?;
         self.ensure_initialized()?;
         let metadata = self.read_existing_run_metadata(run_id)?;
-        let report_path = self.run_dir(run_id).join(REPORT_FILE);
+        let report_path = self.run_dir(run_id).join(artifact_files::REPORT);
         let summary = format!(
             "run_id={} parent={} task={:?} agent={} status={} created_at={} worktree={}",
             metadata.run_id,
@@ -460,7 +461,7 @@ impl KeelProject {
         self.ensure_initialized()?;
         self.read_existing_run_metadata(run_id)?;
 
-        let (path, content) = self.read_run_text_artifact(run_id, DIFF_FILE, "diff")?;
+        let (path, content) = self.read_run_text_artifact(run_id, artifact_files::DIFF, "diff")?;
         let is_empty = content.trim().is_empty();
         Ok(DiffInfo {
             path,
@@ -474,7 +475,7 @@ impl KeelProject {
         self.ensure_initialized()?;
         self.read_existing_run_metadata(run_id)?;
 
-        let (path, content) = self.read_run_text_artifact(run_id, LOG_FILE, "log")?;
+        let (path, content) = self.read_run_text_artifact(run_id, artifact_files::LOG, "log")?;
         let is_empty = content.trim().is_empty();
         Ok(LogInfo {
             path,
@@ -489,9 +490,9 @@ impl KeelProject {
 
         let report = self.report(run_id)?;
         let report_content = read_optional_text(&report.path)?;
-        let diff = read_optional_diff(&self.run_dir(run_id).join(DIFF_FILE))?;
-        let log = read_optional_log(&self.run_dir(run_id).join(LOG_FILE))?;
-        let checks = read_optional_checks(&self.run_dir(run_id).join(CHECKS_FILE))?;
+        let diff = read_optional_diff(&self.run_dir(run_id).join(artifact_files::DIFF))?;
+        let log = read_optional_log(&self.run_dir(run_id).join(artifact_files::LOG))?;
+        let checks = read_optional_checks(&self.run_dir(run_id).join(artifact_files::CHECKS))?;
 
         Ok(RunArtifacts {
             report,
@@ -564,7 +565,7 @@ impl KeelProject {
         let mut metadata = self.read_metadata(run_id)?;
         let run_dir = self.run_dir(run_id);
         let mut log = RunLog::default();
-        let log_path = run_dir.join(LOG_FILE);
+        let log_path = run_dir.join(artifact_files::LOG);
         if log_path.exists() {
             let existing = fs::read_to_string(&log_path)
                 .with_context(|| format!("failed to read {}", log_path.display()))?;
@@ -604,7 +605,7 @@ impl KeelProject {
 
         let branch_cleanup = if metadata.committed
             || metadata.commit_sha.is_some()
-            || run_dir.join(COMMIT_FILE).is_file()
+            || run_dir.join(artifact_files::COMMIT).is_file()
         {
             log.push(format!(
                 "candidate branch {} preserved because run {run_id} is committed",
@@ -626,7 +627,7 @@ impl KeelProject {
         metadata.updated_at = now_timestamp();
         self.write_metadata(&metadata)?;
 
-        let report_path = run_dir.join(REPORT_FILE);
+        let report_path = run_dir.join(artifact_files::REPORT);
         let report = match fs::read_to_string(&report_path) {
             Ok(existing_report) => format!(
                 "{existing_report}\n\n## Discard\n\n- Status: `discarded`\n- Worktree removed: `{}`\n- Branch cleanup: `{}` (`{}`)\n{}- Run history preserved at: `{}`\n- Next action: use `keel rerun {run_id}` to create a fresh candidate from the same task.\n",
@@ -791,7 +792,7 @@ impl KeelProject {
     }
 
     fn read_metadata(&self, run_id: &str) -> Result<RunMetadata> {
-        read_json(&self.run_dir(run_id).join(METADATA_FILE))
+        read_json(&self.run_dir(run_id).join(artifact_files::METADATA))
     }
 
     fn read_existing_run_metadata(&self, run_id: &str) -> Result<RunMetadata> {
@@ -801,7 +802,9 @@ impl KeelProject {
 
     pub(crate) fn write_metadata(&self, metadata: &RunMetadata) -> Result<()> {
         write_json_pretty(
-            &self.run_dir(&metadata.run_id).join(METADATA_FILE),
+            &self
+                .run_dir(&metadata.run_id)
+                .join(artifact_files::METADATA),
             metadata,
         )
     }
@@ -831,7 +834,7 @@ impl KeelProject {
         existing_marker: Option<&str>,
         section: &str,
     ) -> Result<()> {
-        let report_path = self.run_dir(run_id).join(REPORT_FILE);
+        let report_path = self.run_dir(run_id).join(artifact_files::REPORT);
         let existing_report = fs::read_to_string(&report_path)
             .with_context(|| format!("failed to read {}", report_path.display()))?;
         if existing_marker.is_some_and(|marker| existing_report.contains(marker)) {

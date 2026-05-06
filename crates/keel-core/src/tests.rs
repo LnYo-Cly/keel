@@ -1,13 +1,13 @@
 use crate::agents::{
     AgentAdapter, AgentExecution, AgentRunContext, ClaudeAgent, CodexAgent, OpenCodeAgent,
 };
+use crate::artifact_files;
 use crate::command::resolve_windows_program_from_path;
 use crate::commit::CommitOptions;
 use crate::config::{validate_config, ConfigValidationSeverity};
 use crate::constants::{
-    artifact_keys, CHECKS_FILE, COMMIT_FILE, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, DIFF_FILE,
-    KEEL_DIR, LEGACY_PUBLISH_FILE, LOG_FILE, METADATA_FILE, NOOP_OUTPUT_FILE, PR_FILE, PUSH_FILE,
-    REPORT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
+    artifact_keys, CONFIG_FILE, DEFAULT_AGENT_TIMEOUT_SECS, KEEL_DIR, LEGACY_PUBLISH_FILE,
+    NOOP_OUTPUT_FILE, RUNS_DIR, RUN_ARTIFACTS, WORKTREES_DIR,
 };
 use crate::json::{read_json, report_json, status_json};
 use crate::model::{CheckResult, CheckStatus, FailureReason, RunMetadata, RunStatus};
@@ -89,7 +89,7 @@ fn write_config(temp: &TempDir, content: &str) {
 }
 
 fn read_checks(temp: &TempDir, run_id: &str) -> Vec<CheckResult> {
-    read_json(&run_dir(temp, run_id).join(CHECKS_FILE)).unwrap()
+    read_json(&run_dir(temp, run_id).join(artifact_files::CHECKS)).unwrap()
 }
 
 fn has_risk_warning(metadata: &RunMetadata, kind: RiskWarningKind) -> bool {
@@ -100,7 +100,7 @@ fn has_risk_warning(metadata: &RunMetadata, kind: RiskWarningKind) -> bool {
 }
 
 fn read_metadata(temp: &TempDir, run_id: &str) -> RunMetadata {
-    read_json(&run_dir(temp, run_id).join(METADATA_FILE)).unwrap()
+    read_json(&run_dir(temp, run_id).join(artifact_files::METADATA)).unwrap()
 }
 
 fn real_codex_smoke_enabled() -> bool {
@@ -168,11 +168,11 @@ fn git_file_url(path: &Path) -> String {
 }
 
 fn assert_required_artifacts(run_dir: &Path) {
-    assert!(run_dir.join(METADATA_FILE).exists());
-    assert!(run_dir.join(LOG_FILE).exists());
-    assert!(run_dir.join(DIFF_FILE).exists());
-    assert!(run_dir.join(CHECKS_FILE).exists());
-    assert!(run_dir.join(REPORT_FILE).exists());
+    assert!(run_dir.join(artifact_files::METADATA).exists());
+    assert!(run_dir.join(artifact_files::LOG).exists());
+    assert!(run_dir.join(artifact_files::DIFF).exists());
+    assert!(run_dir.join(artifact_files::CHECKS).exists());
+    assert!(run_dir.join(artifact_files::REPORT).exists());
 }
 
 enum FakeCodexMode {

@@ -1,9 +1,9 @@
 use crate::agents::AgentExecution;
+use crate::artifact_files;
 use crate::checks::RunClassification;
 use crate::command::{
     exit_code_text, failure_reason_from_error, format_command_line, CommandCapture,
 };
-use crate::constants::{CHECKS_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, REPORT_FILE};
 use crate::fsio::write_text;
 use crate::json::write_json_pretty;
 use crate::model::{CheckResult, FailureReason, RunMetadata, RunStatus};
@@ -200,24 +200,29 @@ impl RunSession {
     }
 
     fn persist_metadata(&self) -> Result<()> {
-        write_json_pretty(&self.run_dir.join(METADATA_FILE), &self.metadata)
+        write_json_pretty(&self.run_dir.join(artifact_files::METADATA), &self.metadata)
     }
 
     fn persist_checks(&self) -> Result<()> {
-        write_json_pretty(&self.run_dir.join(CHECKS_FILE), &self.checks)
+        write_json_pretty(&self.run_dir.join(artifact_files::CHECKS), &self.checks)
     }
 
     fn persist_diff(&self) -> Result<()> {
         write_text(
-            &self.run_dir.join(DIFF_FILE),
+            &self.run_dir.join(artifact_files::DIFF),
             self.diff.as_deref().unwrap_or(""),
         )
-        .with_context(|| format!("failed to write {}", self.run_dir.join(DIFF_FILE).display()))
+        .with_context(|| {
+            format!(
+                "failed to write {}",
+                self.run_dir.join(artifact_files::DIFF).display()
+            )
+        })
     }
 
     fn persist_report(&self) -> Result<()> {
         write_text(
-            &self.run_dir.join(REPORT_FILE),
+            &self.run_dir.join(artifact_files::REPORT),
             render_report(
                 &self.metadata,
                 &self.checks,
@@ -230,13 +235,13 @@ impl RunSession {
         .with_context(|| {
             format!(
                 "failed to write {}",
-                self.run_dir.join(REPORT_FILE).display()
+                self.run_dir.join(artifact_files::REPORT).display()
             )
         })
     }
 
     fn persist_log(&self) -> Result<()> {
-        self.log.write_to(&self.run_dir.join(LOG_FILE))
+        self.log.write_to(&self.run_dir.join(artifact_files::LOG))
     }
 
     fn mark_finished(&mut self) {

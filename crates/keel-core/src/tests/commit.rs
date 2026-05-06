@@ -6,8 +6,8 @@ fn commit_dry_run_plans_without_writing_artifacts() {
     let project = KeelProject::discover(temp.path()).unwrap();
     project.init().unwrap();
     let metadata = project.run("dry run commit", "noop").unwrap();
-    let metadata_before = read_run_file(&temp, &metadata.run_id, METADATA_FILE);
-    let report_before = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let metadata_before = read_run_file(&temp, &metadata.run_id, artifact_files::METADATA);
+    let report_before = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
 
     let result = project
         .commit(
@@ -24,13 +24,15 @@ fn commit_dry_run_plans_without_writing_artifacts() {
     assert!(result.would_git_add);
     assert!(result.would_git_commit);
     assert_eq!(result.commit_message, "keel: dry run commit");
-    assert!(!run_dir(&temp, &metadata.run_id).join(COMMIT_FILE).exists());
+    assert!(!run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::COMMIT)
+        .exists());
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, METADATA_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::REPORT),
         report_before
     );
 }
@@ -57,7 +59,9 @@ fn commit_ready_run_writes_artifact_metadata_report_and_git_commit() {
     assert_eq!(result.commit_message, "keel: custom local commit");
     let commit_sha = result.commit_sha.as_ref().unwrap();
     assert!(!commit_sha.is_empty());
-    assert!(run_dir(&temp, &metadata.run_id).join(COMMIT_FILE).is_file());
+    assert!(run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::COMMIT)
+        .is_file());
 
     let updated = read_metadata(&temp, &metadata.run_id);
     assert!(updated.committed);
@@ -69,7 +73,7 @@ fn commit_ready_run_writes_artifact_metadata_report_and_git_commit() {
     assert!(updated.committed_at.is_some());
     assert!(updated.commit.is_some());
 
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("## Commit"));
     assert!(report.contains("Keel did not push or merge anything."));
     assert!(report.contains(commit_sha));
@@ -139,10 +143,12 @@ fn discard_after_commit_removes_worktree_but_preserves_candidate_branch() {
     assert!(!worktree_dir(&temp, &metadata.run_id).exists());
     assert!(branch_exists(&temp, &metadata.branch));
     assert_eq!(discarded.commit_sha, commit.commit_sha);
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("Branch cleanup: `preserved committed branch`"));
     assert!(report.contains("## Commit"));
-    assert!(run_dir(&temp, &metadata.run_id).join(COMMIT_FILE).is_file());
+    assert!(run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::COMMIT)
+        .is_file());
 }
 
 #[test]
@@ -216,8 +222,8 @@ paths = ["keel-noop-output.txt"]
 
     assert!(result.committed);
     assert!(!result.warnings.is_empty());
-    let commit = read_run_file(&temp, &metadata.run_id, COMMIT_FILE);
+    let commit = read_run_file(&temp, &metadata.run_id, artifact_files::COMMIT);
     assert!(commit.contains("touched risk path"));
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("touched risk path"));
 }

@@ -58,29 +58,29 @@ fn report_includes_artifact_paths_and_next_actions() {
     assert_eq!(report.metadata.run_id, metadata.run_id);
     assert_eq!(
         report.path,
-        run_dir(&temp, &metadata.run_id).join(REPORT_FILE)
+        run_dir(&temp, &metadata.run_id).join(artifact_files::REPORT)
     );
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.key == artifact_keys::METADATA
-            && artifact.path == run_dir(&temp, &metadata.run_id).join(METADATA_FILE)
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(artifact_files::METADATA)
             && artifact.exists
             && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.key == artifact_keys::LOG
-            && artifact.path == run_dir(&temp, &metadata.run_id).join(LOG_FILE)
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(artifact_files::LOG)
             && artifact.exists
             && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.key == artifact_keys::DIFF
-            && artifact.path == run_dir(&temp, &metadata.run_id).join(DIFF_FILE)
+            && artifact.path == run_dir(&temp, &metadata.run_id).join(artifact_files::DIFF)
             && artifact.exists
             && artifact.required
     }));
     assert!(report.artifacts.iter().any(|artifact| {
         artifact.key == artifact_keys::COMMIT
-            && artifact.path.ends_with(COMMIT_FILE)
+            && artifact.path.ends_with(artifact_files::COMMIT)
             && !artifact.required
     }));
     assert!(report
@@ -134,7 +134,7 @@ fn report_info_constructor_derives_review_state_from_metadata() {
 
     let report = crate::model::ReportInfo::new(
         metadata,
-        PathBuf::from(REPORT_FILE),
+        PathBuf::from(artifact_files::REPORT),
         "summary",
         Vec::new(),
         Vec::new(),
@@ -340,7 +340,7 @@ fn report_json_artifacts_are_keyed_independent_of_input_order() {
             RunStatus::Ready,
             "1",
         ),
-        run_dir.join(REPORT_FILE),
+        run_dir.join(artifact_files::REPORT),
         "summary",
         artifacts,
         Vec::new(),
@@ -365,7 +365,7 @@ fn report_marks_missing_artifacts_without_failing() {
     let project = KeelProject::discover(temp.path()).unwrap();
     project.init().unwrap();
     let metadata = project.run("missing artifact report", "noop").unwrap();
-    fs::remove_file(run_dir(&temp, &metadata.run_id).join(LOG_FILE)).unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(artifact_files::LOG)).unwrap();
 
     let report = project.report(&metadata.run_id).unwrap();
 
@@ -384,11 +384,18 @@ fn log_reads_saved_log_and_empty_log() {
 
     let log = project.log(&metadata.run_id).unwrap();
 
-    assert_eq!(log.path, run_dir(&temp, &metadata.run_id).join(LOG_FILE));
+    assert_eq!(
+        log.path,
+        run_dir(&temp, &metadata.run_id).join(artifact_files::LOG)
+    );
     assert!(!log.is_empty);
     assert!(log.content.contains("created run"));
 
-    fs::write(run_dir(&temp, &metadata.run_id).join(LOG_FILE), "").unwrap();
+    fs::write(
+        run_dir(&temp, &metadata.run_id).join(artifact_files::LOG),
+        "",
+    )
+    .unwrap();
     let empty_log = project.log(&metadata.run_id).unwrap();
     assert!(empty_log.is_empty);
     assert!(empty_log.content.is_empty());
@@ -404,7 +411,7 @@ fn log_errors_when_run_or_file_is_missing() {
     assert!(missing_run.contains("run `run-does-not-exist` does not exist"));
 
     let metadata = project.run("missing log", "noop").unwrap();
-    fs::remove_file(run_dir(&temp, &metadata.run_id).join(LOG_FILE)).unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(artifact_files::LOG)).unwrap();
 
     let missing_log = project.log(&metadata.run_id).unwrap_err().to_string();
     assert!(missing_log.contains("log for run"));
@@ -419,7 +426,10 @@ fn diff_reads_saved_patch() {
 
     let diff = project.diff(&metadata.run_id).unwrap();
 
-    assert_eq!(diff.path, run_dir(&temp, &metadata.run_id).join(DIFF_FILE));
+    assert_eq!(
+        diff.path,
+        run_dir(&temp, &metadata.run_id).join(artifact_files::DIFF)
+    );
     assert!(!diff.is_empty);
     assert!(diff.content.contains(NOOP_OUTPUT_FILE));
 }
@@ -430,7 +440,11 @@ fn diff_reports_empty_patch() {
     let project = KeelProject::discover(temp.path()).unwrap();
     project.init().unwrap();
     let metadata = project.run("empty diff", "noop").unwrap();
-    fs::write(run_dir(&temp, &metadata.run_id).join(DIFF_FILE), "").unwrap();
+    fs::write(
+        run_dir(&temp, &metadata.run_id).join(artifact_files::DIFF),
+        "",
+    )
+    .unwrap();
 
     let diff = project.diff(&metadata.run_id).unwrap();
 
@@ -448,7 +462,7 @@ fn diff_errors_when_run_or_patch_is_missing() {
     assert!(missing_run.contains("run `run-does-not-exist` does not exist"));
 
     let metadata = project.run("missing diff", "noop").unwrap();
-    fs::remove_file(run_dir(&temp, &metadata.run_id).join(DIFF_FILE)).unwrap();
+    fs::remove_file(run_dir(&temp, &metadata.run_id).join(artifact_files::DIFF)).unwrap();
 
     let missing_diff = project.diff(&metadata.run_id).unwrap_err().to_string();
     assert!(missing_diff.contains("diff for run"));

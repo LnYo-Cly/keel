@@ -54,8 +54,8 @@ fn push_dry_run_plans_without_writing_artifacts() {
             },
         )
         .unwrap();
-    let metadata_before = read_run_file(&temp, &metadata.run_id, METADATA_FILE);
-    let report_before = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let metadata_before = read_run_file(&temp, &metadata.run_id, artifact_files::METADATA);
+    let report_before = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
 
     let result = project.push(&metadata.run_id, push_options(true)).unwrap();
 
@@ -64,13 +64,15 @@ fn push_dry_run_plans_without_writing_artifacts() {
     assert!(result.would_push);
     assert_eq!(result.commit_sha, commit.commit_sha.unwrap());
     assert_eq!(result.branch, metadata.branch);
-    assert!(!run_dir(&temp, &metadata.run_id).join(PUSH_FILE).exists());
+    assert!(!run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::PUSH)
+        .exists());
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, METADATA_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::METADATA),
         metadata_before
     );
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::REPORT),
         report_before
     );
 }
@@ -100,7 +102,9 @@ fn push_success_writes_artifact_metadata_report_and_pushes_candidate_branch() {
     assert_eq!(result.remote, "origin");
     assert_eq!(result.branch, metadata.branch);
     assert_eq!(result.commit_sha, commit.commit_sha.unwrap());
-    assert!(run_dir(&temp, &metadata.run_id).join(PUSH_FILE).is_file());
+    assert!(run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::PUSH)
+        .is_file());
     assert_eq!(
         git_stdout(remote.path(), &["rev-parse", &metadata.branch]),
         result.commit_sha
@@ -116,7 +120,7 @@ fn push_success_writes_artifact_metadata_report_and_pushes_candidate_branch() {
     assert!(updated.pushed_at.is_some());
     assert!(updated.push.is_some());
 
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("## Push"));
     assert!(report.contains("Keel did not create a PR/MR."));
     assert!(report.contains("Keel did not merge anything."));
@@ -175,14 +179,14 @@ fn push_is_idempotent() {
         .unwrap();
 
     let first = project.push(&metadata.run_id, push_options(false)).unwrap();
-    let report_after_first = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report_after_first = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     let second = project.push(&metadata.run_id, push_options(false)).unwrap();
 
     assert!(first.pushed);
     assert!(second.already_pushed);
     assert_eq!(first.commit_sha, second.commit_sha);
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::REPORT),
         report_after_first
     );
 }
@@ -251,7 +255,7 @@ fn push_reads_legacy_publish_metadata_and_artifact_without_rewriting() {
         }
     });
     fs::write(
-        run_dir.join(METADATA_FILE),
+        run_dir.join(artifact_files::METADATA),
         serde_json::to_string_pretty(&legacy_json).unwrap(),
     )
     .unwrap();
@@ -273,7 +277,7 @@ fn push_reads_legacy_publish_metadata_and_artifact_without_rewriting() {
         normalize_path(result.push_path.as_deref().unwrap()),
         normalize_path(legacy_publish_path.to_str().unwrap())
     );
-    assert!(!run_dir.join(PUSH_FILE).exists());
+    assert!(!run_dir.join(artifact_files::PUSH).exists());
 
     let report = project.report(&metadata.run_id).unwrap();
     let push_artifact = report

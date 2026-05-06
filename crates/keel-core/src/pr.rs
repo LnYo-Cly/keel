@@ -1,8 +1,6 @@
+use crate::artifact_files;
 use crate::command::run_command;
 use crate::commit::{default_commit_message, CommitArtifact};
-use crate::constants::{
-    CHECKS_FILE, COMMIT_FILE, DIFF_FILE, LOG_FILE, METADATA_FILE, PR_FILE, PUSH_FILE, REPORT_FILE,
-};
 use crate::model::{RunMetadata, RunStatus};
 use crate::push::PushArtifact;
 use crate::report::render_markdown_list;
@@ -290,7 +288,7 @@ pub(crate) fn create_pr(
     options: PrOptions,
 ) -> Result<PrResult> {
     validate_create_mode(&options)?;
-    let pr_path = run_dir.join(PR_FILE);
+    let pr_path = run_dir.join(artifact_files::PR);
 
     if let Some(existing) = existing_pr(metadata, &pr_path)? {
         let plan = build_pr_plan(root, metadata, &options, false)?;
@@ -676,7 +674,7 @@ fn pr_result_from_artifact(
 }
 
 pub(crate) fn write_pr_artifact(run_dir: &Path, artifact: &PrArtifact) -> Result<()> {
-    crate::json::write_json_pretty(&run_dir.join(PR_FILE), artifact)
+    crate::json::write_json_pretty(&run_dir.join(artifact_files::PR), artifact)
 }
 
 fn record_pr_metadata(metadata: &mut RunMetadata, artifact: &PrArtifact) {
@@ -715,16 +713,20 @@ fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
 fn artifact_paths(metadata: &RunMetadata) -> PrArtifactPaths {
     let run_dir = metadata.run_dir.trim_end_matches(['/', '\\']);
     PrArtifactPaths {
-        metadata: format!("{run_dir}/{METADATA_FILE}"),
-        log: format!("{run_dir}/{LOG_FILE}"),
-        diff: format!("{run_dir}/{DIFF_FILE}"),
-        checks: format!("{run_dir}/{CHECKS_FILE}"),
-        report: format!("{run_dir}/{REPORT_FILE}"),
+        metadata: format!("{run_dir}/{}", artifact_files::METADATA),
+        log: format!("{run_dir}/{}", artifact_files::LOG),
+        diff: format!("{run_dir}/{}", artifact_files::DIFF),
+        checks: format!("{run_dir}/{}", artifact_files::CHECKS),
+        report: format!("{run_dir}/{}", artifact_files::REPORT),
         commit: metadata
             .committed
-            .then(|| format!("{run_dir}/{COMMIT_FILE}")),
-        push: metadata.pushed.then(|| format!("{run_dir}/{PUSH_FILE}")),
-        pr: metadata.pr_created.then(|| format!("{run_dir}/{PR_FILE}")),
+            .then(|| format!("{run_dir}/{}", artifact_files::COMMIT)),
+        push: metadata
+            .pushed
+            .then(|| format!("{run_dir}/{}", artifact_files::PUSH)),
+        pr: metadata
+            .pr_created
+            .then(|| format!("{run_dir}/{}", artifact_files::PR)),
     }
 }
 

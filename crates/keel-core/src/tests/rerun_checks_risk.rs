@@ -17,11 +17,11 @@ fn rerun_creates_fresh_child_and_appends_source_report() {
 
     let child_metadata = read_metadata(&temp, &child.run_id);
     assert_eq!(child_metadata.parent_run_id, Some(source.run_id.clone()));
-    let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+    let source_report = read_run_file(&temp, &source.run_id, artifact_files::REPORT);
     assert!(source_report.contains("## Rerun"));
     assert!(source_report.contains(&format!("Created rerun: `{}`", child.run_id)));
 
-    let child_report = read_run_file(&temp, &child.run_id, REPORT_FILE);
+    let child_report = read_run_file(&temp, &child.run_id, artifact_files::REPORT);
     assert!(child_report.contains(&format!("Parent Run ID: `{}`", source.run_id)));
     assert!(child_report.contains("## Artifacts"));
     assert!(child_report.contains("## Suggested Next Actions"));
@@ -42,7 +42,7 @@ fn discarded_run_can_be_rerun_without_restoring_source_worktree() {
     assert_eq!(child.parent_run_id, Some(source.run_id.clone()));
     assert!(!worktree_dir(&temp, &source.run_id).exists());
     assert!(worktree_dir(&temp, &child.run_id).exists());
-    let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+    let source_report = read_run_file(&temp, &source.run_id, artifact_files::REPORT);
     assert!(source_report.contains("## Discard"));
     assert!(source_report.contains("## Rerun"));
 }
@@ -85,7 +85,7 @@ fn rerun_rejects_unsupported_source_agent_without_appending_report() {
 
     assert!(error.contains("unsupported agent"));
     assert_eq!(project.list_runs().unwrap().len(), 1);
-    let source_report = read_run_file(&temp, &source.run_id, REPORT_FILE);
+    let source_report = read_run_file(&temp, &source.run_id, artifact_files::REPORT);
     assert!(!source_report.contains("## Rerun"));
 }
 
@@ -173,7 +173,7 @@ paths = ["src/auth/**"]
         .warnings
         .iter()
         .any(|warning| warning.contains("touched risk path: src/auth/session.rs")));
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("## Warnings"));
     assert!(report.contains("touched risk path: src/auth/session.rs matched src/auth/**"));
 }

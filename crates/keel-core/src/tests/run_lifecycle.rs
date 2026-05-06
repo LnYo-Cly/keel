@@ -21,10 +21,10 @@ fn noop_run_creates_artifacts_and_discard_preserves_history() {
     assert_eq!(discarded.status, RunStatus::Discarded);
     assert!(!worktree.exists());
     assert!(!branch_exists(&temp, &metadata.branch));
-    assert!(run_dir.join(METADATA_FILE).exists());
-    assert!(run_dir.join(REPORT_FILE).exists());
-    assert!(run_dir.join(LOG_FILE).exists());
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    assert!(run_dir.join(artifact_files::METADATA).exists());
+    assert!(run_dir.join(artifact_files::REPORT).exists());
+    assert!(run_dir.join(artifact_files::LOG).exists());
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("# Keel Run Report"));
     assert!(report.contains("## Artifacts"));
     assert!(report.contains("## Suggested Next Actions"));
@@ -56,7 +56,7 @@ fn discard_succeeds_when_candidate_branch_is_already_absent() {
 
     assert_eq!(discarded.status, RunStatus::Discarded);
     assert!(!branch_exists(&temp, &metadata.branch));
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("Branch cleanup: `already absent`"));
     assert!(discarded.warnings.is_empty());
 }
@@ -82,7 +82,7 @@ fn discard_skips_unexpected_metadata_branch_and_records_warning() {
         .warnings
         .iter()
         .any(|warning| warning.contains("metadata branch `main`")));
-    let report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
     assert!(report.contains("Branch cleanup: `skipped invalid metadata`"));
     assert!(report.contains("Warning: candidate branch cleanup skipped"));
 }
@@ -96,7 +96,7 @@ fn noop_run_force_adds_ignored_output_file() {
     let metadata = project.run("ignored noop output", "noop").unwrap();
 
     assert_eq!(metadata.status, RunStatus::Ready);
-    let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
+    let diff = read_run_file(&temp, &metadata.run_id, artifact_files::DIFF);
     assert!(!diff.trim().is_empty());
     assert!(diff.contains(NOOP_OUTPUT_FILE));
 }

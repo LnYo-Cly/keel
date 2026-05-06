@@ -60,8 +60,8 @@ fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
         )
         .unwrap();
     project.push(&metadata.run_id, push_options(false)).unwrap();
-    let before_metadata = read_run_file(&temp, &metadata.run_id, METADATA_FILE);
-    let before_report = read_run_file(&temp, &metadata.run_id, REPORT_FILE);
+    let before_metadata = read_run_file(&temp, &metadata.run_id, artifact_files::METADATA);
+    let before_report = read_run_file(&temp, &metadata.run_id, artifact_files::REPORT);
 
     let plan = project
         .pr_plan(&metadata.run_id, pr_options(Some(PrProvider::Github)))
@@ -81,38 +81,45 @@ fn pr_manual_dry_run_builds_plan_from_pushed_metadata() {
     assert!(plan.body.contains("## Warnings"));
     assert!(plan.body.contains("None"));
     assert!(plan.body.contains("## Artifacts"));
-    assert!(plan.body.contains(METADATA_FILE));
-    assert!(plan.body.contains(LOG_FILE));
-    assert!(plan.body.contains(DIFF_FILE));
-    assert!(plan.body.contains(CHECKS_FILE));
-    assert!(plan.body.contains(REPORT_FILE));
-    assert!(plan.body.contains(COMMIT_FILE));
-    assert!(plan.body.contains(PUSH_FILE));
+    assert!(plan.body.contains(artifact_files::METADATA));
+    assert!(plan.body.contains(artifact_files::LOG));
+    assert!(plan.body.contains(artifact_files::DIFF));
+    assert!(plan.body.contains(artifact_files::CHECKS));
+    assert!(plan.body.contains(artifact_files::REPORT));
+    assert!(plan.body.contains(artifact_files::COMMIT));
+    assert!(plan.body.contains(artifact_files::PUSH));
     assert!(plan
         .body
         .contains("Keel did not merge this candidate change"));
     assert!(plan.copyable_summary.contains(&metadata.run_id));
     assert!(plan.copyable_summary.contains("manual pr plan"));
-    assert!(plan.artifacts.metadata.ends_with(METADATA_FILE));
+    assert!(plan.artifacts.metadata.ends_with(artifact_files::METADATA));
     assert!(plan
         .artifacts
         .commit
         .as_deref()
         .unwrap()
-        .ends_with(COMMIT_FILE));
-    assert!(plan.artifacts.push.as_deref().unwrap().ends_with(PUSH_FILE));
+        .ends_with(artifact_files::COMMIT));
+    assert!(plan
+        .artifacts
+        .push
+        .as_deref()
+        .unwrap()
+        .ends_with(artifact_files::PUSH));
     assert!(plan.web_url.is_none());
     assert!(!plan.would_create_request);
     assert!(!plan.would_write_artifact);
     assert!(!plan.would_push);
     assert!(!plan.would_merge);
-    assert!(!run_dir(&temp, &metadata.run_id).join(PR_FILE).exists());
+    assert!(!run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::PR)
+        .exists());
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, METADATA_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::METADATA),
         before_metadata
     );
     assert_eq!(
-        read_run_file(&temp, &metadata.run_id, REPORT_FILE),
+        read_run_file(&temp, &metadata.run_id, artifact_files::REPORT),
         before_report
     );
 }
@@ -380,7 +387,9 @@ fn pr_provider_dry_run_builds_creation_plan_without_writing_artifact() {
     assert!(!result.would_write_artifact);
     assert!(!result.would_push);
     assert!(!result.would_merge);
-    assert!(!run_dir(&temp, &metadata.run_id).join(PR_FILE).exists());
+    assert!(!run_dir(&temp, &metadata.run_id)
+        .join(artifact_files::PR)
+        .exists());
 }
 
 #[test]
@@ -471,5 +480,5 @@ fn pr_legacy_metadata_is_used_by_report_and_json_views() {
     assert!(json["artifacts"]["pr"]["path"]
         .as_str()
         .unwrap()
-        .ends_with(PR_FILE));
+        .ends_with(artifact_files::PR));
 }

@@ -1,5 +1,5 @@
+use crate::artifact_files;
 use crate::command::{format_command, run_command};
-use crate::constants::{COMMIT_FILE, DIFF_FILE};
 use crate::git::{ensure_safe_run_id, ensure_safe_worktree_target};
 use crate::model::{RunMetadata, RunStatus};
 use crate::time::now_timestamp;
@@ -100,7 +100,7 @@ pub(crate) fn commit_run(
     metadata: &mut RunMetadata,
     options: CommitOptions,
 ) -> Result<CommitResult> {
-    let commit_path = run_dir.join(COMMIT_FILE);
+    let commit_path = run_dir.join(artifact_files::COMMIT);
     ensure_safe_run_id(&metadata.run_id)?;
 
     if let Some(existing) = existing_commit(metadata, &commit_path)? {
@@ -180,7 +180,7 @@ pub(crate) fn commit_run(
 }
 
 pub(crate) fn write_commit_artifact(run_dir: &Path, artifact: &CommitArtifact) -> Result<()> {
-    crate::json::write_json_pretty(&run_dir.join(COMMIT_FILE), artifact)
+    crate::json::write_json_pretty(&run_dir.join(artifact_files::COMMIT), artifact)
 }
 
 pub(crate) fn default_commit_message(metadata: &RunMetadata) -> String {
@@ -220,7 +220,7 @@ fn validate_commit_preconditions(
         );
     }
 
-    let diff_path = run_dir.join(DIFF_FILE);
+    let diff_path = run_dir.join(artifact_files::DIFF);
     if !diff_path.is_file() {
         bail!(
             "diff for run `{}` does not exist at {}; cannot commit",

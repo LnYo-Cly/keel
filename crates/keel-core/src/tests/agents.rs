@@ -37,7 +37,7 @@ fn adapter_failure_still_persists_run_history() {
     let run_dir = run_dir(&temp, &runs[0].run_id);
     assert_required_artifacts(&run_dir);
 
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("adapter exploded"));
 }
@@ -106,14 +106,14 @@ fn codex_adapter_captures_stdout_stderr_and_diff() {
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
 
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake codex stdout"));
     assert!(log.contains("fake codex stderr"));
     assert!(log.contains("--ask-for-approval on-request"));
     assert!(!log.contains("--full-auto"));
     assert!(!log.contains("--dangerously-bypass-approvals-and-sandbox"));
 
-    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    let diff = fs::read_to_string(run_dir.join(artifact_files::DIFF)).unwrap();
     assert!(diff.contains("codex-output.txt"));
 }
 
@@ -137,12 +137,12 @@ fn codex_adapter_runs_powershell_shim_with_timeout_wrapper() {
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
 
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake codex ps1 stdout"));
     assert!(log.contains("fake codex ps1 stderr"));
     assert!(log.contains("--ask-for-approval on-request"));
 
-    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    let diff = fs::read_to_string(run_dir.join(artifact_files::DIFF)).unwrap();
     assert!(diff.contains("codex-ps1-output.txt"));
 
     let args_path = worktree_dir(&temp, &metadata.run_id).join("codex-ps1-args.txt");
@@ -174,9 +174,9 @@ fn codex_nonzero_exit_still_generates_report() {
     assert!(!metadata.agent_command.is_empty());
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake codex failure"));
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("Agent Exit Code: `7`"));
     assert!(report.contains("Failure Reason: `nonzero_exit`"));
     assert!(report.contains("fake codex failure"));
@@ -205,7 +205,7 @@ fn missing_codex_cli_still_generates_failure_report() {
     assert!(!runs[0].agent_command.is_empty());
     let run_dir = run_dir(&temp, &runs[0].run_id);
     assert_required_artifacts(&run_dir);
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("codex CLI not found"));
     assert!(report.contains("Failure Reason: `missing_cli`"));
@@ -261,14 +261,14 @@ fn claude_adapter_captures_stdout_stderr_and_diff() {
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
 
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake claude stdout"));
     assert!(log.contains("fake claude stderr"));
     assert!(log.contains("--permission-mode acceptEdits"));
     assert!(!log.contains("--dangerously-skip-permissions"));
     assert!(!log.contains("bypassPermissions"));
 
-    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    let diff = fs::read_to_string(run_dir.join(artifact_files::DIFF)).unwrap();
     assert!(diff.contains("claude-output.txt"));
 }
 
@@ -291,9 +291,9 @@ fn claude_nonzero_exit_still_generates_report() {
     assert_eq!(metadata.failure_reason, Some(FailureReason::NonzeroExit));
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake claude failure"));
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("Agent Exit Code: `9`"));
     assert!(report.contains("Failure Reason: `nonzero_exit`"));
     assert!(report.contains("fake claude failure"));
@@ -322,7 +322,7 @@ fn missing_claude_cli_still_generates_failure_report() {
     assert!(!runs[0].agent_command.is_empty());
     let run_dir = run_dir(&temp, &runs[0].run_id);
     assert_required_artifacts(&run_dir);
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("claude CLI not found"));
     assert!(report.contains("Failure Reason: `missing_cli`"));
@@ -371,13 +371,13 @@ fn opencode_adapter_captures_stdout_stderr_and_diff() {
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
 
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake opencode stdout"));
     assert!(log.contains("fake opencode stderr"));
     assert!(log.contains("run --dir"));
     assert!(!log.contains("--dangerously-skip-permissions"));
 
-    let diff = fs::read_to_string(run_dir.join(DIFF_FILE)).unwrap();
+    let diff = fs::read_to_string(run_dir.join(artifact_files::DIFF)).unwrap();
     assert!(diff.contains("opencode-output.txt"));
 }
 
@@ -400,9 +400,9 @@ fn opencode_nonzero_exit_still_generates_report() {
     assert_eq!(metadata.failure_reason, Some(FailureReason::NonzeroExit));
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
-    let log = fs::read_to_string(run_dir.join(LOG_FILE)).unwrap();
+    let log = fs::read_to_string(run_dir.join(artifact_files::LOG)).unwrap();
     assert!(log.contains("fake opencode failure"));
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("Agent Exit Code: `11`"));
     assert!(report.contains("Failure Reason: `nonzero_exit`"));
     assert!(report.contains("fake opencode failure"));
@@ -433,7 +433,7 @@ fn opencode_empty_diff_is_not_ready() {
         .contains("required candidate diff was empty"));
     let run_dir = run_dir(&temp, &runs[0].run_id);
     assert_required_artifacts(&run_dir);
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("Failure Reason: `empty_diff`"));
 }
 
@@ -460,7 +460,7 @@ fn missing_opencode_cli_still_generates_failure_report() {
     assert!(!runs[0].agent_command.is_empty());
     let run_dir = run_dir(&temp, &runs[0].run_id);
     assert_required_artifacts(&run_dir);
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("## Failure"));
     assert!(report.contains("opencode CLI not found"));
     assert!(report.contains("Failure Reason: `missing_cli`"));
@@ -498,7 +498,7 @@ command = ["git", "status", "--short"]
     assert!(metadata.duration_ms.is_some());
     let run_dir = run_dir(&temp, &metadata.run_id);
     assert_required_artifacts(&run_dir);
-    let report = fs::read_to_string(run_dir.join(REPORT_FILE)).unwrap();
+    let report = fs::read_to_string(run_dir.join(artifact_files::REPORT)).unwrap();
     assert!(report.contains("Failure Reason: `timeout`"));
     assert!(report.contains("process timed out after 1 seconds"));
 }
@@ -558,7 +558,7 @@ fn real_codex_smoke_is_opt_in() {
 
     assert_eq!(metadata.agent, "codex");
     assert_eq!(metadata.status, RunStatus::Ready);
-    let diff = read_run_file(&temp, &metadata.run_id, DIFF_FILE);
+    let diff = read_run_file(&temp, &metadata.run_id, artifact_files::DIFF);
     assert!(diff.contains("codex-real-smoke.txt"));
 }
 
@@ -590,7 +590,8 @@ fn real_codex_rerun_smoke_is_opt_in() {
         let metadata = read_metadata(&temp, run_id);
         assert_eq!(metadata.status, RunStatus::Ready);
         assert_eq!(metadata.failure_reason, None);
-        assert!(read_run_file(&temp, run_id, DIFF_FILE).contains("codex-real-rerun-smoke.txt"));
+        assert!(read_run_file(&temp, run_id, artifact_files::DIFF)
+            .contains("codex-real-rerun-smoke.txt"));
         assert!(project
             .report(run_id)
             .unwrap()
@@ -598,7 +599,7 @@ fn real_codex_rerun_smoke_is_opt_in() {
             .contains("agent=codex"));
     }
 
-    assert!(read_run_file(&temp, &source.run_id, REPORT_FILE)
+    assert!(read_run_file(&temp, &source.run_id, artifact_files::REPORT)
         .contains(&format!("Created rerun: `{}`", child.run_id)));
 
     let discarded_source = project.discard(&source.run_id).unwrap();
@@ -607,8 +608,12 @@ fn real_codex_rerun_smoke_is_opt_in() {
     assert_eq!(discarded_child.status, RunStatus::Discarded);
     assert!(!worktree_dir(&temp, &source.run_id).exists());
     assert!(!worktree_dir(&temp, &child.run_id).exists());
-    assert!(run_dir(&temp, &source.run_id).join(REPORT_FILE).exists());
-    assert!(run_dir(&temp, &child.run_id).join(REPORT_FILE).exists());
+    assert!(run_dir(&temp, &source.run_id)
+        .join(artifact_files::REPORT)
+        .exists());
+    assert!(run_dir(&temp, &child.run_id)
+        .join(artifact_files::REPORT)
+        .exists());
 }
 
 #[cfg(windows)]

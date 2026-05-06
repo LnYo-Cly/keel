@@ -1,6 +1,7 @@
+use crate::artifact_files;
 use crate::command::{format_command, run_command};
 use crate::commit::CommitArtifact;
-use crate::constants::{COMMIT_FILE, LEGACY_PUBLISH_FILE, PUSH_FILE};
+use crate::constants::LEGACY_PUBLISH_FILE;
 use crate::git::{ensure_safe_run_id, expected_run_branch};
 use crate::json::read_json;
 use crate::model::{RunMetadata, RunStatus};
@@ -84,7 +85,7 @@ pub(crate) fn push_run(
     metadata: &mut RunMetadata,
     options: PushOptions,
 ) -> Result<PushResult> {
-    let push_path = run_dir.join(PUSH_FILE);
+    let push_path = run_dir.join(artifact_files::PUSH);
     ensure_safe_run_id(&metadata.run_id)?;
     validate_remote_name(&options.remote)?;
     validate_push_identity(metadata)?;
@@ -99,7 +100,7 @@ pub(crate) fn push_run(
     }
 
     validate_push_preconditions(root, run_dir, metadata)?;
-    let commit_sha = committed_sha(metadata, &run_dir.join(COMMIT_FILE))?;
+    let commit_sha = committed_sha(metadata, &run_dir.join(artifact_files::COMMIT))?;
     let remote_url = remote_url(root, &options.remote)?;
     validate_branch_head(root, &metadata.branch, &commit_sha)?;
 
@@ -148,18 +149,19 @@ pub(crate) fn push_run(
 }
 
 pub(crate) fn write_push_artifact(run_dir: &Path, artifact: &PushArtifact) -> Result<()> {
-    crate::json::write_json_pretty(&run_dir.join(PUSH_FILE), artifact)
+    crate::json::write_json_pretty(&run_dir.join(artifact_files::PUSH), artifact)
 }
 
 fn validate_push_preconditions(root: &Path, run_dir: &Path, metadata: &RunMetadata) -> Result<()> {
     validate_push_identity(metadata)?;
 
-    let _commit_sha = committed_sha(metadata, &run_dir.join(COMMIT_FILE)).with_context(|| {
-        format!(
-            "run `{}` is not committed; run `keel commit {}` first",
-            metadata.run_id, metadata.run_id
-        )
-    })?;
+    let _commit_sha =
+        committed_sha(metadata, &run_dir.join(artifact_files::COMMIT)).with_context(|| {
+            format!(
+                "run `{}` is not committed; run `keel commit {}` first",
+                metadata.run_id, metadata.run_id
+            )
+        })?;
 
     let branch_ref = format!("refs/heads/{}", metadata.branch);
     let capture = run_command(
