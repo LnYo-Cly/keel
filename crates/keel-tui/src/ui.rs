@@ -1430,7 +1430,8 @@ fn truncate(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use keel_core::{
-        ArtifactInfo, DiffInfo, ReportInfo, RunArtifactSpec, RunArtifacts, RUN_ARTIFACTS,
+        ArtifactInfo, CommitArtifact, DiffInfo, PrArtifact, PrProvider, PushArtifact, ReportInfo,
+        RunArtifactSpec, RunArtifacts, RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -1439,11 +1440,20 @@ mod tests {
         let mut run = sample_run();
 
         assert_eq!(git_state(&run), "-");
-        run.committed = true;
+        run.commit = Some(sample_commit_artifact(&run, "abc123"));
         assert_eq!(git_state(&run), artifact_keys::COMMIT);
-        run.pushed = true;
+        run.push = Some(sample_push_artifact(
+            &run,
+            "abc123",
+            "git@github.com:example/repo.git",
+        ));
         assert_eq!(git_state(&run), "pushed");
-        run.pr_created = true;
+        run.pr = Some(sample_pr_artifact(
+            &run,
+            "abc123",
+            "git@github.com:example/repo.git",
+            "https://github.com/example/repo/pull/1",
+        ));
         assert_eq!(git_state(&run), artifact_keys::PR);
     }
 
@@ -1488,22 +1498,26 @@ mod tests {
         assert!(uncommitted.contains("Commit"));
         assert!(uncommitted.contains("keel commit run-1"));
 
-        run.committed = true;
-        run.commit_sha = Some("1234567890abcdef".to_string());
+        run.commit = Some(sample_commit_artifact(&run, "1234567890abcdef"));
         let committed = format!("{:?}", review_progress_lines(&run));
         assert!(committed.contains("1234567890ab"));
         assert!(committed.contains("keel push run-1"));
 
-        run.pushed = true;
-        run.push_remote = Some("origin".to_string());
-        run.push_remote_url = Some("git@github.com:example/repo.git".to_string());
-        run.pushed_branch = Some("keel/run/run-1".to_string());
+        run.push = Some(sample_push_artifact(
+            &run,
+            "1234567890abcdef",
+            "git@github.com:example/repo.git",
+        ));
         let pushed = format!("{:?}", review_progress_lines(&run));
         assert!(pushed.contains("origin keel/run/run-1"));
         assert!(pushed.contains("keel pr run-1 --provider github --dry-run"));
 
-        run.pr_created = true;
-        run.pr_url = Some("https://github.com/example/repo/pull/1".to_string());
+        run.pr = Some(sample_pr_artifact(
+            &run,
+            "1234567890abcdef",
+            "git@github.com:example/repo.git",
+            "https://github.com/example/repo/pull/1",
+        ));
         let pr = format!("{:?}", review_progress_lines(&run));
         assert!(pr.contains("github.com/example/repo/pull/1"));
         assert!(pr.contains("review PR/MR on provider"));
@@ -1622,5 +1636,62 @@ mod tests {
             "2026-05-01T00:00:00Z",
         )
         .with_base_commit("base")
+    }
+
+    fn sample_commit_artifact(metadata: &RunMetadata, commit_sha: &str) -> CommitArtifact {
+        CommitArtifact {
+            run_id: metadata.run_id.clone(),
+            branch: metadata.branch.clone(),
+            worktree: metadata.worktree_path.clone(),
+            commit_sha: commit_sha.to_string(),
+            commit_message: "keel: task".to_string(),
+            committed_at: "2026-05-01T00:01:00Z".to_string(),
+            had_uncommitted_changes: true,
+            warnings: Vec::new(),
+            dry_run: false,
+        }
+    }
+
+    fn sample_push_artifact(
+        metadata: &RunMetadata,
+        commit_sha: &str,
+        remote_url: &str,
+    ) -> PushArtifact {
+        PushArtifact {
+            run_id: metadata.run_id.clone(),
+            remote: "origin".to_string(),
+            remote_url: remote_url.to_string(),
+            branch: metadata.branch.clone(),
+            commit_sha: commit_sha.to_string(),
+            pushed: true,
+            pushed_at: "2026-05-01T00:02:00Z".to_string(),
+            dry_run: false,
+        }
+    }
+
+    fn sample_pr_artifact(
+        metadata: &RunMetadata,
+        commit_sha: &str,
+        remote_url: &str,
+        pr_url: &str,
+    ) -> PrArtifact {
+        PrArtifact {
+            run_id: metadata.run_id.clone(),
+            provider: PrProvider::Github,
+            provider_name: "GitHub".to_string(),
+            request_kind: "pull_request".to_string(),
+            remote: "origin".to_string(),
+            remote_url: remote_url.to_string(),
+            repository_url: Some("https://github.com/example/repo".to_string()),
+            source_branch: metadata.branch.clone(),
+            target_branch: "main".to_string(),
+            commit_sha: commit_sha.to_string(),
+            title: "keel: task".to_string(),
+            url: pr_url.to_string(),
+            created_at: "2026-05-01T00:03:00Z".to_string(),
+            draft: true,
+            reused_existing: false,
+            dry_run: false,
+        }
     }
 }

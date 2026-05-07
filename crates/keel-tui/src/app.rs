@@ -589,8 +589,9 @@ impl DetailTab {
 mod tests {
     use super::*;
     use keel_core::{
-        artifact_files, ArtifactInfo, CheckResult, CheckStatus, DiffInfo, LogInfo, ReportInfo,
-        RunArtifactSpec, RunMetadata, RUN_ARTIFACTS,
+        artifact_files, ArtifactInfo, CheckResult, CheckStatus, CommitArtifact, DiffInfo, LogInfo,
+        PrArtifact, PrProvider, PushArtifact, ReportInfo, RunArtifactSpec, RunMetadata,
+        RUN_ARTIFACTS,
     };
     use std::path::PathBuf;
 
@@ -837,45 +838,12 @@ mod tests {
     fn text_filter_uses_nested_review_artifact_terms() {
         let mut app = empty_app();
         let mut run = sample_run("run-review-state", RunStatus::Ready, false, false, false);
-        run.commit = Some(keel_core::CommitArtifact {
-            run_id: run.run_id.clone(),
-            branch: run.branch.clone(),
-            worktree: run.worktree_path.clone(),
-            commit_sha: "abc123".to_string(),
-            commit_message: "keel: task".to_string(),
-            committed_at: "2026-05-01T00:01:00Z".to_string(),
-            had_uncommitted_changes: true,
-            warnings: Vec::new(),
-            dry_run: false,
-        });
-        run.push = Some(keel_core::PushArtifact {
-            run_id: run.run_id.clone(),
-            remote: "origin".to_string(),
-            remote_url: "git@github.com:owner/repo.git".to_string(),
-            branch: run.branch.clone(),
-            commit_sha: "abc123".to_string(),
-            pushed: true,
-            pushed_at: "2026-05-01T00:02:00Z".to_string(),
-            dry_run: false,
-        });
-        run.pr = Some(keel_core::PrArtifact {
-            run_id: run.run_id.clone(),
-            provider: keel_core::PrProvider::Github,
-            provider_name: "GitHub".to_string(),
-            request_kind: "pull_request".to_string(),
-            remote: "origin".to_string(),
-            remote_url: "git@github.com:owner/repo.git".to_string(),
-            repository_url: Some("https://github.com/owner/repo".to_string()),
-            source_branch: run.branch.clone(),
-            target_branch: "main".to_string(),
-            commit_sha: "abc123".to_string(),
-            title: "keel: task".to_string(),
-            url: "https://github.com/owner/repo/pull/1".to_string(),
-            created_at: "2026-05-01T00:03:00Z".to_string(),
-            draft: true,
-            reused_existing: false,
-            dry_run: false,
-        });
+        attach_review_artifacts(
+            &mut run,
+            "abc123",
+            "git@github.com:owner/repo.git",
+            "https://github.com/owner/repo/pull/1",
+        );
         app.runs = vec![run];
 
         app.apply_filter("pull/1");
@@ -1200,6 +1168,74 @@ mod tests {
         metadata.pushed = pushed;
         metadata.pr_created = pr_created;
         metadata
+    }
+
+    fn attach_review_artifacts(
+        metadata: &mut RunMetadata,
+        commit_sha: &str,
+        remote_url: &str,
+        pr_url: &str,
+    ) {
+        metadata.commit = Some(sample_commit_artifact(metadata, commit_sha));
+        metadata.push = Some(sample_push_artifact(metadata, commit_sha, remote_url));
+        metadata.pr = Some(sample_pr_artifact(metadata, commit_sha, remote_url, pr_url));
+    }
+
+    fn sample_commit_artifact(metadata: &RunMetadata, commit_sha: &str) -> CommitArtifact {
+        CommitArtifact {
+            run_id: metadata.run_id.clone(),
+            branch: metadata.branch.clone(),
+            worktree: metadata.worktree_path.clone(),
+            commit_sha: commit_sha.to_string(),
+            commit_message: "keel: task".to_string(),
+            committed_at: "2026-05-01T00:01:00Z".to_string(),
+            had_uncommitted_changes: true,
+            warnings: Vec::new(),
+            dry_run: false,
+        }
+    }
+
+    fn sample_push_artifact(
+        metadata: &RunMetadata,
+        commit_sha: &str,
+        remote_url: &str,
+    ) -> PushArtifact {
+        PushArtifact {
+            run_id: metadata.run_id.clone(),
+            remote: "origin".to_string(),
+            remote_url: remote_url.to_string(),
+            branch: metadata.branch.clone(),
+            commit_sha: commit_sha.to_string(),
+            pushed: true,
+            pushed_at: "2026-05-01T00:02:00Z".to_string(),
+            dry_run: false,
+        }
+    }
+
+    fn sample_pr_artifact(
+        metadata: &RunMetadata,
+        commit_sha: &str,
+        remote_url: &str,
+        pr_url: &str,
+    ) -> PrArtifact {
+        PrArtifact {
+            run_id: metadata.run_id.clone(),
+            provider: PrProvider::Github,
+            provider_name: "GitHub".to_string(),
+            request_kind: "pull_request".to_string(),
+            remote: "origin".to_string(),
+            remote_url: remote_url.to_string(),
+            repository_url: Some("https://github.com/owner/repo".to_string()),
+            source_branch: metadata.branch.clone(),
+            target_branch: "main".to_string(),
+            commit_sha: commit_sha.to_string(),
+            title: "keel: task".to_string(),
+            url: pr_url.to_string(),
+            created_at: "2026-05-01T00:03:00Z".to_string(),
+            draft: true,
+            reused_existing: false,
+            dry_run: false,
+        }
     }
 
     fn sample_artifacts(metadata: RunMetadata) -> RunArtifacts {
