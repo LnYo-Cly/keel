@@ -2,6 +2,7 @@ use anyhow::Result;
 use keel_core::{
     ledger_handoff_json, ledger_review_json, report_json, run_doctor, status_json, validate_config,
     CommitOptions, KeelProject, LedgerEvidenceEnv, PrOptions, PushOptions, RunMetadata,
+    WorkspaceCheckOptions,
 };
 use std::process::ExitCode;
 
@@ -174,6 +175,19 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 render::print_workflow_next(&next);
             }
+        }
+        Some(Commands::Check { dry_run, json }) => {
+            let result = project.check(WorkspaceCheckOptions { dry_run })?;
+            if json {
+                render::print_json(&result)?;
+            } else {
+                render::print_workspace_check(&result);
+            }
+            return Ok(if result.ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            });
         }
         Some(Commands::Tui {
             run,
@@ -382,6 +396,19 @@ mod tests {
         match cli.command {
             Some(Commands::Next { json }) => assert!(json),
             _ => panic!("expected next command"),
+        }
+    }
+
+    #[test]
+    fn check_command_accepts_dry_run_and_json_flags() {
+        let cli = Cli::parse_from(["keel", "check", "--dry-run", "--json"]);
+
+        match cli.command {
+            Some(Commands::Check { dry_run, json }) => {
+                assert!(dry_run);
+                assert!(json);
+            }
+            _ => panic!("expected check command"),
         }
     }
 

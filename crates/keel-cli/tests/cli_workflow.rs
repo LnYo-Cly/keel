@@ -783,6 +783,106 @@ fn ledger_failed_evidence_makes_verify_fail() {
 }
 
 #[test]
+fn check_runs_configured_commands_as_ledger_evidence() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[checks]
+commands = ["git --version"]
+"#,
+    )
+    .unwrap();
+    run_keel(repo.path(), ["task", "start", "check runner"])
+        .assert()
+        .success();
+
+    let dry_run = parse_json_object(&run_keel_output(
+        repo.path(),
+        ["check", "--dry-run", "--json"],
+    ));
+    assert_eq!(dry_run["dry_run"], true);
+    assert_eq!(dry_run["summary"]["planned"], 1);
+    assert_eq!(dry_run["commands"][0]["status"], "planned");
+    let review_after_dry_run =
+        parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
+    assert_eq!(review_after_dry_run["summary"]["evidence"], 0);
+
+    run_keel(repo.path(), ["check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel check"))
+        .stdout(predicate::str::contains("git --version"))
+        .stdout(predicate::str::contains("[passed]"))
+        .stdout(predicate::str::contains("keel verify"));
+
+    let review = parse_json_object(&run_keel_output(repo.path(), ["review", "--json"]));
+    assert_eq!(review["summary"]["evidence_passed"], 1);
+    assert_eq!(review["decision"]["ready"], true);
+}
+
+#[test]
+fn check_reports_failures_and_missing_preconditions_clearly() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[checks]
+commands = ["definitely-not-a-keel-check-command"]
+"#,
+    )
+    .unwrap();
+
+    run_keel(repo.path(), ["check"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no active Keel task found"));
+
+    run_keel(repo.path(), ["task", "start", "failing check"])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["check"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("[failed]"))
+        .stdout(predicate::str::contains("fix the failed checks"));
+
+    let output = run_keel(repo.path(), ["check", "--json"])
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let result = parse_json_object(&String::from_utf8(output).unwrap());
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["summary"]["failed"], 1);
+}
+
+#[test]
+fn check_rejects_empty_configured_check_list() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    fs::write(
+        repo.path().join(".keel").join("config.toml"),
+        r#"
+[checks]
+commands = []
+"#,
+    )
+    .unwrap();
+    run_keel(repo.path(), ["task", "start", "empty check config"])
+        .assert()
+        .success();
+
+    run_keel(repo.path(), ["check"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no workspace checks configured"));
+}
+
+#[test]
 fn tui_command_is_exposed_as_read_only_review_ui() {
     Command::cargo_bin("keel")
         .unwrap()

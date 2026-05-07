@@ -18,6 +18,7 @@ mod report;
 mod risk;
 mod run;
 mod time;
+mod workspace_check;
 
 pub mod artifact_files {
     pub const METADATA: &str = crate::constants::METADATA_FILE;
@@ -60,6 +61,10 @@ pub use report::{
     primary_next_action, suggested_next_actions, ReviewNextAction, ReviewNextActionKind,
 };
 pub use risk::{RiskWarning, RiskWarningKind};
+pub use workspace_check::{
+    WorkspaceCheckCommand, WorkspaceCheckOptions, WorkspaceCheckRun, WorkspaceCheckStatus,
+    WorkspaceCheckSummary,
+};
 
 #[cfg(test)]
 mod tests;

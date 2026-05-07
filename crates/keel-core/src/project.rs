@@ -5,7 +5,7 @@ use crate::artifact_files;
 use crate::checks::{classify_run, run_checks};
 use crate::command::{format_command, run_command};
 use crate::commit::{commit_run, write_commit_artifact, CommitOptions, CommitResult};
-use crate::config::{default_checks, default_config_toml, KeelConfig};
+use crate::config::{default_config_toml, load_project_config, KeelConfig};
 use crate::constants::{
     artifact_keys, CONFIG_FILE, KEEL_DIR, LEGACY_PUBLISH_FILE, RUNS_DIR, RUN_ARTIFACTS,
     WORKTREES_DIR,
@@ -35,6 +35,7 @@ use crate::report::{
 use crate::risk::{analyze_diff_risk, format_risk_warning};
 use crate::run::{RunLog, RunSession};
 use crate::time::now_timestamp;
+use crate::workspace_check::{run_workspace_checks, WorkspaceCheckOptions, WorkspaceCheckRun};
 use anyhow::{bail, Context, Result};
 use std::cmp::Ordering;
 use std::fs;
@@ -347,6 +348,11 @@ impl KeelProject {
             .transpose()?;
 
         Ok(workflow_next(ledger_status, ledger_review, latest_report))
+    }
+
+    pub fn check(&self, options: WorkspaceCheckOptions) -> Result<WorkspaceCheckRun> {
+        self.ensure_initialized()?;
+        run_workspace_checks(&self.root, options)
     }
 
     pub fn commit(&self, run_id: &str, options: CommitOptions) -> Result<CommitResult> {
@@ -866,15 +872,7 @@ impl KeelProject {
     }
 
     fn read_config(&self) -> Result<KeelConfig> {
-        let path = self.keel_dir().join(CONFIG_FILE);
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let mut config = toml::from_str::<KeelConfig>(&content)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
-        if config.checks.is_empty() {
-            config.checks = default_checks();
-        }
-        Ok(config)
+        load_project_config(&self.root)
     }
 }
 

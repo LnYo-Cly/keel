@@ -34,7 +34,7 @@ keel task start "implement review workflow"
 keel task status
 keel task show <task-id>
 keel checkpoint "planned CLI changes"
-keel evidence add --cmd "cargo test --workspace"
+keel check
 keel next
 keel review
 keel handoff
@@ -63,6 +63,9 @@ Useful review commands:
 keel doctor
 keel config validate
 keel config validate --json
+keel check
+keel check --dry-run
+keel check --json
 keel verify
 keel next
 keel next --json
@@ -91,13 +94,18 @@ CLIs. It is read-only: it does not initialize, fix, install, merge, or push.
 and basic value sanity, including risk warning settings. It does not rewrite the
 file.
 
-`keel task start`, `keel checkpoint`, `keel note`, `keel evidence add`,
-`keel verify`, `keel next`, `keel review`, `keel handoff`, `keel task status`,
-`keel task show`, `keel task reopen`, and `keel task finish` provide a
-lightweight workspace ledger for long-running agent sessions. This mode does not
-start a new agent and does not create a worktree; it lets the current Codex or
-Claude Code session record checkpoints, evidence, handoff state, and review
-readiness while working in the current repository.
+`keel task start`, `keel checkpoint`, `keel note`, `keel check`,
+`keel evidence add`, `keel verify`, `keel next`, `keel review`, `keel handoff`,
+`keel task status`, `keel task show`, `keel task reopen`, and
+`keel task finish` provide a lightweight workspace ledger for long-running agent
+sessions. This mode does not start a new agent and does not create a worktree;
+it lets the current Codex or Claude Code session record checkpoints, evidence,
+handoff state, and review readiness while working in the current repository.
+
+`keel check` runs the configured workspace validation commands from
+`.keel/config.toml` and records each command as ledger evidence. Use
+`keel check --dry-run` to inspect the plan without writing evidence, and
+`keel check --json` for automation.
 
 `keel next` is the daily navigation command. It is read-only and combines the
 active workspace ledger with the newest candidate run, then prints the next
@@ -185,8 +193,8 @@ keel task status
 keel task show <task-id>
 keel checkpoint "core model added"
 keel note "risk: CLI output changed"
-keel evidence add --cmd "cargo fmt --all --check"
-keel evidence add --env CARGO_TARGET_DIR=target/keel-evidence --cmd "cargo test --workspace"
+keel check --dry-run
+keel check
 keel next
 keel verify
 keel review
@@ -197,9 +205,21 @@ keel task finish
 keel task reopen <task-id>
 ```
 
-`keel evidence add --env KEY=VALUE --cmd "<command>"` sets environment variables
-only for that evidence command. This is useful for isolated Rust target
-directories, temporary caches, or other deterministic verification settings.
+Configure workspace checks under `[checks].commands`:
+
+```toml
+[checks]
+commands = [
+  "cargo fmt --all --check",
+  "cargo test --workspace",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+]
+```
+
+`keel evidence add --env KEY=VALUE --cmd "<command>"` remains available for
+one-off evidence commands. Its environment variables apply only to that evidence
+command, which is useful for isolated Rust target directories, temporary caches,
+or other deterministic verification settings.
 
 `keel verify` exits non-zero if the active task has no evidence or if the latest
 evidence window is still failing. Historical failed evidence stays in the ledger,
@@ -301,7 +321,8 @@ Use Keel alongside Codex or Claude Code rather than instead of them:
 2. Let the agent work in the current session.
 3. Record meaningful progress with `keel checkpoint "..."` and decisions with
    `keel note "..."`.
-4. Capture real validation with `keel evidence add --cmd "..."`.
+4. Capture real validation with `keel check`; use `keel evidence add --cmd "..."`
+   only for one-off evidence outside the configured checks.
 5. Run `keel next` to see the next useful ledger action and the newest
    candidate-run action in one place.
 6. Finish the work with `keel review`, `keel verify`, `keel handoff`, and
@@ -579,7 +600,8 @@ metadata, logs, diff, checks, and report artifacts when possible.
   - `keel task finish`: finish the active task without deleting history.
   - `keel checkpoint`: record meaningful implementation milestones.
   - `keel note`: record decisions, risks, and unresolved context.
-  - `keel evidence add --cmd`: run verification commands and capture evidence.
+  - `keel check`: run configured workspace checks and capture evidence.
+  - `keel evidence add --cmd`: record one-off verification evidence.
   - `keel verify`: fail when evidence is missing or any recorded evidence failed.
   - `keel review`: summarize current task readiness and evidence.
   - `keel handoff`: produce a recovery packet for future sessions.

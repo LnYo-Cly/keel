@@ -35,6 +35,7 @@ mod push;
 mod rerun_checks_risk;
 mod review;
 mod run_lifecycle;
+mod workspace_check;
 
 fn git_repo() -> TempDir {
     git_repo_with_files(&[])

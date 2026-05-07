@@ -3,7 +3,7 @@ use keel_core::{
     artifact_files, CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo,
     DoctorReport, DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
     LedgerTaskReport, LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo,
-    RunMetadata, WorkflowNext, WorkspaceContext,
+    RunMetadata, WorkflowNext, WorkspaceCheckRun, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -538,6 +538,44 @@ pub(crate) fn print_workflow_next(next: &WorkflowNext) {
     println!();
     println!("Recommended actions:");
     for action in &next.recommended_actions {
+        println!("- {action}");
+    }
+}
+
+pub(crate) fn print_workspace_check(result: &WorkspaceCheckRun) {
+    if result.dry_run {
+        println!("Keel check dry-run");
+    } else {
+        println!("Keel check");
+    }
+    println!("Task: {}", result.task_id);
+    println!(
+        "Summary: {} passed, {} failed, {} skipped, {} planned",
+        result.summary.passed,
+        result.summary.failed,
+        result.summary.skipped,
+        result.summary.planned
+    );
+    println!("Commands:");
+    for command in &result.commands {
+        println!(
+            "- {} [{}]: {}",
+            command.name,
+            format!("{:?}", command.status).to_ascii_lowercase(),
+            command.command
+        );
+        if let Some(evidence_id) = &command.evidence_id {
+            println!("  evidence: {evidence_id}");
+        }
+        if let Some(exit_code) = command.exit_code {
+            println!("  exit: {exit_code}");
+        }
+        if let Some(reason) = &command.skipped_reason {
+            println!("  skipped: {reason}");
+        }
+    }
+    println!("Next actions:");
+    for action in &result.next_actions {
         println!("- {action}");
     }
 }

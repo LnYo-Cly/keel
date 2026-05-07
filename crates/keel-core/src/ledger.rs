@@ -923,7 +923,7 @@ fn suggested_packet_commands(
     let mut commands = Vec::new();
     if !decision.ready {
         commands.push("fix the failed or missing evidence".to_string());
-        commands.push("keel evidence add --cmd \"cargo test --workspace\"".to_string());
+        commands.push("keel check".to_string());
         commands.push("keel verify".to_string());
         return commands;
     }
@@ -935,7 +935,7 @@ fn suggested_packet_commands(
     if workspace.dirty {
         commands.push("git diff --stat".to_string());
         commands.push("git diff --check".to_string());
-        commands.push("keel evidence add --cmd \"cargo test --workspace\"".to_string());
+        commands.push("keel check".to_string());
     } else {
         commands.push("keel handoff".to_string());
     }
@@ -960,7 +960,7 @@ fn review_next_actions(task_id: Option<&str>) -> Vec<String> {
         ],
         None => vec![
             "keel checkpoint \"...\"".to_string(),
-            "keel evidence add --cmd \"cargo test --workspace\"".to_string(),
+            "keel check".to_string(),
             "keel handoff".to_string(),
         ],
     }

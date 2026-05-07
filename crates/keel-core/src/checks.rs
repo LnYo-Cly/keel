@@ -4,6 +4,7 @@ use crate::model::{CheckResult, CheckStatus, FailureReason, RunStatus};
 use crate::run::RunLog;
 use anyhow::{bail, Result};
 use std::path::Path;
+use std::process::Command;
 
 #[derive(Debug)]
 pub(crate) struct RunClassification {
@@ -20,10 +21,7 @@ pub(crate) fn run_checks(
     let mut checks = Vec::new();
 
     for check in configured_checks {
-        let Some((program, args)) = check.command.split_first() else {
-            bail!("configured check `{}` has an empty command", check.name);
-        };
-        let command = format_command(program, args);
+        let command = command_text(check)?;
 
         if let Some(required_path) = &check.run_if_path_exists {
             if !worktree.join(required_path).exists() {
@@ -41,12 +39,63 @@ pub(crate) fn run_checks(
             }
         }
 
-        let capture = run_command(worktree, program, args)?;
+        let capture = if check.shell {
+            run_shell_check(worktree, &command)?
+        } else {
+            let (program, args) = check.command.split_first().ok_or_else(|| {
+                anyhow::anyhow!("configured check `{}` has an empty command", check.name)
+            })?;
+            run_command(worktree, program, args)?
+        };
         log.push_command(worktree, &command, &capture);
         checks.push(check_from_capture(&check.name, &command, capture));
     }
 
     Ok(checks)
+}
+
+fn command_text(check: &ConfiguredCheck) -> Result<String> {
+    if check.shell {
+        let Some(command) = check.command.first() else {
+            bail!("configured check `{}` has an empty command", check.name);
+        };
+        return Ok(command.clone());
+    }
+
+    let Some((program, args)) = check.command.split_first() else {
+        bail!("configured check `{}` has an empty command", check.name);
+    };
+    Ok(format_command(program, args))
+}
+
+fn run_shell_check(worktree: &Path, command: &str) -> Result<CommandCapture> {
+    let output = shell_command(command)
+        .current_dir(worktree)
+        .output()
+        .map_err(|error| {
+            anyhow::anyhow!("failed to execute configured check `{command}`: {error}")
+        })?;
+    Ok(CommandCapture {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+fn shell_command(command: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut shell = Command::new("cmd");
+        shell.args(["/C", command]);
+        shell
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut shell = Command::new("sh");
+        shell.args(["-c", command]);
+        shell
+    }
 }
 
 pub(crate) fn classify_run(

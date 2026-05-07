@@ -1,5 +1,7 @@
 use crate::agents::default_agent_timeout_secs;
+use crate::command::format_command_line;
 use crate::constants::{CONFIG_FILE, KEEL_DIR};
+use anyhow::{bail, Context, Result};
 use globset::Glob;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -10,7 +12,7 @@ use std::path::Path;
 pub(crate) struct KeelConfig {
     #[serde(default = "default_agent_timeout_secs")]
     pub(crate) agent_timeout_secs: u64,
-    #[serde(default = "default_checks")]
+    #[serde(default)]
     pub(crate) checks: Vec<ConfiguredCheck>,
     #[serde(default)]
     pub(crate) risk: RiskConfig,
@@ -21,6 +23,15 @@ pub(crate) struct ConfiguredCheck {
     pub(crate) name: String,
     pub(crate) command: Vec<String>,
     #[serde(default)]
+    pub(crate) run_if_path_exists: Option<String>,
+    #[serde(default)]
+    pub(crate) shell: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WorkspaceCheckConfig {
+    pub(crate) name: String,
+    pub(crate) command: String,
     pub(crate) run_if_path_exists: Option<String>,
 }
 
@@ -150,13 +161,230 @@ pub(crate) fn default_checks() -> Vec<ConfiguredCheck> {
                 "--short".to_string(),
             ],
             run_if_path_exists: None,
+            shell: false,
         },
         ConfiguredCheck {
             name: "cargo test".to_string(),
             command: vec!["cargo".to_string(), "test".to_string()],
             run_if_path_exists: Some("Cargo.toml".to_string()),
+            shell: false,
         },
     ]
+}
+
+pub(crate) fn load_project_config(project_root: &Path) -> Result<KeelConfig> {
+    let config_path = project_root.join(KEEL_DIR).join(CONFIG_FILE);
+    let content = fs::read_to_string(&config_path)
+        .with_context(|| format!("failed to read {}", config_path.display()))?;
+    let value = content
+        .parse::<toml::Value>()
+        .with_context(|| format!("failed to parse {}", config_path.display()))?;
+
+    let agent_timeout_secs = value
+        .get("agent_timeout_secs")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u64::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(default_agent_timeout_secs);
+    let checks = load_configured_checks_from_value(&value)?;
+    let risk = value
+        .get("risk")
+        .cloned()
+        .map(toml::Value::try_into)
+        .transpose()
+        .context("failed to parse risk config")?
+        .unwrap_or_default();
+
+    Ok(KeelConfig {
+        agent_timeout_secs,
+        checks,
+        risk,
+    })
+}
+
+fn load_configured_checks_from_value(value: &toml::Value) -> Result<Vec<ConfiguredCheck>> {
+    let Some(checks_value) = value.get("checks") else {
+        return Ok(default_checks());
+    };
+
+    if let Some(table) = checks_value.as_table() {
+        let Some(commands_value) = table.get("commands") else {
+            return Ok(default_checks());
+        };
+        let Some(commands) = commands_value.as_array() else {
+            bail!("checks.commands must be an array of strings");
+        };
+        if commands.is_empty() {
+            return Ok(default_checks());
+        }
+        return commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| configured_check_from_command_string(index, command))
+            .collect();
+    }
+
+    if let Some(checks) = checks_value.as_array() {
+        if checks.is_empty() {
+            return Ok(default_checks());
+        }
+        return checks
+            .iter()
+            .enumerate()
+            .map(configured_check_from_legacy_check)
+            .collect();
+    }
+
+    bail!("checks must be either a table with commands or a legacy array of tables")
+}
+
+fn configured_check_from_command_string(
+    index: usize,
+    command: &toml::Value,
+) -> Result<ConfiguredCheck> {
+    let workspace_check = workspace_check_from_command_string(index, command)?;
+    Ok(ConfiguredCheck {
+        name: workspace_check.name,
+        command: vec![workspace_check.command],
+        run_if_path_exists: None,
+        shell: true,
+    })
+}
+
+fn configured_check_from_legacy_check(
+    (index, check): (usize, &toml::Value),
+) -> Result<ConfiguredCheck> {
+    let Some(table) = check.as_table() else {
+        bail!("legacy [[checks]] entry at index {index} must be a table");
+    };
+    let name = legacy_check_name(index, table);
+    let command_value = table
+        .get("command")
+        .ok_or_else(|| anyhow::anyhow!("legacy [[checks]] entry `{name}` is missing command"))?;
+    let command = legacy_command_parts(&name, command_value)?;
+    let run_if_path_exists = table
+        .get("run_if_path_exists")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToString::to_string);
+    Ok(ConfiguredCheck {
+        name,
+        command,
+        run_if_path_exists,
+        shell: false,
+    })
+}
+
+pub(crate) fn load_workspace_checks(project_root: &Path) -> Result<Vec<WorkspaceCheckConfig>> {
+    let config_path = project_root.join(KEEL_DIR).join(CONFIG_FILE);
+    let content = fs::read_to_string(&config_path)
+        .with_context(|| format!("failed to read {}", config_path.display()))?;
+    let value = content
+        .parse::<toml::Value>()
+        .with_context(|| format!("failed to parse {}", config_path.display()))?;
+
+    let Some(checks_value) = value.get("checks") else {
+        return Ok(Vec::new());
+    };
+
+    if let Some(table) = checks_value.as_table() {
+        let Some(commands_value) = table.get("commands") else {
+            return Ok(Vec::new());
+        };
+        let Some(commands) = commands_value.as_array() else {
+            bail!("checks.commands must be an array of strings");
+        };
+        return commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| workspace_check_from_command_string(index, command))
+            .collect();
+    }
+
+    if let Some(checks) = checks_value.as_array() {
+        return checks
+            .iter()
+            .enumerate()
+            .map(|(index, check)| workspace_check_from_legacy_check(index, check))
+            .collect();
+    }
+
+    bail!("checks must be either a table with commands or a legacy array of tables")
+}
+
+fn workspace_check_from_command_string(
+    index: usize,
+    command: &toml::Value,
+) -> Result<WorkspaceCheckConfig> {
+    let Some(command) = command.as_str() else {
+        bail!("checks.commands entry at index {index} must be a string");
+    };
+    let command = command.trim();
+    if command.is_empty() {
+        bail!("checks.commands entry at index {index} cannot be empty");
+    }
+    Ok(WorkspaceCheckConfig {
+        name: format!("check {}", index + 1),
+        command: command.to_string(),
+        run_if_path_exists: None,
+    })
+}
+
+fn workspace_check_from_legacy_check(
+    index: usize,
+    check: &toml::Value,
+) -> Result<WorkspaceCheckConfig> {
+    let Some(table) = check.as_table() else {
+        bail!("legacy [[checks]] entry at index {index} must be a table");
+    };
+    let name = legacy_check_name(index, table);
+    let command_value = table
+        .get("command")
+        .ok_or_else(|| anyhow::anyhow!("legacy [[checks]] entry `{name}` is missing command"))?;
+    let command_parts = legacy_command_parts(&name, command_value)?;
+    let run_if_path_exists = table
+        .get("run_if_path_exists")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(ToString::to_string);
+
+    Ok(WorkspaceCheckConfig {
+        name,
+        command: format_command_line(&command_parts),
+        run_if_path_exists,
+    })
+}
+
+fn legacy_check_name(index: usize, table: &toml::map::Map<String, toml::Value>) -> String {
+    table
+        .get("name")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| format!("check {}", index + 1), ToString::to_string)
+}
+
+fn legacy_command_parts(name: &str, command_value: &toml::Value) -> Result<Vec<String>> {
+    let Some(command) = command_value.as_array() else {
+        bail!("legacy [[checks]] entry `{name}` command must be an array of strings");
+    };
+    if command.is_empty() {
+        bail!("legacy [[checks]] entry `{name}` command cannot be empty");
+    }
+    command
+        .iter()
+        .map(toml::Value::as_str)
+        .map(|part| {
+            part.map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(ToString::to_string)
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| {
+            anyhow::anyhow!("legacy [[checks]] entry `{name}` command entries must be strings")
+        })
 }
 
 pub fn validate_config(project_root: &Path) -> ConfigValidationReport {

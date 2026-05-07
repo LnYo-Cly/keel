@@ -114,6 +114,31 @@ command = ["git", "status", "--short"]
 }
 
 #[test]
+fn run_uses_new_check_command_strings() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    write_config(
+        &temp,
+        r#"version = 1
+runs_dir = "runs"
+worktrees_dir = "worktrees"
+
+[checks]
+commands = ["git status --short"]
+"#,
+    );
+
+    let metadata = project.run("new configured check strings", "noop").unwrap();
+
+    let checks = read_checks(&temp, &metadata.run_id);
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].name, "check 1");
+    assert_eq!(checks[0].command, "git status --short");
+    assert_eq!(checks[0].status, CheckStatus::Passed);
+}
+
+#[test]
 fn failing_configured_check_blocks_ready() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();

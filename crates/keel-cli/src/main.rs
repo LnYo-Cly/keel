@@ -88,6 +88,15 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Run configured workspace checks and record them as ledger evidence.
+    Check {
+        /// Print the check plan without recording evidence.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Open the read-only terminal review UI.
     Tui {
         /// Focus the review UI on a specific run id.
