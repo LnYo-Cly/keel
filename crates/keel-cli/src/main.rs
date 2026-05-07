@@ -82,6 +82,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Show the next useful ledger and candidate-review actions.
+    Next {
+        /// Print machine-readable JSON instead of human output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Open the read-only terminal review UI.
     Tui {
         /// Focus the review UI on a specific run id.

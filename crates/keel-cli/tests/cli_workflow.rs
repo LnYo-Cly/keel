@@ -1056,6 +1056,73 @@ fn report_next_actions_advance_through_commit_push_pr_flow() {
 }
 
 #[test]
+fn next_outputs_ledger_and_candidate_actions_in_human_and_json_modes() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "cli next workflow task");
+    run_keel(repo.path(), ["task", "start", "next workflow ledger"])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["checkpoint", "implemented next command"])
+        .assert()
+        .success();
+    run_keel(repo.path(), ["evidence", "add", "--cmd", "git --version"])
+        .assert()
+        .success();
+
+    run_keel(repo.path(), ["next"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel next"))
+        .stdout(predicate::str::contains("Ledger"))
+        .stdout(predicate::str::contains("Candidate run"))
+        .stdout(predicate::str::contains("next workflow ledger"))
+        .stdout(predicate::str::contains(&run.run_id))
+        .stdout(predicate::str::contains(format!(
+            "keel commit {} --dry-run",
+            run.run_id
+        )));
+
+    let next = parse_json_object(&run_keel_output(repo.path(), ["next", "--json"]));
+    assert_eq!(next["ledger"]["active"], true);
+    assert_eq!(next["ledger"]["title"], "next workflow ledger");
+    assert_eq!(next["ledger"]["decision"]["ready"], true);
+    assert_eq!(next["candidate"]["run_id"], run.run_id);
+    assert_eq!(
+        next["candidate"]["primary_action"],
+        format!("keel commit {} --dry-run", run.run_id)
+    );
+    assert!(next["recommended_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == &format!("keel commit {} --dry-run", run.run_id)));
+}
+
+#[test]
+fn next_handles_empty_repo_after_init() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel(repo.path(), ["next"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Active task: none"))
+        .stdout(predicate::str::contains("Latest run: none"))
+        .stdout(predicate::str::contains("keel task start"))
+        .stdout(predicate::str::contains("keel run \"...\" --agent noop"));
+
+    let next = parse_json_object(&run_keel_output(repo.path(), ["next", "--json"]));
+    assert_eq!(next["ledger"]["active"], false);
+    assert!(next["candidate"].is_null());
+    assert!(next["recommended_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action == "keel run \"...\" --agent noop"));
+}
+
+#[test]
 fn report_outputs_risk_warnings_in_human_and_json_modes() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();

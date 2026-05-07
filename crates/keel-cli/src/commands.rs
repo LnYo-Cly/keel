@@ -167,6 +167,14 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
                 render::print_ledger_review(&review);
             }
         }
+        Some(Commands::Next { json }) => {
+            let next = project.next()?;
+            if json {
+                render::print_json(&next)?;
+            } else {
+                render::print_workflow_next(&next);
+            }
+        }
         Some(Commands::Tui {
             run,
             filter,
@@ -365,6 +373,16 @@ mod tests {
 
         assert!(cli.command.is_none());
         assert_eq!(cli.run.as_deref(), Some("run-123"));
+    }
+
+    #[test]
+    fn next_command_accepts_json_flag() {
+        let cli = Cli::parse_from(["keel", "next", "--json"]);
+
+        match cli.command {
+            Some(Commands::Next { json }) => assert!(json),
+            _ => panic!("expected next command"),
+        }
     }
 
     #[test]

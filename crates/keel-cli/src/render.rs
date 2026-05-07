@@ -3,7 +3,7 @@ use keel_core::{
     artifact_files, CommitResult, ConfigValidationReport, ConfigValidationSeverity, DiffInfo,
     DoctorReport, DoctorStatus, LedgerHandoff, LedgerReview, LedgerStatus, LedgerTask,
     LedgerTaskReport, LedgerTaskSummary, LogInfo, PrPlan, PrResult, PushResult, ReportInfo,
-    RunMetadata, WorkspaceContext,
+    RunMetadata, WorkflowNext, WorkspaceContext,
 };
 use serde::Serialize;
 use std::process::ExitCode;
@@ -486,6 +486,59 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
         for action in &review.next_actions {
             println!("- {action}");
         }
+    }
+}
+
+pub(crate) fn print_workflow_next(next: &WorkflowNext) {
+    println!("Keel next");
+    println!();
+    println!("Ledger");
+    if next.ledger.active {
+        println!(
+            "- Task: {} ({})",
+            next.ledger.title.as_deref().unwrap_or("unknown"),
+            next.ledger.task_id.as_deref().unwrap_or("unknown")
+        );
+        if let Some(decision) = &next.ledger.decision {
+            println!(
+                "- Decision: {}",
+                if decision.ready { "ready" } else { "not ready" }
+            );
+            println!("- Reason: {}", decision.reason);
+        }
+        if let Some(dirty) = next.ledger.workspace_dirty {
+            println!("- Workspace dirty: {}", if dirty { "yes" } else { "no" });
+        }
+        if let Some(headline) = &next.ledger.headline {
+            println!("- Headline: {headline}");
+        }
+        println!("- Next: {}", next.ledger.primary_action);
+    } else {
+        println!("- Active task: none");
+        println!("- Next: {}", next.ledger.primary_action);
+    }
+
+    println!();
+    println!("Candidate run");
+    if let Some(candidate) = &next.candidate {
+        println!("- Run: {}", candidate.run_id);
+        println!("- Task: {}", candidate.task);
+        println!("- Agent: {}", candidate.agent);
+        println!("- Status: {}", candidate.status);
+        println!("- Branch: {}", candidate.branch);
+        match &candidate.primary_action {
+            Some(action) => println!("- Next: {action}"),
+            None => println!("- Next: none"),
+        }
+    } else {
+        println!("- Latest run: none");
+        println!("- Next: keel run \"...\" --agent noop");
+    }
+
+    println!();
+    println!("Recommended actions:");
+    for action in &next.recommended_actions {
+        println!("- {action}");
     }
 }
 

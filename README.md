@@ -9,6 +9,11 @@ exit status, checks, risk warnings, and reports, then leaves the final decision
 to the human developer. Agent output is treated as a candidate change, not as
 something to merge automatically.
 
+For a heavy Codex or Claude Code user, Keel is most useful as a local workflow
+ledger and review boundary. Keep the agent session doing the engineering work,
+then use Keel to record checkpoints, capture verification evidence, recover
+handoffs, inspect candidate diffs, and see the next safe command.
+
 ## What Keel Is Not
 
 - Not a coding agent replacement.
@@ -30,6 +35,7 @@ keel task status
 keel task show <task-id>
 keel checkpoint "planned CLI changes"
 keel evidence add --cmd "cargo test --workspace"
+keel next
 keel review
 keel handoff
 keel task finish
@@ -58,6 +64,8 @@ keel doctor
 keel config validate
 keel config validate --json
 keel verify
+keel next
+keel next --json
 keel review --json
 keel handoff --json
 keel status --agent noop
@@ -84,12 +92,18 @@ and basic value sanity, including risk warning settings. It does not rewrite the
 file.
 
 `keel task start`, `keel checkpoint`, `keel note`, `keel evidence add`,
-`keel verify`, `keel review`, `keel handoff`, `keel task status`,
+`keel verify`, `keel next`, `keel review`, `keel handoff`, `keel task status`,
 `keel task show`, `keel task reopen`, and `keel task finish` provide a
 lightweight workspace ledger for long-running agent sessions. This mode does not
 start a new agent and does not create a worktree; it lets the current Codex or
 Claude Code session record checkpoints, evidence, handoff state, and review
 readiness while working in the current repository.
+
+`keel next` is the daily navigation command. It is read-only and combines the
+active workspace ledger with the newest candidate run, then prints the next
+useful commands for both. Use it when a long Codex or Claude Code session needs
+to decide whether to add evidence, review, hand off, commit, push, or create a
+PR/MR.
 
 `keel` opens a read-only terminal review UI for browsing runs and artifacts.
 `keel tui` is the explicit form of the same UI. It does not commit, push,
@@ -173,6 +187,7 @@ keel checkpoint "core model added"
 keel note "risk: CLI output changed"
 keel evidence add --cmd "cargo fmt --all --check"
 keel evidence add --env CARGO_TARGET_DIR=target/keel-evidence --cmd "cargo test --workspace"
+keel next
 keel verify
 keel review
 keel handoff
@@ -277,6 +292,32 @@ TUI safety boundary:
 - Does not discard.
 - Does not merge.
 - Does not rewrite `.keel/` artifacts.
+
+## Daily Agent Workflow
+
+Use Keel alongside Codex or Claude Code rather than instead of them:
+
+1. Start a local ledger with `keel task start "..."`.
+2. Let the agent work in the current session.
+3. Record meaningful progress with `keel checkpoint "..."` and decisions with
+   `keel note "..."`.
+4. Capture real validation with `keel evidence add --cmd "..."`.
+5. Run `keel next` to see the next useful ledger action and the newest
+   candidate-run action in one place.
+6. Finish the work with `keel review`, `keel verify`, `keel handoff`, and
+   `keel task finish`.
+
+`keel next --json` exposes the same workflow state for automation. It reports:
+
+- `ledger`: whether a task is active, its readiness decision, workspace dirty
+  state, headline, primary action, and action list
+- `candidate`: the newest run id, task, agent, status, branch, primary action,
+  and action list
+- `recommended_actions`: the deduplicated commands Keel thinks are most useful
+  right now
+
+The command is read-only. It does not run agents, create worktrees, commit,
+push, create PRs, discard, merge, or rewrite artifacts.
 
 ## Artifact And JSON Contract
 

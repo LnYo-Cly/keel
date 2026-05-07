@@ -28,6 +28,7 @@ use tempfile::TempDir;
 mod agents;
 mod commit;
 mod config;
+mod next;
 mod pr;
 mod project;
 mod push;

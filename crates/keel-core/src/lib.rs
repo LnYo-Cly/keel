@@ -10,6 +10,7 @@ mod git;
 mod json;
 mod ledger;
 mod model;
+mod next;
 mod pr;
 mod project;
 mod push;
@@ -51,6 +52,7 @@ pub use model::{
     ArtifactInfo, CheckResult, CheckStatus, DiffInfo, FailureReason, InitResult, LogInfo,
     ReportInfo, RunArtifacts, RunMetadata, RunStatus,
 };
+pub use next::{CandidateNext, LedgerNext, WorkflowNext};
 pub use pr::{infer_provider, PrArtifact, PrOptions, PrPlan, PrProvider, PrResult};
 pub use project::KeelProject;
 pub use push::{PushArtifact, PushOptions, PushResult};

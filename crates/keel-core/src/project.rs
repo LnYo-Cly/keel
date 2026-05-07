@@ -25,6 +25,7 @@ use crate::model::{
     ArtifactInfo, CheckResult, DiffInfo, InitResult, LogInfo, ReportInfo, RunArtifacts,
     RunMetadata, RunStatus,
 };
+use crate::next::{workflow_next, WorkflowNext};
 use crate::pr::{create_pr, plan_pr, write_pr_artifact, PrOptions, PrPlan, PrResult};
 use crate::push::{push_run, write_push_artifact, PushOptions, PushResult};
 use crate::report::{
@@ -328,6 +329,24 @@ impl KeelProject {
             self.artifacts_for_run(run_id),
             next_actions,
         ))
+    }
+
+    pub fn next(&self) -> Result<WorkflowNext> {
+        self.ensure_initialized()?;
+        let ledger_status = status(&self.root)?;
+        let ledger_review = if ledger_status.active_task.is_some() {
+            Some(review(&self.root)?)
+        } else {
+            None
+        };
+        let latest_report = self
+            .list_runs()?
+            .into_iter()
+            .next()
+            .map(|metadata| self.report(&metadata.run_id))
+            .transpose()?;
+
+        Ok(workflow_next(ledger_status, ledger_review, latest_report))
     }
 
     pub fn commit(&self, run_id: &str, options: CommitOptions) -> Result<CommitResult> {
