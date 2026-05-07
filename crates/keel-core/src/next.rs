@@ -1,4 +1,4 @@
-use crate::ledger::{LedgerDecision, LedgerReview, LedgerStatus, LedgerTaskStatus};
+use crate::ledger::{LedgerDecision, LedgerReview, LedgerStatus, LedgerSummary, LedgerTaskStatus};
 use crate::model::{ReportInfo, RunStatus};
 use crate::report::primary_next_action;
 use serde::Serialize;
@@ -69,10 +69,12 @@ impl LedgerNext {
 
         let mut actions = Vec::new();
         let mut decision = None;
+        let mut review_summary = None;
         let mut workspace_dirty = None;
         let mut headline = None;
         if let Some(review) = review {
             decision = Some(review.decision);
+            review_summary = Some(review.summary);
             workspace_dirty = review.workspace.as_ref().map(|workspace| workspace.dirty);
             headline = Some(review.packet.headline);
             extend_unique(&mut actions, review.packet.suggested_commands);
@@ -82,9 +84,12 @@ impl LedgerNext {
             actions.push("keel review".to_string());
         }
 
-        let primary_action = primary_command(&actions)
-            .cloned()
-            .unwrap_or_else(|| actions[0].clone());
+        let primary_action = primary_ledger_action(
+            decision.as_ref(),
+            review_summary.as_ref(),
+            workspace_dirty,
+            &actions,
+        );
 
         Self {
             active: true,
@@ -135,10 +140,30 @@ fn recommended_actions(ledger: &LedgerNext, candidate: Option<&CandidateNext>) -
     actions
 }
 
-fn primary_command(actions: &[String]) -> Option<&String> {
-    actions
-        .iter()
-        .find(|action| action.starts_with("keel ") || action.starts_with("git "))
+fn primary_ledger_action(
+    decision: Option<&LedgerDecision>,
+    summary: Option<&LedgerSummary>,
+    workspace_dirty: Option<bool>,
+    actions: &[String],
+) -> String {
+    if summary.is_some_and(|summary| summary.evidence == 0 || summary.current_evidence_failed > 0) {
+        return "keel check".to_string();
+    }
+
+    if decision.is_some_and(|decision| !decision.ready) {
+        return "keel check".to_string();
+    }
+
+    match workspace_dirty {
+        Some(true) => "keel review".to_string(),
+        Some(false) => "keel handoff".to_string(),
+        None => actions
+            .iter()
+            .find(|action| action.starts_with("keel "))
+            .cloned()
+            .or_else(|| actions.first().cloned())
+            .unwrap_or_else(|| "keel review".to_string()),
+    }
 }
 
 fn extend_unique(actions: &mut Vec<String>, new_actions: Vec<String>) {
