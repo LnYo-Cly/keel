@@ -14,6 +14,88 @@ ledger and review boundary. Keep the agent session doing the engineering work,
 then use Keel to record checkpoints, capture verification evidence, recover
 handoffs, inspect candidate diffs, and see the next safe command.
 
+## Languages
+
+- English: `README.md`
+- 中文: [`README.zh-CN.md`](README.zh-CN.md)
+
+## Installation
+
+Keel is currently distributed from source.
+
+Install directly from GitHub:
+
+```bash
+cargo install --git https://github.com/LnYo-Cly/keel.git --package keel-cli --bin keel --locked
+keel --help
+```
+
+Install from a local clone:
+
+```bash
+git clone https://github.com/LnYo-Cly/keel.git
+cd keel
+cargo install --path crates/keel-cli --bin keel --locked
+keel --help
+```
+
+For local development without installing:
+
+```bash
+cargo run -p keel-cli -- <command>
+cargo run -p keel-cli -- doctor
+cargo run -p keel-cli -- check
+```
+
+Requirements:
+
+- Rust stable toolchain
+- Git with `git worktree` support
+- Optional agent CLIs on `PATH`: `codex`, `claude`, `opencode`
+- Optional GitHub PR automation: authenticated `gh` CLI
+
+## Install The Keel Skill For Codex
+
+This repository includes a Codex skill at [`skills/keel`](skills/keel). Install
+it when you want Codex to use Keel automatically as a local workflow ledger.
+
+Windows PowerShell copy install:
+
+```powershell
+git clone https://github.com/LnYo-Cly/keel.git
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
+Copy-Item -Recurse -Force ".\keel\skills\keel" "$env:USERPROFILE\.codex\skills\keel"
+```
+
+Windows PowerShell junction install, useful while developing the skill:
+
+```powershell
+git clone https://github.com/LnYo-Cly/keel.git
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
+New-Item -ItemType Junction `
+  -Path "$env:USERPROFILE\.codex\skills\keel" `
+  -Target "$PWD\keel\skills\keel"
+```
+
+macOS/Linux copy install:
+
+```bash
+git clone https://github.com/LnYo-Cly/keel.git
+mkdir -p ~/.codex/skills
+cp -R keel/skills/keel ~/.codex/skills/keel
+```
+
+macOS/Linux symlink install:
+
+```bash
+git clone https://github.com/LnYo-Cly/keel.git
+mkdir -p ~/.codex/skills
+ln -s "$PWD/keel/skills/keel" ~/.codex/skills/keel
+```
+
+After installing or updating the skill, restart Codex or open a new Codex
+session so the skill metadata is reloaded.
+
 ## What Keel Is Not
 
 - Not a coding agent replacement.
