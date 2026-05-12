@@ -46,6 +46,24 @@ fn next_handles_missing_ledger_and_missing_runs() {
 }
 
 #[test]
+fn next_skips_discarded_runs_when_finding_latest_candidate() {
+    let temp = git_repo();
+    let project = KeelProject::discover(temp.path()).unwrap();
+    project.init().unwrap();
+    let older = project.run("older actionable candidate", "noop").unwrap();
+    let newer = project.run("newer discarded candidate", "noop").unwrap();
+    project.discard(&newer.run_id).unwrap();
+
+    let next = project.next().unwrap();
+
+    assert_eq!(next.candidate.as_ref().unwrap().run_id, older.run_id);
+    assert_eq!(next.candidate.as_ref().unwrap().status, RunStatus::Ready);
+    assert!(next
+        .recommended_actions
+        .contains(&format!("keel commit {} --dry-run", older.run_id)));
+}
+
+#[test]
 fn next_prioritizes_check_when_ledger_has_no_or_failed_evidence() {
     let temp = git_repo();
     let project = KeelProject::discover(temp.path()).unwrap();

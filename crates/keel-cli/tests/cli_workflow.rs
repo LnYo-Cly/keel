@@ -1242,6 +1242,27 @@ fn root_command_prioritizes_check_for_active_task_without_evidence() {
 }
 
 #[test]
+fn root_command_skips_discarded_latest_run() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let older = run_noop(&repo, "older root candidate");
+    let newer = run_noop(&repo, "newer root discarded candidate");
+    run_keel(repo.path(), ["discard", newer.run_id.as_str()])
+        .assert()
+        .success();
+
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&older.run_id))
+        .stdout(predicate::str::contains(&newer.run_id).not())
+        .stdout(predicate::str::contains(format!(
+            "keel commit {} --dry-run",
+            older.run_id
+        )));
+}
+
+#[test]
 fn next_handles_empty_repo_after_init() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();

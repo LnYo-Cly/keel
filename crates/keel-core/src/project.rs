@@ -343,7 +343,7 @@ impl KeelProject {
         let latest_report = self
             .list_runs()?
             .into_iter()
-            .next()
+            .find(|metadata| metadata.status != RunStatus::Discarded)
             .map(|metadata| self.report(&metadata.run_id))
             .transpose()?;
 
