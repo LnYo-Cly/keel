@@ -1263,6 +1263,60 @@ fn root_command_skips_discarded_latest_run() {
 }
 
 #[test]
+fn root_command_guides_agent_operating_protocol_smoke() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Most useful next command: keel task start",
+        ));
+
+    run_keel(repo.path(), ["task", "start", "agent protocol smoke"])
+        .assert()
+        .success();
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Most useful next command: keel check",
+        ))
+        .stdout(predicate::str::contains("agent protocol smoke"));
+
+    run_keel(repo.path(), ["evidence", "add", "--cmd", "git --version"])
+        .assert()
+        .success();
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Most useful next command: keel review",
+        ));
+
+    run_keel(repo.path(), ["review"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Decision: ready"));
+    run_keel(repo.path(), ["verify"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Decision: ready"));
+    run_keel(repo.path(), ["handoff"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel handoff"));
+
+    run_keel(repo.path(), ["task", "finish"]).assert().success();
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Active task: none"))
+        .stdout(predicate::str::contains("keel task start"));
+}
+
+#[test]
 fn next_handles_empty_repo_after_init() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();

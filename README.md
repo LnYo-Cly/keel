@@ -314,20 +314,24 @@ TUI safety boundary:
 - Does not merge.
 - Does not rewrite `.keel/` artifacts.
 
-## Daily Agent Workflow
+## Agent Operating Protocol
 
-Use Keel alongside Codex or Claude Code rather than instead of them:
+Use Keel alongside Codex or Claude Code rather than instead of them.
 
-1. Start a local ledger with `keel task start "..."`.
-2. Let the agent work in the current session.
-3. Record meaningful progress with `keel checkpoint "..."` and decisions with
-   `keel note "..."`.
+1. Start with `keel` to see the most useful next command for the current repo.
+2. For non-trivial work, start a local ledger with `keel task start "..."`.
+3. Let the agent work in the current session, and record meaningful progress
+   with `keel checkpoint "..."` plus decisions with `keel note "..."`.
 4. Capture real validation with `keel check`; use `keel evidence add --cmd "..."`
    only for one-off evidence outside the configured checks.
-5. Run `keel` to see the next useful ledger action and the newest
-   candidate-run action in one place.
-6. Finish the work with `keel review`, `keel verify`, `keel handoff`, and
-   `keel task finish`.
+5. After each meaningful milestone, run `keel` or `keel next` to decide whether
+   to keep going, review, or hand off.
+6. Use `keel review`, `keel verify`, and `keel handoff` before the final
+   handoff or chat response.
+7. Finish the task with `keel task finish` when the work is done.
+
+If a candidate run is empty, obsolete, or only a validation artifact, discard
+it instead of committing it.
 
 `keel next` prints the same workflow guidance with an explicit command name.
 `keel next --json` exposes the same workflow state for automation. It reports:
