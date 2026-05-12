@@ -10,7 +10,7 @@ mod render;
 #[command(name = "keel")]
 #[command(about = "Local-first control layer for AI-generated code")]
 struct Cli {
-    /// Open the default review UI focused on this run id.
+    /// Open the read-only TUI focused on this run id. Prefer `keel tui --run`.
     #[arg(long)]
     run: Option<String>,
     #[command(subcommand)]

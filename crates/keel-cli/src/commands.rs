@@ -27,7 +27,8 @@ pub(crate) fn run(cli: Cli) -> Result<ExitCode> {
             if let Some(run_id) = cli.run {
                 keel_tui::run_tui_for_run(project, run_id)?;
             } else {
-                keel_tui::run_tui(project)?;
+                let next = project.next()?;
+                render::print_daily_driver(&next);
             }
         }
         Some(Commands::Doctor { .. }) => {
@@ -375,14 +376,14 @@ mod tests {
     }
 
     #[test]
-    fn root_command_without_subcommand_defaults_to_tui() {
+    fn root_command_without_subcommand_defaults_to_daily_driver() {
         let cli = Cli::parse_from(["keel"]);
 
         assert!(cli.command.is_none());
     }
 
     #[test]
-    fn root_command_accepts_run_focus_for_default_tui() {
+    fn root_command_accepts_run_focus_for_legacy_tui_shortcut() {
         let cli = Cli::parse_from(["keel", "--run", "run-123"]);
 
         assert!(cli.command.is_none());

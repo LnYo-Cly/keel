@@ -1200,6 +1200,48 @@ fn next_outputs_ledger_and_candidate_actions_in_human_and_json_modes() {
 }
 
 #[test]
+fn root_command_outputs_daily_driver_without_opening_tui() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    let run = run_noop(&repo, "root daily driver task");
+
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keel"))
+        .stdout(predicate::str::contains("Most useful next command:"))
+        .stdout(predicate::str::contains(format!(
+            "keel commit {} --dry-run",
+            run.run_id
+        )))
+        .stdout(predicate::str::contains("Ledger"))
+        .stdout(predicate::str::contains("Active task: none"))
+        .stdout(predicate::str::contains("Candidate run"))
+        .stdout(predicate::str::contains(&run.run_id));
+}
+
+#[test]
+fn root_command_prioritizes_check_for_active_task_without_evidence() {
+    let repo = create_temp_git_repo();
+    run_keel(repo.path(), ["init"]).assert().success();
+    run_keel(repo.path(), ["task", "start", "root daily check"])
+        .assert()
+        .success();
+
+    run_keel_no_args(repo.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Most useful next command: keel check",
+        ))
+        .stdout(predicate::str::contains("root daily check"))
+        .stdout(predicate::str::contains("Decision: not ready"))
+        .stdout(predicate::str::contains(
+            "Reason: no evidence has been recorded",
+        ));
+}
+
+#[test]
 fn next_handles_empty_repo_after_init() {
     let repo = create_temp_git_repo();
     run_keel(repo.path(), ["init"]).assert().success();
@@ -2572,6 +2614,12 @@ fn run_noop(repo: &TempDir, task: &str) -> NoopRun {
 fn run_keel<const N: usize>(repo: &Path, args: [&str; N]) -> Command {
     let mut command = Command::cargo_bin("keel").unwrap();
     command.current_dir(repo).args(args);
+    command
+}
+
+fn run_keel_no_args(repo: &Path) -> Command {
+    let mut command = Command::cargo_bin("keel").unwrap();
+    command.current_dir(repo);
     command
 }
 

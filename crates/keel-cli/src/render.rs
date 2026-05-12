@@ -489,9 +489,24 @@ pub(crate) fn print_ledger_review(review: &LedgerReview) {
     }
 }
 
+pub(crate) fn print_daily_driver(next: &WorkflowNext) {
+    println!("Keel");
+    if let Some(action) = next.recommended_actions.first() {
+        println!("Most useful next command: {action}");
+    } else {
+        println!("Most useful next command: keel next");
+    }
+    println!();
+    print_workflow_next_sections(next);
+}
+
 pub(crate) fn print_workflow_next(next: &WorkflowNext) {
     println!("Keel next");
     println!();
+    print_workflow_next_sections(next);
+}
+
+fn print_workflow_next_sections(next: &WorkflowNext) {
     println!("Ledger");
     if next.ledger.active {
         println!(

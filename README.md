@@ -107,15 +107,18 @@ handoff state, and review readiness while working in the current repository.
 `keel check --dry-run` to inspect the plan without writing evidence, and
 `keel check --json` for automation.
 
-`keel next` is the daily navigation command. It is read-only and combines the
-active workspace ledger with the newest candidate run, then prints the next
-useful commands for both. Use it when a long Codex or Claude Code session needs
-to decide whether to add evidence, review, hand off, commit, push, or create a
-PR/MR.
+`keel` is the daily navigation command. It is read-only and combines the active
+workspace ledger with the newest candidate run, then prints the most useful
+next command plus supporting ledger and candidate context. Use it when a long
+Codex or Claude Code session needs to decide whether to add evidence, review,
+hand off, commit, push, or create a PR/MR. `keel next` is the explicit form of
+the same workflow guidance, and `keel next --json` keeps the machine-readable
+contract for automation.
 
-`keel` opens a read-only terminal review UI for browsing runs and artifacts.
-`keel tui` is the explicit form of the same UI. It does not commit, push,
-discard, create PRs, merge, or modify run history.
+`keel tui` opens a read-only terminal review UI for browsing runs and
+artifacts. It does not commit, push, discard, create PRs, merge, or modify run
+history. `keel --run <run-id>` remains a compatibility shortcut for opening the
+TUI focused on a run; prefer `keel tui --run <run-id>` in new docs and scripts.
 
 ## Supported Agents
 
@@ -248,13 +251,11 @@ preserved task active again.
 
 ## Terminal Review UI
 
-`keel` provides a local read-only review view over existing run artifacts. The
-explicit `keel tui` command opens the same UI. It is built with `ratatui` and
-Crossterm.
+`keel tui` provides a local read-only review view over existing run artifacts.
+It is built with `ratatui` and Crossterm. The default `keel` command is reserved
+for daily workflow guidance.
 
 ```bash
-keel
-keel --run <run-id>
 keel tui
 keel tui --run <run-id>
 keel tui --filter not_ready
@@ -323,11 +324,12 @@ Use Keel alongside Codex or Claude Code rather than instead of them:
    `keel note "..."`.
 4. Capture real validation with `keel check`; use `keel evidence add --cmd "..."`
    only for one-off evidence outside the configured checks.
-5. Run `keel next` to see the next useful ledger action and the newest
+5. Run `keel` to see the next useful ledger action and the newest
    candidate-run action in one place.
 6. Finish the work with `keel review`, `keel verify`, `keel handoff`, and
    `keel task finish`.
 
+`keel next` prints the same workflow guidance with an explicit command name.
 `keel next --json` exposes the same workflow state for automation. It reports:
 
 - `ledger`: whether a task is active, its readiness decision, workspace dirty
