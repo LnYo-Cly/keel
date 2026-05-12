@@ -59,6 +59,12 @@ Requirements:
 This repository includes a Codex skill at [`skills/keel`](skills/keel). Install
 it when you want Codex to use Keel automatically as a local workflow ledger.
 
+Quick install with `npx`:
+
+```bash
+npx --yes skills add https://github.com/LnYo-Cly/keel/tree/master/skills/keel --agent codex --global --yes
+```
+
 Windows PowerShell copy install:
 
 ```powershell

@@ -73,6 +73,16 @@ cargo run -p keel-cli -- check
 skills/keel/SKILL.md
 ```
 
+### npx 快速安装
+
+```bash
+npx --yes skills add https://github.com/LnYo-Cly/keel/tree/master/skills/keel --agent codex --global --yes
+```
+
+这条命令适合快速把仓库里的 Keel skill 安装到 Codex 可识别的位置。
+如果你想自己控制安装位置或保持和仓库同步，再用下面的复制、Junction
+或软链接方式。
+
 安装后，Codex 在 Keel 项目或长程 coding-agent 任务里会更自然地调用：
 
 ```bash
