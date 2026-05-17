@@ -2,6 +2,13 @@
 
 [English README](README.md)
 
+## 项目文件
+
+- 许可证：[MIT](LICENSE)
+- 更新日志：[CHANGELOG.md](CHANGELOG.md)
+- CI：[`.github/workflows/ci.yml`](.github/workflows/ci.yml)，在 Linux、
+  Windows、macOS 上运行格式检查、测试和 clippy。
+
 Keel 是一个 **local-first 的 AI 代码变更控制层**。
 
 Keel 是 Git-native，不是 GitHub-native。

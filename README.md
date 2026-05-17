@@ -19,6 +19,13 @@ handoffs, inspect candidate diffs, and see the next safe command.
 - English: `README.md`
 - 中文: [`README.zh-CN.md`](README.zh-CN.md)
 
+## Project Files
+
+- License: [MIT](LICENSE)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs fmt, tests,
+  and clippy on Linux, Windows, and macOS.
+
 ## Installation
 
 Keel is currently distributed from source.
