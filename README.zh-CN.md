@@ -1,11 +1,14 @@
 # Keel
 
+[![CI](https://github.com/LnYo-Cly/keel/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/LnYo-Cly/keel/actions/workflows/ci.yml)
+
 [English README](README.md)
 
 ## 项目文件
 
 - 许可证：[MIT](LICENSE)
 - 更新日志：[CHANGELOG.md](CHANGELOG.md)
+- Releases：[latest release](https://github.com/LnYo-Cly/keel/releases/latest)
 - CI：[`.github/workflows/ci.yml`](.github/workflows/ci.yml)，在 Linux、
   Windows、macOS 上运行格式检查、测试和 clippy。
 
@@ -40,6 +43,9 @@ Keel 是 Git-native，不是 GitHub-native。
 ## 安装 Keel CLI
 
 目前 Keel 从源码安装。
+
+如果是带标签的 release，GitHub Releases 里会附带预构建产物；如果你的平台
+暂时还没有对应资产，先用源码安装。
 
 直接从 GitHub 安装：
 
@@ -158,6 +164,30 @@ keel
 - 最新可行动 candidate run 是什么
 - 下一步最应该执行什么命令
 
+## Keel 自举示例
+
+用 Keel 自己管理一段长程 coding session：
+
+```bash
+keel
+keel task start "refactor parser"
+keel checkpoint "split parser into focused modules"
+keel check
+keel run "fix login bug" --agent codex
+keel status
+keel report <run-id>
+keel diff <run-id>
+keel log <run-id>
+keel review
+keel verify
+keel commit <run-id>
+keel push <run-id>
+keel pr <run-id> --provider github
+keel task finish
+```
+
+如果你想全程本地，就停在 `keel commit <run-id>`。
+
 ## Agent Operating Protocol
 
 这是推荐给 Codex / Claude Code 的默认工作协议。
@@ -212,6 +242,11 @@ keel task finish
 ```
 
 如果 evidence 失败，不能只口头说修好了。必须修复后重新记录 passing evidence。
+
+## 贡献与安全
+
+- [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
 
 ## Candidate Run 工作流
 

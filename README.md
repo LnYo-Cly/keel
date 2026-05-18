@@ -1,5 +1,7 @@
 # Keel
 
+[![CI](https://github.com/LnYo-Cly/keel/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/LnYo-Cly/keel/actions/workflows/ci.yml)
+
 Keel is a local-first control layer for AI-generated code.
 
 Keel is Git-native, not GitHub-native.
@@ -23,12 +25,17 @@ handoffs, inspect candidate diffs, and see the next safe command.
 
 - License: [MIT](LICENSE)
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- Releases: [latest release](https://github.com/LnYo-Cly/keel/releases/latest)
 - CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs fmt, tests,
   and clippy on Linux, Windows, and macOS.
 
 ## Installation
 
 Keel is currently distributed from source.
+
+Prebuilt release archives are attached to GitHub Releases when a tagged release
+workflow runs. If a release asset is not available for your platform yet, use
+source installation.
 
 Install directly from GitHub:
 
@@ -151,6 +158,30 @@ keel pr <run-id> --provider github
 keel rerun <run-id>
 keel discard <run-id>
 ```
+
+## Keel Self-Dogfood Example
+
+Use Keel itself to manage a long coding session:
+
+```bash
+keel
+keel task start "refactor parser"
+keel checkpoint "split parser into focused modules"
+keel check
+keel run "fix login bug" --agent codex
+keel status
+keel report <run-id>
+keel diff <run-id>
+keel log <run-id>
+keel review
+keel verify
+keel commit <run-id>
+keel push <run-id>
+keel pr <run-id> --provider github
+keel task finish
+```
+
+If you stay fully local, stop after `keel commit <run-id>`.
 
 Useful review commands:
 
@@ -440,6 +471,11 @@ it instead of committing it.
 
 The command is read-only. It does not run agents, create worktrees, commit,
 push, create PRs, discard, merge, or rewrite artifacts.
+
+## Contributing And Security
+
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
 
 ## Artifact And JSON Contract
 

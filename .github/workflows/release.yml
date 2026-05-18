@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            archive: keel-linux-x86_64.tar.gz
+          - name: macos-x86_64
+            os: macos-latest
+            archive: keel-macos-x86_64.tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            archive: keel-windows-x86_64.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Use Rust stable
+        run: rustup default stable
+
+      - name: Build release binary
+        run: cargo build --release --locked --package keel-cli --bin keel
+
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/package
+          cp target/release/keel dist/package/keel
+          cp LICENSE dist/package/LICENSE
+          tar -czf "dist/${{ matrix.archive }}" -C dist/package keel LICENSE
+          shasum -a 256 "dist/${{ matrix.archive }}" > "dist/${{ matrix.archive }}.sha256"
+
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\package | Out-Null
+          Copy-Item target\release\keel.exe dist\package\keel.exe
+          Copy-Item LICENSE dist\package\LICENSE
+          Compress-Archive -Path dist\package\keel.exe, dist\package\LICENSE -DestinationPath "dist\${{ matrix.archive }}" -Force
+          $hash = (Get-FileHash "dist\${{ matrix.archive }}" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ${{ matrix.archive }}" | Set-Content -Encoding ascii "dist\${{ matrix.archive }}.sha256"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/${{ matrix.archive }}
+            dist/${{ matrix.archive }}.sha256
+          fail_on_unmatched_files: true
